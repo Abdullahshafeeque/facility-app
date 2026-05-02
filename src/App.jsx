@@ -48,7 +48,7 @@ function getCoverage(employees, attendance, posts) {
 function calcPayroll(employee, attendance) {
   const dailyRate = employee.base_salary / 26;
   const hourlyRate = dailyRate / 12;
-  const OT_RATE = hourlyRate * 1.5;
+  const OT_RATE = hourlyRate * 1;
   const rec = attendance[employee.id] || {};
   const otPay = (rec.ot_hours || 0) * OT_RATE;
   const deduc = rec.status === "Absent" ? dailyRate : 0;
@@ -218,7 +218,7 @@ function PayrollView({ employees, attendance }) {
         <StatCard label="Total Payroll" value={`₹${totalPayroll.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`} sub="This month est." accent={C.green} />
         <StatCard label="Total OT Cost" value={`₹${totalOT.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`} sub="Overtime" accent={C.accent} />
         <StatCard label="Staff on Payroll" value={active.length} sub="Active" accent={C.blue} />
-        <StatCard label="OT Rate" value="1.5×" sub="Per hour basis" accent={C.textDim} />
+        <StatCard label="OT Rate" value="1×" sub="Per hour basis" accent={C.textDim} />
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={css.table}>
