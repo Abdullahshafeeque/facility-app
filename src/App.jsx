@@ -2,8 +2,6 @@ import { useState, useEffect } from "react";
 import { supabase } from "./supabaseClient";
 import Login from "./Login";
 
-const DEFAULT_POSTS = [];
-
 const C = {
   bg: "#F4F6F9", panel: "#FFFFFF", border: "#E2E8F0", accent: "#1E6FDB",
   accentDim: "#1E6FDB22", green: "#16A34A", red: "#DC2626", blue: "#2563EB",
@@ -26,7 +24,7 @@ const css = {
   alert: { background: C.red + "15", border: `1px solid ${C.red}44`, borderRadius: 6, padding: "10px 16px", marginBottom: 8, display: "flex", alignItems: "center", gap: 10, fontSize: 12 },
   table: { width: "100%", borderCollapse: "collapse", fontSize: 12 },
   th: { textAlign: "left", padding: "10px 12px", color: C.textDim, fontWeight: 700, letterSpacing: 1.5, fontSize: 10, textTransform: "uppercase", borderBottom: `1px solid ${C.border}` },
-  td: { padding: "10px 12px", borderBottom: `1px solid ${C.border}11`, verticalAlign: "middle" },
+  td: { padding: "10px 12px", borderBottom: `1px solid ${C.border}`, verticalAlign: "middle" },
   input: { background: C.bg, border: `1px solid ${C.border}`, borderRadius: 4, color: C.text, padding: "6px 10px", fontSize: 12, fontFamily: "inherit", outline: "none" },
   btn: (color = C.accent) => ({ background: color + "22", color: color, border: `1px solid ${color}55`, borderRadius: 4, padding: "7px 16px", fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", fontFamily: "inherit" }),
 };
@@ -35,6 +33,7 @@ const statusColor = (s) => s === "Present" ? C.green : s === "Absent" ? C.red : 
 const shiftColor = (s) => s === "Morning" ? C.accent : C.blue;
 
 function getCoverage(employees, attendance, posts) {
+  if (!posts || posts.length === 0) return [];
   const alerts = [];
   ["Morning", "Night"].forEach(shift => {
     posts.forEach(post => {
@@ -85,17 +84,18 @@ function AlertBanner({ alerts }) {
   );
 }
 
-function DashboardView({ employees, attendance }) {
+function DashboardView({ employees, attendance, posts }) {
   const active = employees.filter(e => e.status === "active");
   const present = active.filter(e => attendance[e.id]?.status === "Present").length;
   const absent = active.filter(e => attendance[e.id]?.status === "Absent").length;
   const morningOn = active.filter(e => e.shift === "Morning" && attendance[e.id]?.status === "Present").length;
   const nightOn = active.filter(e => e.shift === "Night" && attendance[e.id]?.status === "Present").length;
-  const alerts = getCoverage(active, attendance);
+  const alerts = getCoverage(active, attendance, posts);
+
   return (
     <div style={css.page}>
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 10, color: C.textDim, letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>DAILY OVERVIEW · {new Date().toLocaleDateString("en-MY", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</div>
+        <div style={{ fontSize: 10, color: C.textDim, letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>DAILY OVERVIEW · {new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</div>
         <div style={{ fontSize: 22, fontWeight: 700 }}>Operations Dashboard</div>
       </div>
       <div style={{ ...css.grid4, marginBottom: 20 }}>
@@ -108,40 +108,42 @@ function DashboardView({ employees, attendance }) {
         <div style={css.sectionTitle}>Coverage Alerts</div>
         <AlertBanner alerts={alerts} />
       </div>
-      <div style={{ marginBottom: 20 }}>
-        <div style={css.sectionTitle}>Shift Summary</div>
-        <div style={css.grid2}>
-          {["Morning", "Night"].map(shift => {
-            const sEmp = active.filter(e => e.shift === shift);
-            const sPresent = sEmp.filter(e => attendance[e.id]?.status === "Present").length;
-            return (
-              <div key={shift} style={css.card}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                  <span style={{ fontWeight: 700, fontSize: 13 }}>{shift} Shift</span>
-                  <span style={css.badge(shiftColor(shift))}>{sPresent}/{sEmp.length}</span>
+      {posts.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={css.sectionTitle}>Shift Summary</div>
+          <div style={css.grid2}>
+            {["Morning", "Night"].map(shift => {
+              const sEmp = active.filter(e => e.shift === shift);
+              const sPresent = sEmp.filter(e => attendance[e.id]?.status === "Present").length;
+              return (
+                <div key={shift} style={css.card}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <span style={{ fontWeight: 700, fontSize: 13 }}>{shift} Shift</span>
+                    <span style={css.badge(shiftColor(shift))}>{sPresent}/{sEmp.length}</span>
+                  </div>
+                  {posts.map(post => {
+                    const req = shift === "Morning" ? post.required_morning : post.required_night;
+                    const pres = sEmp.filter(e => e.post === post.name && attendance[e.id]?.status === "Present").length;
+                    const pct = req > 0 ? Math.min(100, (pres / req) * 100) : 100;
+                    const col = pres >= req ? C.green : pres > 0 ? C.accent : C.red;
+                    return (
+                      <div key={post.id} style={{ marginBottom: 8 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 3 }}>
+                          <span style={{ color: C.textDim }}>{post.name}</span>
+                          <span style={{ color: col, fontWeight: 700 }}>{pres}/{req}</span>
+                        </div>
+                        <div style={{ height: 3, background: C.border, borderRadius: 2 }}>
+                          <div style={{ height: 3, width: `${pct}%`, background: col, borderRadius: 2 }} />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-                {POSTS.map(post => {
-                  const req = REQUIRED_PER_POST[post] || 1;
-                  const pres = sEmp.filter(e => e.post === post && attendance[e.id]?.status === "Present").length;
-                  const pct = Math.min(100, (pres / req) * 100);
-                  const col = pres >= req ? C.green : pres > 0 ? C.accent : C.red;
-                  return (
-                    <div key={post} style={{ marginBottom: 8 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 3 }}>
-                        <span style={{ color: C.textDim }}>{post}</span>
-                        <span style={{ color: col, fontWeight: 700 }}>{pres}/{req}</span>
-                      </div>
-                      <div style={{ height: 3, background: C.border, borderRadius: 2 }}>
-                        <div style={{ height: 3, width: `${pct}%`, background: col, borderRadius: 2 }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -178,6 +180,9 @@ function AttendanceView({ employees, attendance, setAttendance }) {
         <table style={css.table}>
           <thead><tr>{["Name", "Post", "Shift", "Status", "OT Hours", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
           <tbody>
+            {filtered.length === 0 && (
+              <tr><td colSpan={6} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No active employees. Add staff first!</td></tr>
+            )}
             {filtered.map(emp => {
               const rec = attendance[emp.id] || { status: "Present", ot_hours: 0 };
               return (
@@ -210,8 +215,8 @@ function PayrollView({ employees, attendance }) {
         <div style={{ fontSize: 22, fontWeight: 700 }}>Salary Calculation</div>
       </div>
       <div style={{ ...css.grid4, marginBottom: 20 }}>
-        <StatCard label="Total Payroll" value={`RM ${totalPayroll.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`} sub="This month est." accent={C.green} />
-        <StatCard label="Total OT Cost" value={`RM ${totalOT.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`} sub="Overtime" accent={C.accent} />
+        <StatCard label="Total Payroll" value={`₹${totalPayroll.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`} sub="This month est." accent={C.green} />
+        <StatCard label="Total OT Cost" value={`₹${totalOT.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`} sub="Overtime" accent={C.accent} />
         <StatCard label="Staff on Payroll" value={active.length} sub="Active" accent={C.blue} />
         <StatCard label="OT Rate" value="1.5×" sub="Per hour basis" accent={C.textDim} />
       </div>
@@ -219,22 +224,25 @@ function PayrollView({ employees, attendance }) {
         <table style={css.table}>
           <thead><tr>{["Employee", "Post", "Shift", "Base Salary", "OT Pay", "Deductions", "Total"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
           <tbody>
+            {rows.length === 0 && (
+              <tr><td colSpan={7} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No active employees.</td></tr>
+            )}
             {rows.map(({ emp, pay }) => (
               <tr key={emp.id}>
                 <td style={css.td}><div style={{ fontWeight: 700 }}>{emp.name}</div></td>
                 <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
                 <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
-                <td style={css.td} align="right"><span style={{ color: C.text }}>RM {pay.base.toLocaleString()}</span></td>
-                <td style={css.td} align="right"><span style={{ color: C.green }}>+ RM {pay.ot.toFixed(2)}</span></td>
-                <td style={css.td} align="right"><span style={{ color: pay.deduct > 0 ? C.red : C.textDim }}>{pay.deduct > 0 ? `- RM ${pay.deduct.toFixed(2)}` : "—"}</span></td>
-                <td style={css.td} align="right"><strong style={{ color: C.accent, fontSize: 14 }}>RM {pay.total.toLocaleString("en-MY", { minimumFractionDigits: 2 })}</strong></td>
+                <td style={css.td} align="right"><span style={{ color: C.text }}>₹{Number(pay.base).toLocaleString("en-IN")}</span></td>
+                <td style={css.td} align="right"><span style={{ color: C.green }}>+ ₹{pay.ot.toFixed(2)}</span></td>
+                <td style={css.td} align="right"><span style={{ color: pay.deduct > 0 ? C.red : C.textDim }}>{pay.deduct > 0 ? `- ₹${pay.deduct.toFixed(2)}` : "—"}</span></td>
+                <td style={css.td} align="right"><strong style={{ color: C.accent, fontSize: 14 }}>₹{pay.total.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</strong></td>
               </tr>
             ))}
           </tbody>
           <tfoot>
             <tr style={{ borderTop: `2px solid ${C.border}` }}>
               <td colSpan={6} style={{ ...css.td, textAlign: "right", color: C.textDim, fontSize: 11, letterSpacing: 2, textTransform: "uppercase" }}>Total Payroll</td>
-              <td style={css.td} align="right"><strong style={{ color: C.green, fontSize: 16 }}>RM {totalPayroll.toLocaleString("en-MY", { minimumFractionDigits: 2 })}</strong></td>
+              <td style={css.td} align="right"><strong style={{ color: C.green, fontSize: 16 }}>₹{totalPayroll.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</strong></td>
             </tr>
           </tfoot>
         </table>
@@ -243,10 +251,10 @@ function PayrollView({ employees, attendance }) {
   );
 }
 
-function StaffView({ employees, setEmployees }) {
+function StaffView({ employees, setEmployees, posts }) {
   const [showForm, setShowForm] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
-  const [form, setForm] = useState({ name: "", post: POSTS[0], shift: "Morning", base_salary: "" });
+  const [form, setForm] = useState({ name: "", post: "", shift: "Morning", base_salary: "" });
   const [loading, setLoading] = useState(false);
 
   const active = employees.filter(e => e.status === "active");
@@ -256,11 +264,11 @@ function StaffView({ employees, setEmployees }) {
     if (!form.name.trim() || !form.base_salary) return;
     setLoading(true);
     const { data, error } = await supabase.from("employees").insert({
-      name: form.name, post: form.post, shift: form.shift, base_salary: +form.base_salary, status: "active"
+      name: form.name, post: form.post || (posts[0]?.name || ""), shift: form.shift, base_salary: +form.base_salary, status: "active"
     }).select().single();
     if (!error && data) {
       setEmployees(prev => [...prev, data]);
-      setForm({ name: "", post: POSTS[0], shift: "Morning", base_salary: "" });
+      setForm({ name: "", post: "", shift: "Morning", base_salary: "" });
       setShowForm(false);
     }
     setLoading(false);
@@ -293,6 +301,7 @@ function StaffView({ employees, setEmployees }) {
       {showForm && (
         <div style={{ ...css.card, marginBottom: 20, borderColor: C.green + "44" }}>
           <div style={css.sectionTitle}>New Employee</div>
+          {posts.length === 0 && <div style={{ color: C.red, fontSize: 12, marginBottom: 12 }}>⚠ Please add posts in Settings first!</div>}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
             <div>
               <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FULL NAME</div>
@@ -301,7 +310,7 @@ function StaffView({ employees, setEmployees }) {
             <div>
               <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>POST / ROLE</div>
               <select style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.post} onChange={e => setForm(f => ({ ...f, post: e.target.value }))}>
-                {POSTS.map(p => <option key={p}>{p}</option>)}
+                {posts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
               </select>
             </div>
             <div>
@@ -311,12 +320,12 @@ function StaffView({ employees, setEmployees }) {
               </select>
             </div>
             <div>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>BASE SALARY (RM)</div>
-              <input type="number" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.base_salary} onChange={e => setForm(f => ({ ...f, base_salary: e.target.value }))} placeholder="e.g. 2000" />
+              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>BASE SALARY (₹)</div>
+              <input type="number" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.base_salary} onChange={e => setForm(f => ({ ...f, base_salary: e.target.value }))} placeholder="e.g. 20000" />
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-            <button style={css.btn(C.green)} onClick={addEmp} disabled={loading}>{loading ? "Saving..." : "Save Employee"}</button>
+            <button style={css.btn(C.green)} onClick={addEmp} disabled={loading || posts.length === 0}>{loading ? "Saving..." : "Save Employee"}</button>
             <button style={css.btn(C.red)} onClick={() => setShowForm(false)}>Cancel</button>
           </div>
         </div>
@@ -335,10 +344,8 @@ function StaffView({ employees, setEmployees }) {
                 <td style={css.td}><strong>{emp.name}</strong></td>
                 <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
                 <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
-                <td style={css.td}><span style={{ color: C.accent }}>RM {Number(emp.base_salary).toLocaleString()}</span></td>
-                <td style={css.td}>
-                  <button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => markInactive(emp)}>Mark as Left</button>
-                </td>
+                <td style={css.td}><span style={{ color: C.accent }}>₹{Number(emp.base_salary).toLocaleString("en-IN")}</span></td>
+                <td style={css.td}><button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => markInactive(emp)}>Mark as Left</button></td>
               </tr>
             ))}
           </tbody>
@@ -360,10 +367,8 @@ function StaffView({ employees, setEmployees }) {
                     <td style={css.td}><strong>{emp.name}</strong></td>
                     <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
                     <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
-                    <td style={css.td}><span style={{ color: C.accent }}>RM {Number(emp.base_salary).toLocaleString()}</span></td>
-                    <td style={css.td}>
-                      <button style={{ ...css.btn(C.green), padding: "4px 10px", fontSize: 10 }} onClick={() => reactivate(emp)}>Reactivate</button>
-                    </td>
+                    <td style={css.td}><span style={{ color: C.accent }}>₹{Number(emp.base_salary).toLocaleString("en-IN")}</span></td>
+                    <td style={css.td}><button style={{ ...css.btn(C.green), padding: "4px 10px", fontSize: 10 }} onClick={() => reactivate(emp)}>Reactivate</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -374,6 +379,7 @@ function StaffView({ employees, setEmployees }) {
     </div>
   );
 }
+
 function SettingsView({ posts, setPosts }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", required_morning: 1, required_night: 1 });
@@ -383,9 +389,7 @@ function SettingsView({ posts, setPosts }) {
     if (!form.name.trim()) return;
     setLoading(true);
     const { data, error } = await supabase.from("posts").insert({
-      name: form.name,
-      required_morning: +form.required_morning,
-      required_night: +form.required_night,
+      name: form.name, required_morning: +form.required_morning, required_night: +form.required_night,
     }).select().single();
     if (!error && data) {
       setPosts(prev => [...prev, data]);
@@ -446,46 +450,27 @@ function SettingsView({ posts, setPosts }) {
           No posts added yet. Click "+ Add Post" to get started!
         </div>
       )}
-      <div style={{ overflowX: "auto" }}>
-        {posts.length > 0 && (
+      {posts.length > 0 && (
+        <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
-            <thead>
-              <tr>
-                {["Post / Role", "Required Morning", "Required Night", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}
-              </tr>
-            </thead>
+            <thead><tr>{["Post / Role", "Required Morning", "Required Night", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
             <tbody>
               {posts.map(post => (
                 <tr key={post.id}>
                   <td style={css.td}><strong>{post.name}</strong></td>
-                  <td style={css.td}>
-                    <input
-                      type="number" min="0"
-                      value={post.required_morning}
-                      onChange={e => updatePost(post, "required_morning", e.target.value)}
-                      style={{ ...css.input, width: 60, textAlign: "center" }}
-                    />
-                  </td>
-                  <td style={css.td}>
-                    <input
-                      type="number" min="0"
-                      value={post.required_night}
-                      onChange={e => updatePost(post, "required_night", e.target.value)}
-                      style={{ ...css.input, width: 60, textAlign: "center" }}
-                    />
-                  </td>
-                  <td style={css.td}>
-                    <button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => deletePost(post)}>Remove</button>
-                  </td>
+                  <td style={css.td}><input type="number" min="0" value={post.required_morning} onChange={e => updatePost(post, "required_morning", e.target.value)} style={{ ...css.input, width: 60, textAlign: "center" }} /></td>
+                  <td style={css.td}><input type="number" min="0" value={post.required_night} onChange={e => updatePost(post, "required_night", e.target.value)} style={{ ...css.input, width: 60, textAlign: "center" }} /></td>
+                  <td style={css.td}><button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => deletePost(post)}>Remove</button></td>
                 </tr>
               ))}
             </tbody>
           </table>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [tab, setTab] = useState("dashboard");
@@ -493,6 +478,7 @@ export default function App() {
   const [attendance, setAttendance] = useState({});
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
@@ -531,7 +517,7 @@ export default function App() {
 
   if (!user) return <Login onLogin={setUser} />;
 
-  const alerts = getCoverage(employees.filter(e => e.status === "active"), attendance);
+  const alerts = getCoverage(employees.filter(e => e.status === "active"), attendance, posts);
 
   const TABS = [
     { id: "dashboard", label: "Dashboard" },
@@ -567,9 +553,9 @@ export default function App() {
         <div style={{ textAlign: "center", padding: 60, color: C.textDim }}>Loading data...</div>
       ) : (
         <>
-          {tab === "dashboard" && <DashboardView employees={employees} attendance={attendance} />}
+          {tab === "dashboard" && <DashboardView employees={employees} attendance={attendance} posts={posts} />}
           {tab === "attendance" && <AttendanceView employees={employees} attendance={attendance} setAttendance={setAttendance} />}
-          {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} />}
+          {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} />}
           {tab === "payroll" && <PayrollView employees={employees} attendance={attendance} />}
           {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} />}
         </>
