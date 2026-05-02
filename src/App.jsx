@@ -2,8 +2,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "./supabaseClient";
 import Login from "./Login";
 
-const POSTS = ["Machine Operator", "Quality Control", "Forklift Driver", "Line Supervisor", "Safety Officer"];
-const REQUIRED_PER_POST = { "Machine Operator": 3, "Quality Control": 2, "Forklift Driver": 2, "Line Supervisor": 1, "Safety Officer": 1 };
+const DEFAULT_POSTS = [];
 
 const C = {
   bg: "#F4F6F9", panel: "#FFFFFF", border: "#E2E8F0", accent: "#1E6FDB",
@@ -35,13 +34,13 @@ const css = {
 const statusColor = (s) => s === "Present" ? C.green : s === "Absent" ? C.red : C.accent;
 const shiftColor = (s) => s === "Morning" ? C.accent : C.blue;
 
-function getCoverage(employees, attendance) {
+function getCoverage(employees, attendance, posts) {
   const alerts = [];
   ["Morning", "Night"].forEach(shift => {
-    POSTS.forEach(post => {
-      const required = REQUIRED_PER_POST[post] || 1;
-      const present = employees.filter(e => e.shift === shift && e.post === post && attendance[e.id]?.status === "Present").length;
-      if (present < required) alerts.push({ shift, post, present, required, shortage: required - present });
+    posts.forEach(post => {
+      const required = shift === "Morning" ? post.required_morning : post.required_night;
+      const present = employees.filter(e => e.shift === shift && e.post === post.name && attendance[e.id]?.status === "Present").length;
+      if (present < required) alerts.push({ shift, post: post.name, present, required, shortage: required - present });
     });
   });
   return alerts;
@@ -375,14 +374,125 @@ function StaffView({ employees, setEmployees }) {
     </div>
   );
 }
+function SettingsView({ posts, setPosts }) {
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name: "", required_morning: 1, required_night: 1 });
+  const [loading, setLoading] = useState(false);
 
+  const addPost = async () => {
+    if (!form.name.trim()) return;
+    setLoading(true);
+    const { data, error } = await supabase.from("posts").insert({
+      name: form.name,
+      required_morning: +form.required_morning,
+      required_night: +form.required_night,
+    }).select().single();
+    if (!error && data) {
+      setPosts(prev => [...prev, data]);
+      setForm({ name: "", required_morning: 1, required_night: 1 });
+      setShowForm(false);
+    }
+    setLoading(false);
+  };
+
+  const deletePost = async (post) => {
+    if (!window.confirm(`Remove post "${post.name}"?`)) return;
+    await supabase.from("posts").delete().eq("id", post.id);
+    setPosts(prev => prev.filter(p => p.id !== post.id));
+  };
+
+  const updatePost = async (post, field, value) => {
+    await supabase.from("posts").update({ [field]: +value }).eq("id", post.id);
+    setPosts(prev => prev.map(p => p.id === post.id ? { ...p, [field]: +value } : p));
+  };
+
+  return (
+    <div style={css.page}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 10, color: C.textDim, letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>CONFIGURATION</div>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>Settings</div>
+        </div>
+        <button style={css.btn(C.green)} onClick={() => setShowForm(v => !v)}>+ Add Post</button>
+      </div>
+
+      {showForm && (
+        <div style={{ ...css.card, marginBottom: 20, borderColor: C.green + "44" }}>
+          <div style={css.sectionTitle}>New Post / Role</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>POST NAME</div>
+              <input style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Machine Operator" />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>REQUIRED (MORNING)</div>
+              <input type="number" min="0" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.required_morning} onChange={e => setForm(f => ({ ...f, required_morning: e.target.value }))} />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>REQUIRED (NIGHT)</div>
+              <input type="number" min="0" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.required_night} onChange={e => setForm(f => ({ ...f, required_night: e.target.value }))} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+            <button style={css.btn(C.green)} onClick={addPost} disabled={loading}>{loading ? "Saving..." : "Save Post"}</button>
+            <button style={css.btn(C.red)} onClick={() => setShowForm(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div style={css.sectionTitle}>Posts & Required Staff per Shift</div>
+      {posts.length === 0 && (
+        <div style={{ ...css.card, textAlign: "center", padding: 40, color: C.textDim }}>
+          No posts added yet. Click "+ Add Post" to get started!
+        </div>
+      )}
+      <div style={{ overflowX: "auto" }}>
+        {posts.length > 0 && (
+          <table style={css.table}>
+            <thead>
+              <tr>
+                {["Post / Role", "Required Morning", "Required Night", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {posts.map(post => (
+                <tr key={post.id}>
+                  <td style={css.td}><strong>{post.name}</strong></td>
+                  <td style={css.td}>
+                    <input
+                      type="number" min="0"
+                      value={post.required_morning}
+                      onChange={e => updatePost(post, "required_morning", e.target.value)}
+                      style={{ ...css.input, width: 60, textAlign: "center" }}
+                    />
+                  </td>
+                  <td style={css.td}>
+                    <input
+                      type="number" min="0"
+                      value={post.required_night}
+                      onChange={e => updatePost(post, "required_night", e.target.value)}
+                      style={{ ...css.input, width: 60, textAlign: "center" }}
+                    />
+                  </td>
+                  <td style={css.td}>
+                    <button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => deletePost(post)}>Remove</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
 export default function App() {
   const [user, setUser] = useState(null);
   const [tab, setTab] = useState("dashboard");
   const [employees, setEmployees] = useState([]);
   const [attendance, setAttendance] = useState({});
+  const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
-
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
@@ -398,6 +508,9 @@ export default function App() {
       setLoading(true);
       const { data: emps } = await supabase.from("employees").select("*").order("name");
       if (emps) setEmployees(emps);
+
+      const { data: postsData } = await supabase.from("posts").select("*").order("name");
+      if (postsData) setPosts(postsData);
 
       const today = new Date().toISOString().split("T")[0];
       const { data: att } = await supabase.from("attendance").select("*").eq("date", today);
@@ -425,6 +538,7 @@ export default function App() {
     { id: "attendance", label: "Attendance" },
     { id: "staff", label: "Staff" },
     { id: "payroll", label: "Payroll" },
+    { id: "settings", label: "⚙ Settings" },
   ];
 
   return (
@@ -457,6 +571,7 @@ export default function App() {
           {tab === "attendance" && <AttendanceView employees={employees} attendance={attendance} setAttendance={setAttendance} />}
           {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} />}
           {tab === "payroll" && <PayrollView employees={employees} attendance={attendance} />}
+          {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} />}
         </>
       )}
     </div>
