@@ -5,30 +5,10 @@ import Login from "./Login";
 const POSTS = ["Machine Operator", "Quality Control", "Forklift Driver", "Line Supervisor", "Safety Officer"];
 const REQUIRED_PER_POST = { "Machine Operator": 3, "Quality Control": 2, "Forklift Driver": 2, "Line Supervisor": 1, "Safety Officer": 1 };
 
-const EMPLOYEES = [
-  { id: 1, name: "Ahmad Razif",     post: "Line Supervisor",   shift: "Morning", base: 2800 },
-  { id: 2, name: "Nurul Ain",       post: "Quality Control",   shift: "Morning", base: 2200 },
-  { id: 3, name: "Hafiz Zulkifli",  post: "Machine Operator",  shift: "Morning", base: 2000 },
-  { id: 4, name: "Siti Rohani",     post: "Machine Operator",  shift: "Morning", base: 2000 },
-  { id: 5, name: "Rajan Kumar",     post: "Forklift Driver",   shift: "Morning", base: 2100 },
-  { id: 6, name: "Lee Wei Ming",    post: "Safety Officer",    shift: "Morning", base: 2400 },
-  { id: 7, name: "Faridah Ismail",  post: "Machine Operator",  shift: "Night",   base: 2000 },
-  { id: 8, name: "Zulhilmi Bakar",  post: "Quality Control",   shift: "Night",   base: 2200 },
-  { id: 9, name: "Chandran Nair",   post: "Forklift Driver",   shift: "Night",   base: 2100 },
-  { id: 10, name: "Rokiah Hamid",   post: "Line Supervisor",   shift: "Night",   base: 2800 },
-  { id: 11, name: "Amirul Hakeem",  post: "Machine Operator",  shift: "Night",   base: 2000 },
-  { id: 12, name: "Tan Bee Lian",   post: "Safety Officer",    shift: "Night",   base: 2400 },
-];
-
-const INIT_ATTENDANCE = EMPLOYEES.reduce((acc, e) => {
-  acc[e.id] = { status: ["Present","Present","Present","Present","Absent","Present","Present"][e.id % 7], ot: [0,1,2,0,0,1.5,0][e.id % 7] };
-  return acc;
-}, {});
-
 const C = {
-  bg: "#0D0F14", panel: "#13161E", border: "#1E2330", accent: "#F0A500",
-  accentDim: "#F0A50022", green: "#29D884", red: "#FF4D6A", blue: "#3D8EF0",
-  muted: "#5C6478", text: "#E8EAF0", textDim: "#8890A4",
+  bg: "#F4F6F9", panel: "#FFFFFF", border: "#E2E8F0", accent: "#1E6FDB",
+  accentDim: "#1E6FDB22", green: "#16A34A", red: "#DC2626", blue: "#2563EB",
+  muted: "#94A3B8", text: "#1E293B", textDim: "#64748B",
 };
 
 const css = {
@@ -68,12 +48,13 @@ function getCoverage(employees, attendance) {
 }
 
 function calcPayroll(employee, attendance) {
-  const OT_RATE = employee.base / 26 / 8 * 1.5;
-  const DAILY_RATE = employee.base / 26;
+  const dailyRate = employee.base_salary / 26;
+  const hourlyRate = dailyRate / 12;
+  const OT_RATE = hourlyRate * 1.5;
   const rec = attendance[employee.id] || {};
-  const otPay = (rec.ot || 0) * OT_RATE;
-  const deduc = rec.status === "Absent" ? DAILY_RATE : 0;
-  return { base: employee.base, ot: +otPay.toFixed(2), deduct: +deduc.toFixed(2), total: +(employee.base + otPay - deduc).toFixed(2) };
+  const otPay = (rec.ot_hours || 0) * OT_RATE;
+  const deduc = rec.status === "Absent" ? dailyRate : 0;
+  return { base: employee.base_salary, ot: +otPay.toFixed(2), deduct: +deduc.toFixed(2), total: +(employee.base_salary + otPay - deduc).toFixed(2) };
 }
 
 function StatCard({ label, value, sub, accent }) {
@@ -106,11 +87,12 @@ function AlertBanner({ alerts }) {
 }
 
 function DashboardView({ employees, attendance }) {
-  const present = employees.filter(e => attendance[e.id]?.status === "Present").length;
-  const absent = employees.filter(e => attendance[e.id]?.status === "Absent").length;
-  const morningOn = employees.filter(e => e.shift === "Morning" && attendance[e.id]?.status === "Present").length;
-  const nightOn = employees.filter(e => e.shift === "Night" && attendance[e.id]?.status === "Present").length;
-  const alerts = getCoverage(employees, attendance);
+  const active = employees.filter(e => e.status === "active");
+  const present = active.filter(e => attendance[e.id]?.status === "Present").length;
+  const absent = active.filter(e => attendance[e.id]?.status === "Absent").length;
+  const morningOn = active.filter(e => e.shift === "Morning" && attendance[e.id]?.status === "Present").length;
+  const nightOn = active.filter(e => e.shift === "Night" && attendance[e.id]?.status === "Present").length;
+  const alerts = getCoverage(active, attendance);
   return (
     <div style={css.page}>
       <div style={{ marginBottom: 20 }}>
@@ -118,7 +100,7 @@ function DashboardView({ employees, attendance }) {
         <div style={{ fontSize: 22, fontWeight: 700 }}>Operations Dashboard</div>
       </div>
       <div style={{ ...css.grid4, marginBottom: 20 }}>
-        <StatCard label="Total Staff" value={employees.length} sub="Registered" accent={C.blue} />
+        <StatCard label="Active Staff" value={active.length} sub="Working here" accent={C.blue} />
         <StatCard label="Present Today" value={present} sub={`${absent} absent`} accent={C.green} />
         <StatCard label="Morning Shift" value={morningOn} sub="Active now" accent={C.accent} />
         <StatCard label="Night Shift" value={nightOn} sub="Active now" accent={C.blue} />
@@ -131,7 +113,7 @@ function DashboardView({ employees, attendance }) {
         <div style={css.sectionTitle}>Shift Summary</div>
         <div style={css.grid2}>
           {["Morning", "Night"].map(shift => {
-            const sEmp = employees.filter(e => e.shift === shift);
+            const sEmp = active.filter(e => e.shift === shift);
             const sPresent = sEmp.filter(e => attendance[e.id]?.status === "Present").length;
             return (
               <div key={shift} style={css.card}>
@@ -167,14 +149,27 @@ function DashboardView({ employees, attendance }) {
 
 function AttendanceView({ employees, attendance, setAttendance }) {
   const [filterShift, setFilterShift] = useState("All");
-  const filtered = filterShift === "All" ? employees : employees.filter(e => e.shift === filterShift);
-  const toggle = (id, field, value) => setAttendance(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
+  const active = employees.filter(e => e.status === "active");
+  const filtered = filterShift === "All" ? active : active.filter(e => e.shift === filterShift);
+  const today = new Date().toISOString().split("T")[0];
+
+  const toggle = async (id, field, value) => {
+    setAttendance(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
+    const existing = attendance[id];
+    if (existing?.dbId) {
+      await supabase.from("attendance").update({ [field === "status" ? "status" : "ot_hours"]: value }).eq("id", existing.dbId);
+    } else {
+      const { data } = await supabase.from("attendance").insert({ employee_id: id, date: today, status: field === "status" ? value : "Present", ot_hours: field === "ot_hours" ? value : 0 }).select().single();
+      if (data) setAttendance(prev => ({ ...prev, [id]: { ...prev[id], dbId: data.id } }));
+    }
+  };
+
   return (
     <div style={css.page}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
         <div>
           <div style={{ fontSize: 10, color: C.textDim, letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>ATTENDANCE LOG</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>Daily Attendance</div>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>Daily Attendance · {today}</div>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           {["All", "Morning", "Night"].map(s => <button key={s} style={css.navBtn(filterShift === s)} onClick={() => setFilterShift(s)}>{s}</button>)}
@@ -185,14 +180,14 @@ function AttendanceView({ employees, attendance, setAttendance }) {
           <thead><tr>{["Name", "Post", "Shift", "Status", "OT Hours", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
           <tbody>
             {filtered.map(emp => {
-              const rec = attendance[emp.id] || { status: "Present", ot: 0 };
+              const rec = attendance[emp.id] || { status: "Present", ot_hours: 0 };
               return (
                 <tr key={emp.id} style={{ background: rec.status === "Absent" ? C.red + "08" : "transparent" }}>
-                  <td style={css.td}><div style={{ fontWeight: 700 }}>{emp.name}</div><div style={{ fontSize: 10, color: C.textDim }}>ID #{String(emp.id).padStart(3, "0")}</div></td>
+                  <td style={css.td}><div style={{ fontWeight: 700 }}>{emp.name}</div></td>
                   <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
                   <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
                   <td style={css.td}><span style={css.badge(statusColor(rec.status))}>{rec.status}</span></td>
-                  <td style={css.td}><input type="number" min="0" max="12" step="0.5" value={rec.ot || 0} onChange={e => toggle(emp.id, "ot", +e.target.value)} style={{ ...css.input, width: 60, textAlign: "center" }} /></td>
+                  <td style={css.td}><input type="number" min="0" max="12" step="0.5" value={rec.ot_hours || 0} onChange={e => toggle(emp.id, "ot_hours", +e.target.value)} style={{ ...css.input, width: 60, textAlign: "center" }} /></td>
                   <td style={css.td}><div style={{ display: "flex", gap: 6 }}>{["Present", "Absent", "Leave"].map(s => <button key={s} style={{ ...css.btn(statusColor(s)), opacity: rec.status === s ? 1 : 0.35, padding: "4px 10px", fontSize: 10 }} onClick={() => toggle(emp.id, "status", s)}>{s}</button>)}</div></td>
                 </tr>
               );
@@ -205,7 +200,8 @@ function AttendanceView({ employees, attendance, setAttendance }) {
 }
 
 function PayrollView({ employees, attendance }) {
-  const rows = employees.map(e => ({ emp: e, pay: calcPayroll(e, attendance) }));
+  const active = employees.filter(e => e.status === "active");
+  const rows = active.map(e => ({ emp: e, pay: calcPayroll(e, attendance) }));
   const totalPayroll = rows.reduce((s, r) => s + r.pay.total, 0);
   const totalOT = rows.reduce((s, r) => s + r.pay.ot, 0);
   return (
@@ -217,8 +213,8 @@ function PayrollView({ employees, attendance }) {
       <div style={{ ...css.grid4, marginBottom: 20 }}>
         <StatCard label="Total Payroll" value={`RM ${totalPayroll.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`} sub="This month est." accent={C.green} />
         <StatCard label="Total OT Cost" value={`RM ${totalOT.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`} sub="Overtime" accent={C.accent} />
-        <StatCard label="Staff on Payroll" value={employees.length} sub="Active" accent={C.blue} />
-        <StatCard label="OT Rate" value="1.5×" sub="Daily rate basis" accent={C.textDim} />
+        <StatCard label="Staff on Payroll" value={active.length} sub="Active" accent={C.blue} />
+        <StatCard label="OT Rate" value="1.5×" sub="Per hour basis" accent={C.textDim} />
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={css.table}>
@@ -226,7 +222,7 @@ function PayrollView({ employees, attendance }) {
           <tbody>
             {rows.map(({ emp, pay }) => (
               <tr key={emp.id}>
-                <td style={css.td}><div style={{ fontWeight: 700 }}>{emp.name}</div><div style={{ fontSize: 10, color: C.textDim }}>#{String(emp.id).padStart(3, "0")}</div></td>
+                <td style={css.td}><div style={{ fontWeight: 700 }}>{emp.name}</div></td>
                 <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
                 <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
                 <td style={css.td} align="right"><span style={{ color: C.text }}>RM {pay.base.toLocaleString()}</span></td>
@@ -250,13 +246,38 @@ function PayrollView({ employees, attendance }) {
 
 function StaffView({ employees, setEmployees }) {
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: "", post: POSTS[0], shift: "Morning", base: 2000 });
-  const addEmp = () => {
-    if (!form.name.trim()) return;
-    setEmployees(prev => [...prev, { id: Date.now(), ...form, base: +form.base }]);
-    setForm({ name: "", post: POSTS[0], shift: "Morning", base: 2000 });
-    setShowForm(false);
+  const [showInactive, setShowInactive] = useState(false);
+  const [form, setForm] = useState({ name: "", post: POSTS[0], shift: "Morning", base_salary: "" });
+  const [loading, setLoading] = useState(false);
+
+  const active = employees.filter(e => e.status === "active");
+  const inactive = employees.filter(e => e.status === "inactive");
+
+  const addEmp = async () => {
+    if (!form.name.trim() || !form.base_salary) return;
+    setLoading(true);
+    const { data, error } = await supabase.from("employees").insert({
+      name: form.name, post: form.post, shift: form.shift, base_salary: +form.base_salary, status: "active"
+    }).select().single();
+    if (!error && data) {
+      setEmployees(prev => [...prev, data]);
+      setForm({ name: "", post: POSTS[0], shift: "Morning", base_salary: "" });
+      setShowForm(false);
+    }
+    setLoading(false);
   };
+
+  const markInactive = async (emp) => {
+    if (!window.confirm(`Mark ${emp.name} as left/inactive?`)) return;
+    await supabase.from("employees").update({ status: "inactive" }).eq("id", emp.id);
+    setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "inactive" } : e));
+  };
+
+  const reactivate = async (emp) => {
+    await supabase.from("employees").update({ status: "active" }).eq("id", emp.id);
+    setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "active" } : e));
+  };
+
   return (
     <div style={css.page}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
@@ -264,15 +285,19 @@ function StaffView({ employees, setEmployees }) {
           <div style={{ fontSize: 10, color: C.textDim, letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>WORKFORCE</div>
           <div style={{ fontSize: 22, fontWeight: 700 }}>Staff Directory</div>
         </div>
-        <button style={css.btn(C.green)} onClick={() => setShowForm(v => !v)}>+ Add Employee</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={css.btn(C.textDim)} onClick={() => setShowInactive(v => !v)}>{showInactive ? "Hide" : "Show"} Inactive ({inactive.length})</button>
+          <button style={css.btn(C.green)} onClick={() => setShowForm(v => !v)}>+ Add Employee</button>
+        </div>
       </div>
+
       {showForm && (
         <div style={{ ...css.card, marginBottom: 20, borderColor: C.green + "44" }}>
           <div style={css.sectionTitle}>New Employee</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
             <div>
               <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FULL NAME</div>
-              <input style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Ahmad bin Ali" />
+              <input style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Full name" />
             </div>
             <div>
               <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>POST / ROLE</div>
@@ -288,39 +313,65 @@ function StaffView({ employees, setEmployees }) {
             </div>
             <div>
               <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>BASE SALARY (RM)</div>
-              <input type="number" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.base} onChange={e => setForm(f => ({ ...f, base: e.target.value }))} />
+              <input type="number" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.base_salary} onChange={e => setForm(f => ({ ...f, base_salary: e.target.value }))} placeholder="e.g. 2000" />
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-            <button style={css.btn(C.green)} onClick={addEmp}>Save Employee</button>
+            <button style={css.btn(C.green)} onClick={addEmp} disabled={loading}>{loading ? "Saving..." : "Save Employee"}</button>
             <button style={css.btn(C.red)} onClick={() => setShowForm(false)}>Cancel</button>
           </div>
         </div>
       )}
-      <div style={{ overflowX: "auto" }}>
+
+      <div style={css.sectionTitle}>Active Staff ({active.length})</div>
+      <div style={{ overflowX: "auto", marginBottom: 30 }}>
         <table style={css.table}>
-          <thead><tr>{["#", "Name", "Post / Role", "Shift", "Base Salary"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+          <thead><tr>{["Name", "Post / Role", "Shift", "Base Salary", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
           <tbody>
-            {employees.map((emp, i) => (
+            {active.length === 0 && (
+              <tr><td colSpan={5} style={{ ...css.td, color: C.textDim, textAlign: "center", padding: 30 }}>No active employees. Add one above!</td></tr>
+            )}
+            {active.map(emp => (
               <tr key={emp.id}>
-                <td style={{ ...css.td, color: C.textDim, fontSize: 11 }}>{String(i + 1).padStart(2, "0")}</td>
                 <td style={css.td}><strong>{emp.name}</strong></td>
+                <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
+                <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
+                <td style={css.td}><span style={{ color: C.accent }}>RM {Number(emp.base_salary).toLocaleString()}</span></td>
                 <td style={css.td}>
-                  <select value={emp.post} onChange={e => setEmployees(prev => prev.map(x => x.id === emp.id ? { ...x, post: e.target.value } : x))} style={{ ...css.input, fontSize: 11, padding: "4px 8px" }}>
-                    {POSTS.map(p => <option key={p}>{p}</option>)}
-                  </select>
+                  <button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => markInactive(emp)}>Mark as Left</button>
                 </td>
-                <td style={css.td}>
-                  <select value={emp.shift} onChange={e => setEmployees(prev => prev.map(x => x.id === emp.id ? { ...x, shift: e.target.value } : x))} style={{ ...css.input, fontSize: 11, padding: "4px 8px" }}>
-                    <option>Morning</option><option>Night</option>
-                  </select>
-                </td>
-                <td style={css.td}><span style={{ color: C.accent }}>RM {emp.base.toLocaleString()}</span></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {showInactive && (
+        <>
+          <div style={css.sectionTitle}>Inactive / Left Staff ({inactive.length})</div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={css.table}>
+              <thead><tr>{["Name", "Post / Role", "Shift", "Base Salary", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {inactive.length === 0 && (
+                  <tr><td colSpan={5} style={{ ...css.td, color: C.textDim, textAlign: "center", padding: 30 }}>No inactive employees.</td></tr>
+                )}
+                {inactive.map(emp => (
+                  <tr key={emp.id} style={{ opacity: 0.5 }}>
+                    <td style={css.td}><strong>{emp.name}</strong></td>
+                    <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
+                    <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
+                    <td style={css.td}><span style={{ color: C.accent }}>RM {Number(emp.base_salary).toLocaleString()}</span></td>
+                    <td style={css.td}>
+                      <button style={{ ...css.btn(C.green), padding: "4px 10px", fontSize: 10 }} onClick={() => reactivate(emp)}>Reactivate</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -328,8 +379,9 @@ function StaffView({ employees, setEmployees }) {
 export default function App() {
   const [user, setUser] = useState(null);
   const [tab, setTab] = useState("dashboard");
-  const [employees, setEmployees] = useState(EMPLOYEES);
-  const [attendance, setAttendance] = useState(INIT_ATTENDANCE);
+  const [employees, setEmployees] = useState([]);
+  const [attendance, setAttendance] = useState({});
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -340,9 +392,34 @@ export default function App() {
     });
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    const loadData = async () => {
+      setLoading(true);
+      const { data: emps } = await supabase.from("employees").select("*").order("name");
+      if (emps) setEmployees(emps);
+
+      const today = new Date().toISOString().split("T")[0];
+      const { data: att } = await supabase.from("attendance").select("*").eq("date", today);
+      if (att) {
+        const attMap = {};
+        att.forEach(a => { attMap[a.employee_id] = { status: a.status, ot_hours: a.ot_hours, dbId: a.id }; });
+        setAttendance(attMap);
+      }
+      setLoading(false);
+    };
+    loadData();
+  }, [user]);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+  };
+
   if (!user) return <Login onLogin={setUser} />;
 
-  const alerts = getCoverage(employees, attendance);
+  const alerts = getCoverage(employees.filter(e => e.status === "active"), attendance);
+
   const TABS = [
     { id: "dashboard", label: "Dashboard" },
     { id: "attendance", label: "Attendance" },
@@ -350,20 +427,15 @@ export default function App() {
     { id: "payroll", label: "Payroll" },
   ];
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-  };
-
   return (
     <div style={css.app}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500;700&display=swap');
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width:4px; height:4px; }
-        ::-webkit-scrollbar-track { background: #0D0F14; }
-        ::-webkit-scrollbar-thumb { background: #2a2f3e; border-radius:2px; }
-        select option { background: #13161E; color: #E8EAF0; }
+        ::-webkit-scrollbar-track { background: #F4F6F9; }
+        ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius:2px; }
+        select option { background: #FFFFFF; color: #1E293B; }
       `}</style>
       <header style={css.header}>
         <div style={css.logo}>⚙ FacilityOS</div>
@@ -377,10 +449,16 @@ export default function App() {
       <nav style={css.nav}>
         {TABS.map(t => <button key={t.id} style={css.navBtn(tab === t.id)} onClick={() => setTab(t.id)}>{t.label}</button>)}
       </nav>
-      {tab === "dashboard" && <DashboardView employees={employees} attendance={attendance} />}
-      {tab === "attendance" && <AttendanceView employees={employees} attendance={attendance} setAttendance={setAttendance} />}
-      {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} />}
-      {tab === "payroll" && <PayrollView employees={employees} attendance={attendance} />}
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 60, color: C.textDim }}>Loading data...</div>
+      ) : (
+        <>
+          {tab === "dashboard" && <DashboardView employees={employees} attendance={attendance} />}
+          {tab === "attendance" && <AttendanceView employees={employees} attendance={attendance} setAttendance={setAttendance} />}
+          {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} />}
+          {tab === "payroll" && <PayrollView employees={employees} attendance={attendance} />}
+        </>
+      )}
     </div>
   );
 }
