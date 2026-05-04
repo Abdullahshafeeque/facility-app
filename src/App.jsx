@@ -883,7 +883,7 @@ function StaffView({ employees, setEmployees, posts }) {
   );
 }
 
-function SettingsView({ posts, setPosts }) {
+function SettingsView({ posts, setPosts, employees, setEmployees }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", required_morning: 1, required_night: 1, contract_salary: 0 });
   const [loading, setLoading] = useState(false);
@@ -902,8 +902,7 @@ function SettingsView({ posts, setPosts }) {
     }).select().single();
     
     if (dbError) {
-      console.error("Supabase Error adding post:", dbError);
-      setError(dbError.message || "Database error. Check console.");
+      setError(dbError.message);
     } else if (data) {
       setPosts(prev => [...prev, data]);
       setForm({ name: "", required_morning: 1, required_night: 1, contract_salary: 0 });
@@ -913,14 +912,35 @@ function SettingsView({ posts, setPosts }) {
   };
 
   const deletePost = async (post) => {
-    if (!window.confirm(`Remove post "${post.name}"?`)) return;
+    if (!window.confirm(`Remove post "${post.name}"? This will not delete employees but they will have no assigned role requirements.`)) return;
     await supabase.from("posts").delete().eq("id", post.id);
     setPosts(prev => prev.filter(p => p.id !== post.id));
   };
 
   const updatePost = async (post, field, value) => {
-    await supabase.from("posts").update({ [field]: field === "name" ? value : +value }).eq("id", post.id);
-    setPosts(prev => prev.map(p => p.id === post.id ? { ...p, [field]: field === "name" ? value : +value } : p));
+    const newVal = field === "name" ? value : Number(value);
+    
+    // CASCADE UPDATE: If renaming the role, update all staff assigned to it
+    if (field === "name" && value !== post.name) {
+      const { error: empError } = await supabase
+        .from("employees")
+        .update({ post: value })
+        .eq("post", post.name);
+        
+      if (empError) {
+        alert("Failed to sync employee records. Update cancelled.");
+        return;
+      }
+      // Sync local staff state
+      setEmployees(prev => prev.map(e => e.post === post.name ? { ...e, post: value } : e));
+    }
+
+    const { error } = await supabase.from("posts").update({ [field]: newVal }).eq("id", post.id);
+    if (!error) {
+      setPosts(prev => prev.map(p => p.id === post.id ? { ...p, [field]: newVal } : p));
+    } else {
+      alert("Error updating database.");
+    }
   };
 
   return (
@@ -936,56 +956,84 @@ function SettingsView({ posts, setPosts }) {
       {showForm && (
         <div style={{ ...css.card, marginBottom: 20, borderColor: C.green + "44" }}>
           <div style={css.sectionTitle}>New Post / Role</div>
-          
-          {error && <div style={{ color: C.red, fontSize: 12, marginBottom: 12, background: C.red+"11", padding: 8, borderRadius: 4 }}>⚠ {error}</div>}
-          
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
             <div>
               <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>POST NAME</div>
-              <input style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Machine Operator" />
+              <input style={{ ...css.input, width: "100%" }} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <div>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>REQUIRED (MORNING)</div>
-              <input type="number" min="0" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.required_morning} onChange={e => setForm(f => ({ ...f, required_morning: e.target.value }))} />
+              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>REQ. MORNING</div>
+              <input type="number" style={{ ...css.input, width: "100%" }} value={form.required_morning} onChange={e => setForm(f => ({ ...f, required_morning: e.target.value }))} />
             </div>
             <div>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>REQUIRED (NIGHT)</div>
-              <input type="number" min="0" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.required_night} onChange={e => setForm(f => ({ ...f, required_night: e.target.value }))} />
+              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>REQ. NIGHT</div>
+              <input type="number" style={{ ...css.input, width: "100%" }} value={form.required_night} onChange={e => setForm(f => ({ ...f, required_night: e.target.value }))} />
             </div>
             <div>
               <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>CONTRACT SALARY (₹)</div>
-              <input type="number" min="0" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.contract_salary} onChange={e => setForm(f => ({ ...f, contract_salary: e.target.value }))} placeholder="e.g. 18000" />
+              <input type="number" style={{ ...css.input, width: "100%" }} value={form.contract_salary} onChange={e => setForm(f => ({ ...f, contract_salary: e.target.value }))} />
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-            <button style={css.btn(C.green)} onClick={addPost} disabled={loading}>{loading ? "Saving..." : "Save Post"}</button>
-            <button style={css.btn(C.red)} onClick={() => { setShowForm(false); setError(""); }}>Cancel</button>
+            <button style={css.btn(C.green)} onClick={addPost} disabled={loading}>Save Post</button>
+            <button style={css.btn(C.red)} onClick={() => setShowForm(false)}>Cancel</button>
           </div>
         </div>
       )}
 
-      <div style={css.sectionTitle}>Posts & Required Staff per Shift</div>
-      {posts.length === 0 && (
-        <div style={{ ...css.card, textAlign: "center", padding: 40, color: C.textDim }}>No posts added yet. Click "+ Add Post" to get started!</div>
-      )}
-      {posts.length > 0 && (
-        <div style={{ overflowX: "auto" }}>
-          <table style={css.table}>
-            <thead><tr>{["Post / Role", "Req. Morning", "Req. Night", "Contract Salary (₹)", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
-            <tbody>
-              {posts.map(post => (
-                <tr key={post.id}>
-                  <td style={css.td}><strong>{post.name}</strong></td>
-                  <td style={css.td}><input type="number" min="0" value={post.required_morning} onChange={e => updatePost(post, "required_morning", e.target.value)} style={{ ...css.input, width: 60, textAlign: "center" }} /></td>
-                  <td style={css.td}><input type="number" min="0" value={post.required_night} onChange={e => updatePost(post, "required_night", e.target.value)} style={{ ...css.input, width: 60, textAlign: "center" }} /></td>
-                  <td style={css.td}><input type="number" min="0" value={post.contract_salary || 0} onChange={e => updatePost(post, "contract_salary", e.target.value)} style={{ ...css.input, width: 100, textAlign: "center" }} /></td>
-                  <td style={css.td}><button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => deletePost(post)}>Remove</button></td>
-                </tr>
+      <div style={css.sectionTitle}>Manage Posts & Requirements</div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={css.table}>
+          <thead>
+            <tr>
+              {["Post / Role", "Req. Morning", "Req. Night", "Contract Salary (₹)", "Action"].map(h => (
+                <th key={h} style={css.th}>{h}</th>
               ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+            </tr>
+          </thead>
+          <tbody>
+            {posts.map(post => (
+              <tr key={post.id}>
+                <td style={css.td}>
+                  <input 
+                    type="text" 
+                    defaultValue={post.name} 
+                    onBlur={e => e.target.value !== post.name && updatePost(post, "name", e.target.value)}
+                    style={{ ...css.input, fontWeight: 700, width: "100%", border: "1px solid transparent", background: "transparent" }}
+                  />
+                </td>
+                <td style={css.td}>
+                  <input 
+                    type="number" 
+                    defaultValue={post.required_morning} 
+                    onBlur={e => updatePost(post, "required_morning", e.target.value)}
+                    style={{ ...css.input, width: 70, textAlign: "center" }} 
+                  />
+                </td>
+                <td style={css.td}>
+                  <input 
+                    type="number" 
+                    defaultValue={post.required_night} 
+                    onBlur={e => updatePost(post, "required_night", e.target.value)}
+                    style={{ ...css.input, width: 70, textAlign: "center" }} 
+                  />
+                </td>
+                <td style={css.td}>
+                  <input 
+                    type="number" 
+                    defaultValue={post.contract_salary || 0} 
+                    onBlur={e => updatePost(post, "contract_salary", e.target.value)}
+                    style={{ ...css.input, width: 110, textAlign: "center" }} 
+                  />
+                </td>
+                <td style={css.td}>
+                  <button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => deletePost(post)}>Remove</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -1079,7 +1127,7 @@ export default function App() {
           {tab === "attendance" && <AttendanceView employees={employees} user={user} />}
           {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} />}
           {tab === "payroll" && <PayrollView employees={employees} attendance={attendance} posts={posts} ledger={ledger} setLedger={setLedger} user={user} />}
-          {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} />}
+          {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} />}
         </>
       )}
     </div>
