@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from "./supabaseClient";
 import Login from "./Login";
-import jsPDF from "jspdf";
-import "jspdf-autotable";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 
 const C = {
   bg: "#F4F6F9", panel: "#FFFFFF", border: "#E2E8F0", accent: "#1E6FDB",
@@ -215,17 +215,14 @@ function AttendanceView({ employees, user }) {
     if (!window.confirm(`Mark ${selectedDate} as a Non-Functioning Holiday?\n\nStaff present yesterday will be marked Present. Staff absent yesterday will be marked Absent.`)) return;
     setSaving(true);
 
-    // 1. Get yesterday's date to calculate carry-over
     const yesterday = new Date(selectedDate);
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = getLocalDateStr(yesterday);
 
-    // 2. Fetch yesterday's attendance
     const { data: yAtt } = await supabase.from("attendance").select("*").eq("date", yesterdayStr);
     const yMap = {};
     if (yAtt) yAtt.forEach(a => yMap[a.employee_id] = a.status);
 
-    // 3. Prepare holiday data based on yesterday
     const insertData = active.map(emp => {
       const wasPresent = yMap[emp.id] === "Present";
       return {
@@ -239,15 +236,18 @@ function AttendanceView({ employees, user }) {
     await supabase.from("attendance").delete().eq("date", selectedDate);
     const { error: attError } = await supabase.from("attendance").insert(insertData);
 
-    if (!isSubmitted && !attError) {
-      await supabase.from("daily_submissions").insert({ date: selectedDate, is_holiday: true });
-      setIsSubmitted(true);
-      setIsHoliday(true);
-      
-      // Update local state to reflect new values
-      const newMap = {};
-      insertData.forEach(d => newMap[d.employee_id] = { status: d.status, ot_hours: 0 });
-      setDayAttendance(newMap);
+    if (!attError) {
+      const { error: subErr } = await supabase.from("daily_submissions").upsert({ date: selectedDate, is_holiday: true });
+      if (!subErr) {
+        setIsSubmitted(true);
+        setIsHoliday(true);
+        
+        const newMap = {};
+        insertData.forEach(d => newMap[d.employee_id] = { status: d.status, ot_hours: 0 });
+        setDayAttendance(newMap);
+      } else {
+        alert("Failed to lock the holiday in the database.");
+      }
     }
     setSaving(false);
   };
@@ -500,84 +500,75 @@ function PayrollView({ employees, attendance, posts, ledger, setLedger, user }) 
   };
 
   const generatePDF = () => {
-    const doc = new jsPDF();
-    const today = new Date().toLocaleDateString();
-    
-    doc.setFontSize(18);
-    doc.text("PRFM HR Portal - Monthly Payroll Report", 14, 22);
-    doc.setFontSize(11);
-    doc.text(`Generated: ${today}`, 14, 30);
+    try {
+      const doc = new jsPDF();
+      const today = new Date().toLocaleDateString();
+      
+      doc.setFontSize(18);
+      doc.text("PRFM HR Portal - Monthly Payroll Report", 14, 22);
+      doc.setFontSize(11);
+      doc.text(`Generated: ${today}`, 14, 30);
 
-    // --- COMPANY STAFF TABLE ---
-    doc.setFontSize(14);
-    doc.text("Company Staff Breakdown", 14, 45);
-    
-    const companyData = companyRows.map(r => [
-      r.emp.name,
-      r.emp.post,
-      `Rs. ${r.totals.base.toLocaleString()}`,
-      `+ Rs. ${r.totals.ot.toFixed(2)}`,
-      `+ Rs. ${r.totals.totalBonus.toLocaleString()}`,
-      `- Rs. ${r.totals.totalAdvance.toLocaleString()}`,
-      `- Rs. ${r.totals.totalFine.toLocaleString()}`,
-      `Rs. ${r.totals.netOwed.toLocaleString()}`,
-      `Rs. ${r.totals.pendingAmount.toLocaleString()}`
-    ]);
+      const companyData = companyRows.map(r => [
+        r.emp.name,
+        r.emp.post,
+        `Rs. ${r.totals.base.toLocaleString()}`,
+        `+ Rs. ${r.totals.ot.toFixed(2)}`,
+        `+ Rs. ${r.totals.totalBonus.toLocaleString()}`,
+        `- Rs. ${r.totals.totalAdvance.toLocaleString()}`,
+        `- Rs. ${r.totals.totalFine.toLocaleString()}`,
+        `Rs. ${r.totals.netOwed.toLocaleString()}`,
+        `Rs. ${r.totals.pendingAmount.toLocaleString()}`
+      ]);
 
-    doc.autoTable({
-      startY: 50,
-      head: [["Name", "Role", "Base", "OT", "Bonus", "Advances", "Fines", "Net Total", "Pending"]],
-      body: companyData,
-      theme: 'grid',
-      headStyles: { fillColor: [30, 111, 219] },
-      styles: { fontSize: 8 }
-    });
+      autoTable(doc, {
+        startY: 50,
+        head: [["Name", "Role", "Base", "OT", "Bonus", "Advances", "Fines", "Net Total", "Pending"]],
+        body: companyData,
+        theme: 'grid',
+        headStyles: { fillColor: [30, 111, 219] },
+        styles: { fontSize: 8 }
+      });
 
-    // --- CONTRACTOR SUMMARY ---
-    const finalY = doc.lastAutoTable.finalY || 50;
-    doc.setFontSize(14);
-    doc.text("Contractor Consolidation", 14, finalY + 15);
+      const finalY = doc.lastAutoTable?.finalY || 50;
+      doc.setFontSize(14);
+      doc.text("Contractor Consolidation", 14, finalY + 15);
 
-    doc.autoTable({
-      startY: finalY + 20,
-      head: [["Total Contract Staff", "Total Fines Levied", "Total Net Owed", "Total Paid Out", "Remaining Pending"]],
-      body: [[
-        contractStaff.length.toString(),
-        `Rs. ${contractorFines.toLocaleString()}`,
-        `Rs. ${contractorNetOwed.toLocaleString()}`,
-        `Rs. ${contractorPayouts.toLocaleString()}`,
-        `Rs. ${contractorPending.toLocaleString()}`
-      ]],
-      theme: 'grid',
-      headStyles: { fillColor: [22, 163, 74] }
-    });
+      autoTable(doc, {
+        startY: finalY + 20,
+        head: [["Total Contract Staff", "Total Fines", "Total Net Owed", "Total Paid Out", "Pending"]],
+        body: [[
+          contractStaff.length.toString(),
+          `Rs. ${contractorFines.toLocaleString()}`,
+          `Rs. ${contractorNetOwed.toLocaleString()}`,
+          `Rs. ${contractorPayouts.toLocaleString()}`,
+          `Rs. ${contractorPending.toLocaleString()}`
+        ]],
+        theme: 'grid',
+        headStyles: { fillColor: [22, 163, 74] }
+      });
 
-    // --- TRANSACTION LOG ---
-    const logY = doc.lastAutoTable.finalY || finalY + 20;
-    doc.addPage();
-    doc.setFontSize(14);
-    doc.text("Transaction Log (Payouts, Advances, Bonuses, Fines)", 14, 22);
+      doc.addPage();
+      doc.setFontSize(14);
+      doc.text("Transaction Log", 14, 22);
 
-    const logData = ledger.map(l => {
-      const emp = active.find(e => e.id === l.employee_id);
-      return [
-        l.date,
-        emp ? emp.name : "Unknown",
-        l.transaction_type,
-        `Rs. ${Number(l.amount).toLocaleString()}`,
-        l.notes || ""
-      ];
-    });
+      const logData = ledger.map(l => {
+        const emp = active.find(e => e.id === l.employee_id);
+        return [l.date, emp ? emp.name : "Unknown", l.transaction_type, `Rs. ${Number(l.amount).toLocaleString()}`, l.notes || ""];
+      });
 
-    doc.autoTable({
-      startY: 30,
-      head: [["Date", "Employee / Target", "Type", "Amount", "Notes"]],
-      body: logData,
-      theme: 'striped',
-      styles: { fontSize: 8 }
-    });
+      autoTable(doc, {
+        startY: 30,
+        head: [["Date", "Target", "Type", "Amount", "Notes"]],
+        body: logData,
+        theme: 'striped',
+        styles: { fontSize: 8 }
+      });
 
-    doc.save(`PRFM_Payroll_Report_${today.replace(/\//g, "-")}.pdf`);
+      doc.save(`PRFM_Payroll_Report_${today.replace(/\//g, "-")}.pdf`);
+    } catch (err) {
+      alert("Failed to generate PDF. Check if you saved the changes.");
+    }
   };
 
   return (
