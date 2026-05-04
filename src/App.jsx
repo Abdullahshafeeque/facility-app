@@ -846,7 +846,7 @@ export default function App() {
         select option { background: #FFFFFF; color: #1E293B; }
       `}</style>
       <header style={css.header}>
-        <div style={css.logo}>⚙ FacilityOS</div>
+        <div style={css.logo}>⚙ PRFM HR Portal</div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{ fontSize: 11, color: C.textDim }}>{user.email}</span>
           {alerts.length > 0 && <span style={css.badge(C.red)}>⚠ {alerts.length} Alert{alerts.length > 1 ? "s" : ""}</span>}
