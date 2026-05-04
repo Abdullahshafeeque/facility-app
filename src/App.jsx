@@ -622,18 +622,50 @@ function StaffView({ employees, setEmployees, posts, ledger }) {
 
   const active = employees.filter(e => e.status === "active");
 
+  const updateEmployee = async (id, field, value) => {
+    let updateData = { [field]: value };
+    
+    // If shifting post, automatically update salary if they are a contracted worker
+    if (field === "post") {
+      const newPostData = posts.find(p => p.name === value);
+      if (newPostData && viewing.staff_type === "contract") {
+        updateData.base_salary = newPostData.contract_salary;
+      }
+    }
+
+    const { error } = await supabase.from("employees").update(updateData).eq("id", id);
+    if (!error) {
+      setEmployees(prev => prev.map(e => e.id === id ? { ...e, ...updateData } : e));
+      setViewing(prev => ({ ...prev, ...updateData }));
+    } else {
+      alert("Update failed: " + error.message);
+    }
+  };
+
   const markInactive = async (emp) => {
     if (!window.confirm(`Mark ${emp.name} as left/inactive?`)) return;
     const { error } = await supabase.from("employees").update({ status: "inactive" }).eq("id", emp.id);
     if (!error) {
       setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "inactive" } : e));
+      setViewing(null);
     }
   };
 
   return (
     <div style={css.page}>
-      {/* --- INDIVIDUAL PROFILE POPUP --- */}
       {viewing && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ ...css.card, maxWidth: 500, width: "100%", border: `2px solid ${C.accent}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: C.accent }}>Staff Profile</div>
+              {/* High Contrast Close Button */}
+              <button 
+                onClick={() => setViewing(null)} 
+                style={{ background: C.red, color: "white", border: "none", borderRadius: "4px", padding: "4px 12px", cursor: "pointer", fontWeight: "bold" }}
+              >
+                CLOSE [X]
+              </button>
+            </div>
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
           <div style={{ ...css.card, maxWidth: 500, width: "100%" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
@@ -646,11 +678,36 @@ function StaffView({ employees, setEmployees, posts, ledger }) {
               <span style={css.badge(C.green)}>{viewing.staff_type}</span>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 25 }}>
-              <div><div style={{ fontSize: 10, color: C.textDim }}>AADHAR</div><strong>{viewing.aadhar}</strong></div>
-              <div><div style={{ fontSize: 10, color: C.textDim }}>POST / ROLE</div><strong>{viewing.post}</strong></div>
-              <div><div style={{ fontSize: 10, color: C.textDim }}>SHIFT</div><strong>{viewing.shift}</strong></div>
-              <div><div style={{ fontSize: 10, color: C.textDim }}>SALARY</div><strong>₹{Number(viewing.base_salary).toLocaleString()}</strong></div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 25, background: C.bg, padding: 15, borderRadius: 8 }}>
+              <div>
+                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>AADHAR</div>
+                <div style={{ fontWeight: 700 }}>{viewing.aadhar}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>SALARY (AUTO)</div>
+                <div style={{ fontWeight: 700, color: C.green }}>₹{Number(viewing.base_salary).toLocaleString()}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>POST / ROLE</div>
+                <select 
+                  style={{ ...css.input, width: "100%", fontSize: 12, fontWeight: 700 }}
+                  value={viewing.post}
+                  onChange={(e) => updateEmployee(viewing.id, "post", e.target.value)}
+                >
+                  {posts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>SHIFT</div>
+                <select 
+                  style={{ ...css.input, width: "100%", fontSize: 12, fontWeight: 700 }}
+                  value={viewing.shift}
+                  onChange={(e) => updateEmployee(viewing.id, "shift", e.target.value)}
+                >
+                  <option value="Morning">Morning</option>
+                  <option value="Night">Night</option>
+                </select>
+              </div>
             </div>
 
             <div style={css.sectionTitle}>Recent Ledger Activity</div>
