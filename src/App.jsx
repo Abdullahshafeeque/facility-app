@@ -459,15 +459,24 @@ function SettingsView({ posts, setPosts }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", required_morning: 1, required_night: 1, contract_salary: 0 });
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(""); 
 
   const addPost = async () => {
+    setError(""); 
     if (!form.name.trim()) return;
+    
     setLoading(true);
-    const { data, error } = await supabase.from("posts").insert({
-      name: form.name, required_morning: +form.required_morning,
-      required_night: +form.required_night, contract_salary: +form.contract_salary,
+    const { data, error: dbError } = await supabase.from("posts").insert({
+      name: form.name, 
+      required_morning: +form.required_morning,
+      required_night: +form.required_night, 
+      contract_salary: +form.contract_salary,
     }).select().single();
-    if (!error && data) {
+    
+    if (dbError) {
+      console.error("Supabase Error adding post:", dbError);
+      setError(dbError.message || "Database error. Check console.");
+    } else if (data) {
       setPosts(prev => [...prev, data]);
       setForm({ name: "", required_morning: 1, required_night: 1, contract_salary: 0 });
       setShowForm(false);
@@ -499,6 +508,9 @@ function SettingsView({ posts, setPosts }) {
       {showForm && (
         <div style={{ ...css.card, marginBottom: 20, borderColor: C.green + "44" }}>
           <div style={css.sectionTitle}>New Post / Role</div>
+          
+          {error && <div style={{ color: C.red, fontSize: 12, marginBottom: 12, background: C.red+"11", padding: 8, borderRadius: 4 }}>⚠ {error}</div>}
+          
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
             <div>
               <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>POST NAME</div>
@@ -519,7 +531,7 @@ function SettingsView({ posts, setPosts }) {
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
             <button style={css.btn(C.green)} onClick={addPost} disabled={loading}>{loading ? "Saving..." : "Save Post"}</button>
-            <button style={css.btn(C.red)} onClick={() => setShowForm(false)}>Cancel</button>
+            <button style={css.btn(C.red)} onClick={() => { setShowForm(false); setError(""); }}>Cancel</button>
           </div>
         </div>
       )}
