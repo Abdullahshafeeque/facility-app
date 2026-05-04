@@ -1002,7 +1002,7 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontSize: 11, color: C.textDim }}>{user.email}</span>
           {alerts.length > 0 && <span style={css.badge(C.red)}>⚠ {alerts.length} Alert{alerts.length > 1 ? "s" : ""}</span>}
-          {pendingSettlements > 0 && <span style={css.badge(C.orange)}>⚖ {pendingSettlements} Settlement{pendingSettlements > 1 ? "s" : ""}</span>}
+          {pendingSettlements > 0 && <span style={{ ...css.badge(C.orange), cursor: "pointer" }} onClick={() => { setTab("payroll"); }}>{`⚖ ${pendingSettlements} Settlement${pendingSettlements > 1 ? "s" : ""}`}</span>}
           <span style={css.badge(C.green)}>LIVE</span>
           <button onClick={handleSignOut} style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }}>Sign Out</button>
         </div>
