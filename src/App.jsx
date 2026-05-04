@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from "./supabaseClient";
 import Login from "./Login";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
 
 const C = {
   bg: "#F4F6F9", panel: "#FFFFFF", border: "#E2E8F0", accent: "#1E6FDB",
@@ -434,49 +436,265 @@ function AttendanceView({ employees, user }) {
   );
 }
 
-function PayrollView({ employees, attendance, posts }) {
+function PayrollView({ employees, attendance, posts, ledger, setLedger, user }) {
+  const [showTransactionModal, setShowTransactionModal] = useState(false);
+  const [selectedEmp, setSelectedEmp] = useState(null);
+  const [form, setForm] = useState({ type: "Advance", amount: "", notes: "", date: new Date().toISOString().split("T")[0] });
+  const [saving, setSaving] = useState(false);
+
+  const isAdmin = user?.email === "abdshafeeque@gmail.com";
   const active = employees.filter(e => e.status === "active");
-  const rows = active.map(e => ({ emp: e, pay: calcPayroll(e, attendance, posts) }));
-  const totalPayroll = rows.reduce((s, r) => s + r.pay.total, 0);
-  const totalOT = rows.reduce((s, r) => s + r.pay.ot, 0);
+  const companyStaff = active.filter(e => e.staff_type === "company");
+  const contractStaff = active.filter(e => e.staff_type === "contract");
+
+  // Helper to calculate totals for a specific employee
+  const getEmployeeTotals = (emp) => {
+    const pay = calcPayroll(emp, attendance, posts);
+    const empLedger = ledger.filter(l => l.employee_id === emp.id);
+    
+    const totalBonus = empLedger.filter(l => l.transaction_type === "Bonus").reduce((sum, l) => sum + Number(l.amount), 0);
+    const totalAdvance = empLedger.filter(l => l.transaction_type === "Advance").reduce((sum, l) => sum + Number(l.amount), 0);
+    const totalFine = empLedger.filter(l => l.transaction_type === "Fine").reduce((sum, l) => sum + Number(l.amount), 0);
+    const totalPayouts = empLedger.filter(l => l.transaction_type === "Payout").reduce((sum, l) => sum + Number(l.amount), 0);
+
+    // Net Owed = (Base + OT + Bonus) - Advances - Fines
+    const netOwed = (pay.total + totalBonus) - totalAdvance - totalFine;
+    const pendingAmount = netOwed - totalPayouts;
+
+    return { ...pay, totalBonus, totalAdvance, totalFine, totalPayouts, netOwed, pendingAmount, ledger: empLedger };
+  };
+
+  const companyRows = companyStaff.map(e => ({ emp: e, totals: getEmployeeTotals(e) }));
+  
+  // Calculate consolidated contractor totals
+  const contractorRows = contractStaff.map(e => ({ emp: e, totals: getEmployeeTotals(e) }));
+  const contractorNetOwed = contractorRows.reduce((sum, r) => sum + r.totals.netOwed, 0);
+  const contractorPayouts = contractorRows.reduce((sum, r) => sum + r.totals.totalPayouts, 0);
+  const contractorFines = contractorRows.reduce((sum, r) => sum + r.totals.totalFine, 0);
+  const contractorPending = contractorNetOwed - contractorPayouts;
+
+  const handleTransactionSubmit = async () => {
+    if (!form.amount || Number(form.amount) <= 0) return alert("Enter a valid amount.");
+    if (!selectedEmp && form.type !== "Payout") return alert("Select an employee.");
+    setSaving(true);
+
+    const targetEmpId = selectedEmp ? selectedEmp.id : contractStaff[0]?.id;
+
+    const newLedgerEntry = {
+      employee_id: targetEmpId,
+      date: form.date,
+      transaction_type: form.type,
+      amount: Number(form.amount),
+      notes: form.notes || (selectedEmp ? "" : "Consolidated Contractor Payout")
+    };
+
+    const { data, error } = await supabase.from("financial_ledger").insert(newLedgerEntry).select().single();
+    if (!error && data) {
+      setLedger(prev => [data, ...prev]);
+      setShowTransactionModal(false);
+      setForm({ type: "Advance", amount: "", notes: "", date: new Date().toISOString().split("T")[0] });
+    } else {
+      alert("Error saving transaction.");
+    }
+    setSaving(false);
+  };
+
+  const generatePDF = () => {
+    const doc = new jsPDF();
+    const today = new Date().toLocaleDateString();
+    
+    doc.setFontSize(18);
+    doc.text("PRFM HR Portal - Monthly Payroll Report", 14, 22);
+    doc.setFontSize(11);
+    doc.text(`Generated: ${today}`, 14, 30);
+
+    // --- COMPANY STAFF TABLE ---
+    doc.setFontSize(14);
+    doc.text("Company Staff Breakdown", 14, 45);
+    
+    const companyData = companyRows.map(r => [
+      r.emp.name,
+      r.emp.post,
+      `Rs. ${r.totals.base.toLocaleString()}`,
+      `+ Rs. ${r.totals.ot.toFixed(2)}`,
+      `+ Rs. ${r.totals.totalBonus.toLocaleString()}`,
+      `- Rs. ${r.totals.totalAdvance.toLocaleString()}`,
+      `- Rs. ${r.totals.totalFine.toLocaleString()}`,
+      `Rs. ${r.totals.netOwed.toLocaleString()}`,
+      `Rs. ${r.totals.pendingAmount.toLocaleString()}`
+    ]);
+
+    doc.autoTable({
+      startY: 50,
+      head: [["Name", "Role", "Base", "OT", "Bonus", "Advances", "Fines", "Net Total", "Pending"]],
+      body: companyData,
+      theme: 'grid',
+      headStyles: { fillColor: [30, 111, 219] },
+      styles: { fontSize: 8 }
+    });
+
+    // --- CONTRACTOR SUMMARY ---
+    const finalY = doc.lastAutoTable.finalY || 50;
+    doc.setFontSize(14);
+    doc.text("Contractor Consolidation", 14, finalY + 15);
+
+    doc.autoTable({
+      startY: finalY + 20,
+      head: [["Total Contract Staff", "Total Fines Levied", "Total Net Owed", "Total Paid Out", "Remaining Pending"]],
+      body: [[
+        contractStaff.length.toString(),
+        `Rs. ${contractorFines.toLocaleString()}`,
+        `Rs. ${contractorNetOwed.toLocaleString()}`,
+        `Rs. ${contractorPayouts.toLocaleString()}`,
+        `Rs. ${contractorPending.toLocaleString()}`
+      ]],
+      theme: 'grid',
+      headStyles: { fillColor: [22, 163, 74] }
+    });
+
+    // --- TRANSACTION LOG ---
+    const logY = doc.lastAutoTable.finalY || finalY + 20;
+    doc.addPage();
+    doc.setFontSize(14);
+    doc.text("Transaction Log (Payouts, Advances, Bonuses, Fines)", 14, 22);
+
+    const logData = ledger.map(l => {
+      const emp = active.find(e => e.id === l.employee_id);
+      return [
+        l.date,
+        emp ? emp.name : "Unknown",
+        l.transaction_type,
+        `Rs. ${Number(l.amount).toLocaleString()}`,
+        l.notes || ""
+      ];
+    });
+
+    doc.autoTable({
+      startY: 30,
+      head: [["Date", "Employee / Target", "Type", "Amount", "Notes"]],
+      body: logData,
+      theme: 'striped',
+      styles: { fontSize: 8 }
+    });
+
+    doc.save(`PRFM_Payroll_Report_${today.replace(/\//g, "-")}.pdf`);
+  };
+
   return (
     <div style={css.page}>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 10, color: C.textDim, letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>PAYROLL</div>
-        <div style={{ fontSize: 22, fontWeight: 700 }}>Salary Calculation</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20, flexWrap: "wrap", gap: 15 }}>
+        <div>
+          <div style={{ fontSize: 10, color: C.textDim, letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>FINANCE</div>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>Payroll & Ledger</div>
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button style={css.btn(C.blue)} onClick={() => { setSelectedEmp(null); setShowTransactionModal(true); }}>+ Add Transaction</button>
+          <button style={css.btn(C.accent)} onClick={generatePDF}>📥 Export PDF Report</button>
+        </div>
       </div>
-      <div style={{ ...css.grid4, marginBottom: 20 }}>
-        <StatCard label="Total Payroll" value={`₹${totalPayroll.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`} sub="This month est." accent={C.green} />
-        <StatCard label="Total OT Cost" value={`₹${totalOT.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`} sub="Overtime" accent={C.accent} />
-        <StatCard label="Staff on Payroll" value={active.length} sub="Active" accent={C.blue} />
-        <StatCard label="OT Rate" value="1×" sub="Per hour basis" accent={C.textDim} />
-      </div>
-      <div style={{ overflowX: "auto" }}>
+
+      {showTransactionModal && (
+        <div style={{ ...css.card, marginBottom: 20, borderColor: C.blue + "44", background: C.blue + "08" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 15 }}>
+            <div style={css.sectionTitle}>New Ledger Transaction</div>
+            <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16 }} onClick={() => setShowTransactionModal(false)}>✕</button>
+          </div>
+          
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12 }}>
+             <div>
+              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TRANSACTION TYPE</div>
+              <select style={{ ...css.input, width: "100%" }} value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
+                <option value="Advance">Advance (Deduction)</option>
+                <option value="Fine">Fine / Penalty (Deduction)</option>
+                <option value="Bonus">Bonus (Addition)</option>
+                <option value="Payout">Actual Payout (Settlement)</option>
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>EMPLOYEE / TARGET</div>
+              <select style={{ ...css.input, width: "100%" }} value={selectedEmp?.id || ""} onChange={e => setSelectedEmp(active.find(emp => emp.id === e.target.value))}>
+                <option value="">-- Select Employee --</option>
+                <optgroup label="Company Staff">
+                  {companyStaff.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                </optgroup>
+                <optgroup label="Contractors (Consolidated)">
+                  {contractStaff.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                  <option value="contractor_bulk" disabled>--- (Payouts log to first contractor) ---</option>
+                </optgroup>
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>AMOUNT (₹)</div>
+              <input type="number" style={{ ...css.input, width: "100%" }} value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} placeholder="e.g. 500" />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>DATE</div>
+              <input type="date" style={{ ...css.input, width: "100%" }} value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} />
+            </div>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>NOTES (Reason)</div>
+              <input type="text" style={{ ...css.input, width: "100%" }} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Reason for fine, advance, bonus, or payment ref..." />
+            </div>
+          </div>
+          <button style={{ ...css.btn(C.blue), marginTop: 15 }} onClick={handleTransactionSubmit} disabled={saving || !isAdmin}>
+            {saving ? "Saving..." : "Record Transaction"}
+          </button>
+          {!isAdmin && <div style={{ fontSize: 10, color: C.red, marginTop: 8 }}>Only Admins can record financial transactions.</div>}
+        </div>
+      )}
+
+      {/* --- COMPANY STAFF SECTION --- */}
+      <div style={css.sectionTitle}>Individual Company Staff</div>
+      <div style={{ overflowX: "auto", marginBottom: 30 }}>
         <table style={css.table}>
-          <thead><tr>{["Employee", "Post", "Type", "Shift", "Base Salary", "OT Pay", "Deductions", "Total"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+          <thead><tr>{["Employee", "Post", "Base + OT", "Bonus", "Advances", "Fines", "Net Total", "Payouts Made", "Pending Due"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
           <tbody>
-            {rows.length === 0 && (
-              <tr><td colSpan={8} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No active employees.</td></tr>
-            )}
-            {rows.map(({ emp, pay }) => (
+            {companyRows.length === 0 && <tr><td colSpan={9} style={{ ...css.td, textAlign: "center", padding: 30 }}>No company employees.</td></tr>}
+            {companyRows.map(({ emp, totals }) => (
               <tr key={emp.id}>
-                <td style={css.td}><div style={{ fontWeight: 700 }}>{emp.name}</div></td>
+                <td style={css.td}><strong>{emp.name}</strong></td>
                 <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
-                <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
-                <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
-                <td style={css.td} align="right"><span style={{ color: C.text }}>₹{Number(pay.base).toLocaleString("en-IN")}</span></td>
-                <td style={css.td} align="right"><span style={{ color: C.green }}>+ ₹{pay.ot.toFixed(2)}</span></td>
-                <td style={css.td} align="right"><span style={{ color: pay.deduct > 0 ? C.red : C.textDim }}>{pay.deduct > 0 ? `- ₹${pay.deduct.toFixed(2)}` : "—"}</span></td>
-                <td style={css.td} align="right"><strong style={{ color: C.accent, fontSize: 14 }}>₹{pay.total.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</strong></td>
+                <td style={css.td}>₹{(totals.base + totals.ot).toLocaleString()}</td>
+                <td style={css.td}><span style={{ color: C.green }}>+ ₹{totals.totalBonus.toLocaleString()}</span></td>
+                <td style={css.td}><span style={{ color: C.red }}>- ₹{totals.totalAdvance.toLocaleString()}</span></td>
+                <td style={css.td}><span style={{ color: C.red }}>- ₹{totals.totalFine.toLocaleString()}</span></td>
+                <td style={css.td}><strong>₹{totals.netOwed.toLocaleString()}</strong></td>
+                <td style={css.td}><span style={{ color: C.blue }}>₹{totals.totalPayouts.toLocaleString()}</span></td>
+                <td style={css.td}>
+                  <strong style={{ color: totals.pendingAmount > 0 ? C.accent : C.green, fontSize: 14 }}>
+                    ₹{totals.pendingAmount.toLocaleString()}
+                  </strong>
+                </td>
               </tr>
             ))}
           </tbody>
-          <tfoot>
-            <tr style={{ borderTop: `2px solid ${C.border}` }}>
-              <td colSpan={7} style={{ ...css.td, textAlign: "right", color: C.textDim, fontSize: 11, letterSpacing: 2, textTransform: "uppercase" }}>Total Payroll</td>
-              <td style={css.td} align="right"><strong style={{ color: C.green, fontSize: 16 }}>₹{totalPayroll.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</strong></td>
-            </tr>
-          </tfoot>
+        </table>
+      </div>
+
+      {/* --- CONTRACTOR CONSOLIDATION SECTION --- */}
+      <div style={css.sectionTitle}>Contractor Consolidation (Grouped)</div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={css.table}>
+          <thead><tr>{["Group", "Total Staff", "Base + OT Total", "Total Fines", "Net Owed to Contractor", "Payouts Made", "Pending Due"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+          <tbody>
+            {contractStaff.length === 0 ? (
+               <tr><td colSpan={7} style={{ ...css.td, textAlign: "center", padding: 30 }}>No contract employees.</td></tr>
+            ) : (
+              <tr style={{ background: C.green + "08" }}>
+                <td style={css.td}><strong>Contract Labor Group</strong></td>
+                <td style={css.td}><span style={css.badge(C.green)}>{contractStaff.length} People</span></td>
+                <td style={css.td}>₹{contractorRows.reduce((s, r) => s + r.totals.base + r.totals.ot, 0).toLocaleString()}</td>
+                <td style={css.td}><span style={{ color: C.red }}>- ₹{contractorFines.toLocaleString()}</span></td>
+                <td style={css.td}><strong>₹{contractorNetOwed.toLocaleString()}</strong></td>
+                <td style={css.td}><span style={{ color: C.blue }}>₹{contractorPayouts.toLocaleString()}</span></td>
+                <td style={css.td}>
+                  <strong style={{ color: contractorPending > 0 ? C.accent : C.green, fontSize: 16 }}>
+                    ₹{contractorPending.toLocaleString()}
+                  </strong>
+                </td>
+              </tr>
+            )}
+          </tbody>
         </table>
       </div>
     </div>
