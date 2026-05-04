@@ -616,12 +616,18 @@ function PayrollView({ employees, attendance, posts, ledger, setLedger, user }) 
 
 function StaffView({ employees, setEmployees, posts, ledger }) {
   const [viewing, setViewing] = useState(null);
+  
+  // Safety check: shows a loader if data is still fetching
+  if (!employees) return <div style={{ padding: 20 }}>Loading workforce data...</div>;
+
   const active = employees.filter(e => e.status === "active");
 
   const markInactive = async (emp) => {
     if (!window.confirm(`Mark ${emp.name} as left/inactive?`)) return;
-    await supabase.from("employees").update({ status: "inactive" }).eq("id", emp.id);
-    setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "inactive" } : e));
+    const { error } = await supabase.from("employees").update({ status: "inactive" }).eq("id", emp.id);
+    if (!error) {
+      setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "inactive" } : e));
+    }
   };
 
   return (
@@ -629,7 +635,7 @@ function StaffView({ employees, setEmployees, posts, ledger }) {
       {/* --- INDIVIDUAL PROFILE POPUP --- */}
       {viewing && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-          <div style={{ ...css.card, maxWidth: 500, width: "100%", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.2)" }}>
+          <div style={{ ...css.card, maxWidth: 500, width: "100%" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <div style={{ fontSize: 18, fontWeight: 700, color: C.accent }}>Staff Profile</div>
               <button onClick={() => setViewing(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20 }}>✕</button>
@@ -637,20 +643,21 @@ function StaffView({ employees, setEmployees, posts, ledger }) {
             
             <div style={{ textAlign: "center", marginBottom: 25, borderBottom: `1px solid ${C.border}`, paddingBottom: 20 }}>
               <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>{viewing.name}</div>
-              <span style={css.badge(staffTypeColor(viewing.staff_type))}>{viewing.staff_type}</span>
+              <span style={css.badge(C.green)}>{viewing.staff_type}</span>
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 25 }}>
-              <div><div style={{ fontSize: 10, color: C.textDim, letterSpacing: 1 }}>AADHAR NUMBER</div><strong style={{ fontSize: 13 }}>{viewing.aadhar}</strong></div>
-              <div><div style={{ fontSize: 10, color: C.textDim, letterSpacing: 1 }}>POST / ROLE</div><strong style={{ fontSize: 13 }}>{viewing.post}</strong></div>
-              <div><div style={{ fontSize: 10, color: C.textDim, letterSpacing: 1 }}>ASSIGNED SHIFT</div><strong style={{ fontSize: 13 }}>{viewing.shift}</strong></div>
-              <div><div style={{ fontSize: 10, color: C.textDim, letterSpacing: 1 }}>BASE SALARY</div><strong style={{ fontSize: 13 }}>₹{Number(viewing.base_salary).toLocaleString()}</strong></div>
+              <div><div style={{ fontSize: 10, color: C.textDim }}>AADHAR</div><strong>{viewing.aadhar}</strong></div>
+              <div><div style={{ fontSize: 10, color: C.textDim }}>POST / ROLE</div><strong>{viewing.post}</strong></div>
+              <div><div style={{ fontSize: 10, color: C.textDim }}>SHIFT</div><strong>{viewing.shift}</strong></div>
+              <div><div style={{ fontSize: 10, color: C.textDim }}>SALARY</div><strong>₹{Number(viewing.base_salary).toLocaleString()}</strong></div>
             </div>
 
             <div style={css.sectionTitle}>Recent Ledger Activity</div>
             <div style={{ maxHeight: 200, overflowY: "auto", background: C.bg, borderRadius: 6, padding: 10 }}>
-              {ledger.filter(l => l.employee_id === viewing.id).length === 0 ? (
-                <div style={{ fontSize: 12, color: C.textDim, textAlign: "center", padding: 10 }}>No transactions found for this employee.</div>
+              {/* Safety check: uses empty array if ledger is undefined */}
+              {(ledger || []).filter(l => l.employee_id === viewing.id).length === 0 ? (
+                <div style={{ fontSize: 12, color: C.textDim, textAlign: "center", padding: 10 }}>No history found.</div>
               ) : (
                 ledger.filter(l => l.employee_id === viewing.id).map(l => (
                   <div key={l.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
@@ -659,7 +666,7 @@ function StaffView({ employees, setEmployees, posts, ledger }) {
                       <div style={{ fontSize: 10, color: C.textDim }}>{l.date}</div>
                     </div>
                     <strong style={{ fontSize: 13, color: l.transaction_type === "Bonus" ? C.green : C.red }}>
-                      {l.transaction_type === "Bonus" ? "+" : "-"} ₹{Number(l.amount).toLocaleString()}
+                      ₹{Number(l.amount).toLocaleString()}
                     </strong>
                   </div>
                 ))
@@ -677,7 +684,7 @@ function StaffView({ employees, setEmployees, posts, ledger }) {
       <div style={{ overflowX: "auto" }}>
         <table style={css.table}>
           <thead>
-            <tr>{["Name", "Post", "Shift", "Type", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr>
+            <tr>{["Name", "Post", "Shift", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr>
           </thead>
           <tbody>
             {active.map(emp => (
@@ -686,8 +693,7 @@ function StaffView({ employees, setEmployees, posts, ledger }) {
                   <div style={{ color: C.accent, fontWeight: 700, textDecoration: "underline" }}>{emp.name}</div>
                 </td>
                 <td style={css.td}>{emp.post}</td>
-                <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
-                <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
+                <td style={css.td}>{emp.shift}</td>
                 <td style={css.td}>
                   <button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => markInactive(emp)}>Remove</button>
                 </td>
@@ -942,7 +948,14 @@ export default function App() {
         <>
           {tab === "dashboard" && <DashboardView employees={employees} attendance={attendance} posts={posts} />}
           {tab === "attendance" && <AttendanceView employees={employees} user={user} />}
-          {tab === "staff" && <StaffView employees="{employees}" setEmployees="{setEmployees}" posts="{posts}" ledger="{ledger}"/>}
+          {tab === "staff" && (
+  <StaffView 
+    employees={employees} 
+    setEmployees={setEmployees} 
+    posts={posts} 
+    ledger={ledger} 
+  />
+)}
           {tab === "payroll" && <PayrollView employees={employees} attendance={attendance} posts={posts} ledger={ledger} setLedger={setLedger} user={user} />}
           {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} />}
         </>
