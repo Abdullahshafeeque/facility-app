@@ -434,103 +434,113 @@ function AttendanceView({ employees, user }) {
     </div>
   );
 }
-const generateAdvancedPDF = ({ target, start, end, ledger, employees }) => {
+const generateAdvancedPDF = async ({ target, start, end, ledger, employees }) => {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   
-  const filteredLedger = ledger.filter(l => {
-    const isDateInRange = l.date >= start && l.date <= end;
-    const isTargetMatch = target === "All" || l.employee_id === target;
-    return isDateInRange && isTargetMatch;
-  });
+  // Fetch range attendance for PDF specifically to ensure historical accuracy
+  const { data: rangeAtt } = await supabase.from("attendance").select("*").gte("date", start).lte("date", end);
 
   doc.setFontSize(18);
-  doc.text("PRFM HR - Financial Statement", 14, 22);
+  doc.text("Punathil Roller Flour Mills - Payroll Report", 14, 22);
   doc.setFontSize(10);
   doc.text(`Period: ${start} to ${end}`, 14, 30);
-  doc.text(`Target: ${target === "All" ? "Full Workforce" : employees.find(e => e.id === target)?.name}`, 14, 35);
+  doc.text(`Scope: ${target === "All" ? "Full Workforce" : "Individual Record"}`, 14, 35);
 
-  const tableData = filteredLedger.map(l => [
-    l.date,
-    employees.find(e => e.id === l.employee_id)?.name || "Unknown",
-    l.transaction_type,
-    `Rs. ${Number(l.amount).toLocaleString()}`,
-    l.notes || "-"
-  ]);
+  const tableData = employees.filter(e => target === "All" || e.id === target).map(emp => {
+    const staffAtt = (rangeAtt || []).filter(a => a.employee_id === emp.id);
+    const absentDays = staffAtt.filter(a => a.status === "Absent").length;
+    const totalOT = staffAtt.reduce((sum, a) => sum + (Number(a.ot_hours) || 0), 0);
+    
+    // Ledger filtering
+    const staffLedger = ledger.filter(l => l.employee_id === emp.id && l.date >= start && l.date <= end);
+    const bonuses = staffLedger.filter(l => l.transaction_type === "Bonus").reduce((sum, l) => sum + Number(l.amount), 0);
+    const advances = staffLedger.filter(l => l.transaction_type === "Advance" || l.transaction_type === "Fine").reduce((sum, l) => sum + Number(l.amount), 0);
+    const paid = staffLedger.filter(l => l.transaction_type === "Payout").reduce((sum, l) => sum + Number(l.amount), 0);
+
+    return [
+      emp.name,
+      emp.post,
+      `${absentDays} Days`,
+      `${totalOT} Hrs`,
+      `Rs. ${bonuses}`,
+      `Rs. ${advances}`,
+      `Rs. ${paid}`
+    ];
+  });
 
   window.jspdf.autoTable(doc, {
-    startY: 45,
-    head: [["Date", "Name", "Type", "Amount", "Notes"]],
+    startY: 40,
+    head: [["Name", "Post", "Absences", "OT", "Bonuses", "Adv/Fines", "Paid"]],
     body: tableData,
     theme: 'grid',
     headStyles: { fillColor: [30, 111, 219] },
     styles: { fontSize: 8 }
   });
 
-  doc.save(`PRFM_Report_${start}_to_${end}.pdf`);
+  doc.save(`PRFM_Payroll_${start}_to_${end}.pdf`);
 };
 
 function PayrollView({ employees, attendance, posts, ledger, setLedger, user }) {
   const [target, setTarget] = useState("All");
   const [start, setStart] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
   const [end, setEnd] = useState(new Date().toISOString().split('T')[0]);
+  const [rangeAttendance, setRangeAttendance] = useState([]); 
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ type: "Advance", amount: "", notes: "", date: new Date().toISOString().split("T")[0], empId: "" });
   const [saving, setSaving] = useState(false);
 
   const active = employees.filter(e => e.status === "active");
 
-  // --- COMPREHENSIVE CALCULATION ENGINE ---
+  // Fetch all attendance records for the selected range to calculate deductions/OT
+  useEffect(() => {
+    const fetchRangeAttendance = async () => {
+      const { data, error } = await supabase.from("attendance").select("*").gte("date", start).lte("date", end);
+      if (!error && data) setRangeAttendance(data);
+    };
+    fetchRangeAttendance();
+  }, [start, end]);
+
   const calculateStaffFinances = (emp) => {
-    // 1. Determine base monthly salary
+    // 1. Get Base Salary (Company or Contract)
     const salary = emp.staff_type === "contract" 
       ? (posts.find(p => p.name === emp.post)?.contract_salary || 0) 
       : emp.base_salary;
     
-    // 2. Fetch all ledger entries for this person in the selected date range
+    // 2. Define Rates (26-Day Month)
+    const dailyRate = salary / 26;
+    const hourlyRate = dailyRate / 12;
+
+    // 3. Attendance Logic
+    const staffAtt = rangeAttendance.filter(a => a.employee_id === emp.id);
+    const absentDays = staffAtt.filter(a => a.status === "Absent").length;
+    const totalOTHours = staffAtt.reduce((sum, a) => sum + (Number(a.ot_hours) || 0), 0);
+
+    const attendanceDeduction = absentDays * dailyRate;
+    const otEarnings = totalOTHours * hourlyRate;
+
+    // 4. Ledger Logic
     const staffLedger = ledger.filter(l => l.employee_id === emp.id && l.date >= start && l.date <= end);
-    
-    const totalAdvances = staffLedger
-      .filter(l => l.transaction_type === "Advance" || l.transaction_type === "Fine")
-      .reduce((sum, l) => sum + Number(l.amount), 0);
-      
-    const totalPaid = staffLedger
-      .filter(l => l.transaction_type === "Payout")
-      .reduce((sum, l) => sum + Number(l.amount), 0);
-      
-    const totalBonuses = staffLedger
-      .filter(l => l.transaction_type === "Bonus")
-      .reduce((sum, l) => sum + Number(l.amount), 0);
+    const totalAdvances = staffLedger.filter(l => l.transaction_type === "Advance" || l.transaction_type === "Fine").reduce((sum, l) => sum + Number(l.amount), 0);
+    const totalPaid = staffLedger.filter(l => l.transaction_type === "Payout").reduce((sum, l) => sum + Number(l.amount), 0);
+    const totalBonuses = staffLedger.filter(l => l.transaction_type === "Bonus").reduce((sum, l) => sum + Number(l.amount), 0);
 
-    // 3. Pending Balance Calculation
-    // We assume 'Salary' is the target for the month. 
-    // Net Balance = (Monthly Salary + Bonuses) - (Advances + Previous Payouts)
-    const netBalance = (salary + totalBonuses) - (totalAdvances + totalPaid);
+    // 5. Final Calculation
+    const netPayable = (salary + totalBonuses + otEarnings) - (attendanceDeduction + totalAdvances + totalPaid);
 
-    return { salary, totalAdvances, totalPaid, totalBonuses, netBalance };
+    return { salary, totalAdvances, totalPaid, totalBonuses, absentDays, attendanceDeduction, otEarnings, netPayable };
   };
 
   const handleTransactionSubmit = async () => {
-    // MANDATORY FIELD CHECK
-    if (!form.empId || !form.amount || Number(form.amount) <= 0 || !form.date) {
-      return alert("ALL FIELDS ARE MANDATORY: Select a staff member, enter a valid amount, and pick a date.");
-    }
-
+    if (!form.empId || !form.amount || Number(form.amount) <= 0) return alert("Select staff and enter valid amount.");
     setSaving(true);
     const { data, error } = await supabase.from("financial_ledger").insert({
-      employee_id: form.empId,
-      date: form.date,
-      transaction_type: form.type,
-      amount: Number(form.amount),
-      notes: form.notes
+      employee_id: form.empId, date: form.date, transaction_type: form.type, amount: Number(form.amount), notes: form.notes
     }).select().single();
-
     if (!error && data) {
       setLedger(prev => [data, ...prev]);
       setShowModal(false);
       setForm({ type: "Advance", amount: "", notes: "", date: new Date().toISOString().split("T")[0], empId: "" });
-    } else {
-      alert("Error: " + (error?.message || "Database connection issue"));
     }
     setSaving(false);
   };
@@ -539,115 +549,73 @@ function PayrollView({ employees, attendance, posts, ledger, setLedger, user }) 
     <div style={css.page}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20 }}>
         <div>
-          <div style={css.sectionTitle}>Financial Oversight</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>Payroll & Pending Balances</div>
+          <div style={css.sectionTitle}>Attendance-Linked Payroll</div>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>Financial Oversight</div>
         </div>
         <button style={css.btn(C.blue)} onClick={() => setShowModal(true)}>+ Register Payment/Advance</button>
       </div>
 
-      {/* --- FILTER & REPORTING SECTION --- */}
       <div style={{ ...css.card, marginBottom: 20, background: "#f8fafc" }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 15, alignItems: "flex-end" }}>
-          <div>
-            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>VIEW MODE</div>
-            <select style={{ ...css.input, width: "100%" }} value={target} onChange={e => setTarget(e.target.value)}>
-              <option value="All">Full Workforce Summary</option>
-              {active.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-            </select>
-          </div>
+          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FILTER</div><select style={{ ...css.input, width: "100%" }} value={target} onChange={e => setTarget(e.target.value)}><option value="All">All Staff</option>{active.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></div>
           <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={{...css.input, width:"100%"}} value={start} onChange={e => setStart(e.target.value)} /></div>
           <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={{...css.input, width:"100%"}} value={end} onChange={e => setEnd(e.target.value)} /></div>
-          <button style={css.btn(C.accent)} onClick={() => generateAdvancedPDF({ target, start, end, ledger, employees })}>Extract PDF Report</button>
+          <button style={css.btn(C.accent)} onClick={() => generateAdvancedPDF({ target, start, end, ledger, employees })}>📥 Extract PDF Report</button>
         </div>
       </div>
 
-      {/* --- LIVE FINANCIAL TABLE --- */}
-      <div style={{ ...css.card, padding: 0, overflow: "hidden", border: `1px solid ${C.border}` }}>
+      <div style={{ ...css.card, padding: 0, overflowX: "auto", border: `1px solid ${C.border}` }}>
         <table style={css.table}>
           <thead>
             <tr style={{ background: C.bg }}>
               <th style={css.th}>Staff Member</th>
               <th style={css.th}>Base Salary</th>
-              <th style={css.th}>Advances/Fines</th>
-              <th style={css.th}>Bonuses</th>
-              <th style={css.th}>Paid Out</th>
+              <th style={css.th}>Absence Deductions</th>
+              <th style={css.th}>OT Earnings</th>
+              <th style={css.th}>Ledger (Bonus/Fine)</th>
+              <th style={css.th}>Total Paid</th>
               <th style={{ ...css.th, background: C.accentDim, color: C.accent }}>Net Payable</th>
             </tr>
           </thead>
           <tbody>
-            {active
-              .filter(e => target === "All" || e.id === target)
-              .map(emp => {
-                const fin = calculateStaffFinances(emp);
-                return (
-                  <tr key={emp.id}>
-                    <td style={css.td}>
-                        <strong>{emp.name}</strong><br/>
-                        <span style={{fontSize: 9, color: C.textDim}}>{emp.post.toUpperCase()} • {emp.staff_type}</span>
-                    </td>
-                    <td style={css.td}>₹{fin.salary.toLocaleString()}</td>
-                    <td style={{ ...css.td, color: C.red }}>-₹{fin.totalAdvances.toLocaleString()}</td>
-                    <td style={{ ...css.td, color: C.green }}>+₹{fin.totalBonuses.toLocaleString()}</td>
-                    <td style={css.td}>₹{fin.totalPaid.toLocaleString()}</td>
-                    <td style={{ ...css.td, background: C.accentDim }}>
-                      <strong style={{ color: fin.netBalance < 0 ? C.red : C.accent, fontSize: 14 }}>
-                        ₹{fin.netBalance.toLocaleString()}
-                      </strong>
-                    </td>
-                  </tr>
-                );
-              })}
+            {active.filter(e => target === "All" || e.id === target).map(emp => {
+              const fin = calculateStaffFinances(emp);
+              return (
+                <tr key={emp.id}>
+                  <td style={css.td}><strong>{emp.name}</strong><br/><small style={{color: C.textDim}}>{emp.post.toUpperCase()}</small></td>
+                  <td style={css.td}>₹{fin.salary.toLocaleString()}</td>
+                  <td style={{ ...css.td, color: C.red }}>-₹{Math.round(fin.attendanceDeduction).toLocaleString()}<br/><small>({fin.absentDays} days)</small></td>
+                  <td style={{ ...css.td, color: C.green }}>+₹{Math.round(fin.otEarnings).toLocaleString()}</td>
+                  <td style={css.td}>
+                    <span style={{color: C.green}}>+₹{fin.totalBonuses}</span><br/>
+                    <span style={{color: C.red}}>-₹{fin.totalAdvances}</span>
+                  </td>
+                  <td style={css.td}>₹{fin.totalPaid.toLocaleString()}</td>
+                  <td style={{ ...css.td, background: C.accentDim }}>
+                    <strong style={{ color: fin.netPayable < 0 ? C.red : C.accent, fontSize: 14 }}>
+                        ₹{Math.round(fin.netPayable).toLocaleString()}
+                    </strong>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
 
-      {/* --- NEW TRANSACTION MODAL (FULL VERSION) --- */}
       {showModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-          <div style={{ ...css.card, maxWidth: 450, width: "100%", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.3)" }}>
-             <div style={{ ...css.sectionTitle, marginBottom: 20 }}>Register New Transaction</div>
+          <div style={{ ...css.card, maxWidth: 450, width: "100%" }}>
+             <div style={css.sectionTitle}>Register Transaction</div>
              <div style={{ display: "flex", flexDirection: "column", gap: 15 }}>
-                
-                <div>
-                  <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>SELECT STAFF MEMBER (MANDATORY)</div>
-                  <select style={{ ...css.input, width: "100%" }} value={form.empId} onChange={e => setForm({...form, empId: e.target.value})}>
-                    <option value="">-- Select Person --</option>
-                    {active.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-                  </select>
-                </div>
-
+                <select style={css.input} value={form.empId} onChange={e => setForm({...form, empId: e.target.value})}><option value="">-- Select Person --</option>{active.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TYPE</div>
-                    <select style={{ ...css.input, width: "100%" }} value={form.type} onChange={e => setForm({...form, type: e.target.value})}>
-                      <option value="Advance">Advance</option>
-                      <option value="Bonus">Bonus</option>
-                      <option value="Fine">Fine / Penalty</option>
-                      <option value="Payout">Salary Payout</option>
-                    </select>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>DATE</div>
-                    <input type="date" style={{ ...css.input, width: "100%" }} value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
-                  </div>
+                  <select style={css.input} value={form.type} onChange={e => setForm({...form, type: e.target.value})}><option value="Advance">Advance</option><option value="Bonus">Bonus</option><option value="Fine">Fine</option><option value="Payout">Salary Payout</option></select>
+                  <input type="date" style={css.input} value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
                 </div>
-
-                <div>
-                  <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>AMOUNT (₹)</div>
-                  <input type="number" placeholder="Enter Amount" style={{ ...css.input, width: "100%", fontSize: 16, fontWeight: 700 }} value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} />
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>REMARKS / NOTES</div>
-                  <input type="text" placeholder="e.g. For festival, emergency, etc." style={{ ...css.input, width: "100%" }} value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} />
-                </div>
-
-                <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-                  <button style={{ ...css.btn(C.blue), flex: 1, padding: 12 }} onClick={handleTransactionSubmit} disabled={saving}>
-                    {saving ? "Processing..." : "Confirm & Save"}
-                  </button>
-                  <button style={{ ...css.btn(C.red), flex: 1, padding: 12 }} onClick={() => setShowModal(false)}>Cancel</button>
-                </div>
+                <input type="number" placeholder="Amount (₹)" style={{ ...css.input, fontSize: 16, fontWeight: 700 }} value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} />
+                <input type="text" placeholder="Remarks" style={css.input} value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} />
+                <div style={{ display: "flex", gap: 10 }}><button style={{ ...css.btn(C.blue), flex: 1 }} onClick={handleTransactionSubmit} disabled={saving}>{saving ? "Saving..." : "Save Transaction"}</button><button style={{ ...css.btn(C.red), flex: 1 }} onClick={() => setShowModal(false)}>Cancel</button></div>
              </div>
           </div>
         </div>
@@ -655,7 +623,6 @@ function PayrollView({ employees, attendance, posts, ledger, setLedger, user }) 
     </div>
   );
 }
-
 function StaffView({ employees, setEmployees, posts, ledger }) {
   const [viewing, setViewing] = useState(null);
   const [showForm, setShowForm] = useState(false);
