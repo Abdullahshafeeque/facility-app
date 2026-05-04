@@ -159,58 +159,187 @@ function DashboardView({ employees, attendance, posts }) {
   );
 }
 
-function AttendanceView({ employees, attendance, setAttendance }) {
+function AttendanceView({ employees, user }) {
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [dayAttendance, setDayAttendance] = useState({});
   const [filterShift, setFilterShift] = useState("All");
+  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
   const active = employees.filter(e => e.status === "active");
   const filtered = filterShift === "All" ? active : active.filter(e => e.shift === filterShift);
-  const today = new Date().toISOString().split("T")[0];
+  
+  // Security check: Is this you?
+  const isAdmin = user?.email === "abdshafeeque@gmail.com";
+  // Lock the UI if it's submitted AND the user is not you
+  const isLocked = isSubmitted && !isAdmin;
 
-  const toggle = async (id, field, value) => {
-    setAttendance(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
-    const existing = attendance[id];
-    if (existing?.dbId) {
-      await supabase.from("attendance").update({ [field === "status" ? "status" : "ot_hours"]: value }).eq("id", existing.dbId);
-    } else {
-      const { data } = await supabase.from("attendance").insert({ employee_id: id, date: today, status: field === "status" ? value : "Present", ot_hours: field === "ot_hours" ? value : 0 }).select().single();
-      if (data) setAttendance(prev => ({ ...prev, [id]: { ...prev[id], dbId: data.id } }));
+  // Fetch attendance and submission status whenever the date changes
+  useEffect(() => {
+    const loadDay = async () => {
+      setLoading(true);
+      
+      // 1. Check if this specific day has been submitted/locked
+      const { data: subData } = await supabase.from("daily_submissions").select("*").eq("date", selectedDate).single();
+      setIsSubmitted(!!subData);
+
+      // 2. Fetch the attendance records for this specific date
+      const { data: attData } = await supabase.from("attendance").select("*").eq("date", selectedDate);
+      const attMap = {};
+      if (attData) {
+        attData.forEach(a => { attMap[a.employee_id] = { status: a.status, ot_hours: a.ot_hours, dbId: a.id }; });
+      }
+      setDayAttendance(attMap);
+      setLoading(false);
+    };
+    loadDay();
+  }, [selectedDate]);
+
+  // Update local draft state (does not save to DB yet)
+  const toggle = (id, field, value) => {
+    if (isLocked) return; // Prevent edits if locked by admin
+    setDayAttendance(prev => ({
+      ...prev,
+      [id]: { ...(prev[id] || { status: "Present", ot_hours: 0 }), [field]: value }
+    }));
+  };
+
+  const handleSubmit = async () => {
+    if (!window.confirm(`Save and submit attendance for ${selectedDate}?`)) return;
+    setSaving(true);
+
+    // Prepare all active employees for bulk insertion
+    const insertData = active.map(emp => {
+      const rec = dayAttendance[emp.id] || { status: "Present", ot_hours: 0 };
+      return {
+        employee_id: emp.id,
+        date: selectedDate,
+        status: rec.status,
+        ot_hours: rec.ot_hours
+      };
+    });
+
+    // 1. Wipe existing records for this day to avoid duplicates
+    await supabase.from("attendance").delete().eq("date", selectedDate);
+    
+    // 2. Insert the fresh data
+    const { error: attError } = await supabase.from("attendance").insert(insertData);
+
+    // 3. Lock the day (if not already locked)
+    if (!isSubmitted && !attError) {
+      await supabase.from("daily_submissions").insert({ date: selectedDate });
+      setIsSubmitted(true);
     }
+
+    setSaving(false);
+    if (attError) alert("Error saving attendance. Check connection.");
+  };
+
+  const handleUnsubmit = async () => {
+    if (!window.confirm("Unlock this day? Staff will be able to edit it again.")) return;
+    await supabase.from("daily_submissions").delete().eq("date", selectedDate);
+    setIsSubmitted(false);
   };
 
   return (
     <div style={css.page}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20, flexWrap: "wrap", gap: 15 }}>
         <div>
-          <div style={{ fontSize: 10, color: C.textDim, letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>ATTENDANCE LOG</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>Daily Attendance · {today}</div>
+          <div style={{ fontSize: 10, color: C.textDim, letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>ATTENDANCE LOG</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {/* The Date Picker */}
+            <input 
+              type="date" 
+              value={selectedDate} 
+              onChange={e => setSelectedDate(e.target.value)} 
+              style={{ ...css.input, fontSize: 18, fontWeight: 700, padding: "8px 12px", border: `2px solid ${C.accent}44` }}
+            />
+            {isSubmitted ? (
+              <span style={css.badge(isAdmin ? C.accent : C.green)}>
+                {isAdmin ? "⚠ SUBMITTED (ADMIN OVERRIDE ACTIVE)" : "✓ SUBMITTED & LOCKED"}
+              </span>
+            ) : (
+              <span style={css.badge(C.textDim)}>DRAFT MODE</span>
+            )}
+          </div>
         </div>
+        
         <div style={{ display: "flex", gap: 6 }}>
           {["All", "Morning", "Night"].map(s => <button key={s} style={css.navBtn(filterShift === s)} onClick={() => setFilterShift(s)}>{s}</button>)}
         </div>
       </div>
-      <div style={{ overflowX: "auto" }}>
-        <table style={css.table}>
-          <thead><tr>{["Name", "Post", "Type", "Shift", "Status", "OT Hours", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
-          <tbody>
-            {filtered.length === 0 && (
-              <tr><td colSpan={7} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No active employees.</td></tr>
-            )}
-            {filtered.map(emp => {
-              const rec = attendance[emp.id] || { status: "Present", ot_hours: 0 };
-              return (
-                <tr key={emp.id} style={{ background: rec.status === "Absent" ? C.red + "08" : "transparent" }}>
-                  <td style={css.td}><div style={{ fontWeight: 700 }}>{emp.name}</div></td>
-                  <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
-                  <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
-                  <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
-                  <td style={css.td}><span style={css.badge(statusColor(rec.status))}>{rec.status}</span></td>
-                  <td style={css.td}><input type="number" min="0" max="12" step="0.5" value={rec.ot_hours || 0} onChange={e => toggle(emp.id, "ot_hours", +e.target.value)} style={{ ...css.input, width: 60, textAlign: "center" }} /></td>
-                  <td style={css.td}><div style={{ display: "flex", gap: 6 }}>{["Present", "Absent", "Leave"].map(s => <button key={s} style={{ ...css.btn(statusColor(s)), opacity: rec.status === s ? 1 : 0.35, padding: "4px 10px", fontSize: 10 }} onClick={() => toggle(emp.id, "status", s)}>{s}</button>)}</div></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 40, color: C.textDim }}>Loading {selectedDate}...</div>
+      ) : (
+        <>
+          <div style={{ overflowX: "auto", opacity: isLocked ? 0.7 : 1, transition: "opacity 0.2s" }}>
+            <table style={css.table}>
+              <thead><tr>{["Name", "Post", "Type", "Shift", "Status", "OT Hours", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {filtered.length === 0 && (
+                  <tr><td colSpan={7} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No active employees.</td></tr>
+                )}
+                {filtered.map(emp => {
+                  const rec = dayAttendance[emp.id] || { status: "Present", ot_hours: 0 };
+                  return (
+                    <tr key={emp.id} style={{ background: rec.status === "Absent" ? C.red + "08" : "transparent" }}>
+                      <td style={css.td}><div style={{ fontWeight: 700 }}>{emp.name}</div></td>
+                      <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
+                      <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
+                      <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
+                      <td style={css.td}><span style={css.badge(statusColor(rec.status))}>{rec.status}</span></td>
+                      <td style={css.td}>
+                        <input 
+                          type="number" min="0" max="12" step="0.5" 
+                          value={rec.ot_hours || 0} 
+                          onChange={e => toggle(emp.id, "ot_hours", +e.target.value)} 
+                          style={{ ...css.input, width: 60, textAlign: "center" }} 
+                          disabled={isLocked}
+                        />
+                      </td>
+                      <td style={css.td}>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          {["Present", "Absent", "Leave"].map(s => (
+                            <button 
+                              key={s} 
+                              style={{ ...css.btn(statusColor(s)), opacity: rec.status === s ? 1 : 0.25, padding: "4px 10px", fontSize: 10, cursor: isLocked ? "not-allowed" : "pointer" }} 
+                              onClick={() => toggle(emp.id, "status", s)}
+                              disabled={isLocked}
+                            >
+                              {s}
+                            </button>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Action Bar at the bottom */}
+          <div style={{ marginTop: 20, padding: 20, background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+             <div style={{ fontSize: 12, color: C.textDim }}>
+               {isLocked ? "This day has been submitted and cannot be changed." : "Changes are kept as a draft until you submit the day."}
+             </div>
+             
+             <div style={{ display: "flex", gap: 10 }}>
+               {isAdmin && isSubmitted && (
+                 <button style={css.btn(C.red)} onClick={handleUnsubmit}>Unlock Day</button>
+               )}
+               
+               {(!isSubmitted || isAdmin) && (
+                 <button style={css.btn(C.green)} onClick={handleSubmit} disabled={saving}>
+                   {saving ? "Saving..." : isSubmitted ? "Update Submitted Day" : "Submit Full Day"}
+                 </button>
+               )}
+             </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -643,7 +772,7 @@ export default function App() {
       ) : (
         <>
           {tab === "dashboard" && <DashboardView employees={employees} attendance={attendance} posts={posts} />}
-          {tab === "attendance" && <AttendanceView employees={employees} attendance={attendance} setAttendance={setAttendance} />}
+          {tab === "attendance" && <AttendanceView employees={employees} user={user} />}
           {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} />}
           {tab === "payroll" && <PayrollView employees={employees} attendance={attendance} posts={posts} />}
           {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} />}
