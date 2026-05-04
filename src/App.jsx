@@ -160,31 +160,35 @@ function DashboardView({ employees, attendance, posts }) {
 }
 
 function AttendanceView({ employees, user }) {
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+  // Helper to get local YYYY-MM-DD string reliably
+  const getLocalDateStr = (dObj = new Date()) => {
+    const d = new Date(dObj);
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().split('T')[0];
+  };
+
+  const todayStr = getLocalDateStr();
+  const [selectedDate, setSelectedDate] = useState(todayStr);
   const [dayAttendance, setDayAttendance] = useState({});
   const [filterShift, setFilterShift] = useState("All");
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [isHoliday, setIsHoliday] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const active = employees.filter(e => e.status === "active");
   const filtered = filterShift === "All" ? active : active.filter(e => e.shift === filterShift);
   
-  // Security check: Is this you?
   const isAdmin = user?.email === "abdshafeeque@gmail.com";
-  // Lock the UI if it's submitted AND the user is not you
   const isLocked = isSubmitted && !isAdmin;
 
-  // Fetch attendance and submission status whenever the date changes
   useEffect(() => {
     const loadDay = async () => {
       setLoading(true);
-      
-      // 1. Check if this specific day has been submitted/locked
       const { data: subData } = await supabase.from("daily_submissions").select("*").eq("date", selectedDate).single();
       setIsSubmitted(!!subData);
+      setIsHoliday(subData?.is_holiday || false);
 
-      // 2. Fetch the attendance records for this specific date
       const { data: attData } = await supabase.from("attendance").select("*").eq("date", selectedDate);
       const attMap = {};
       if (attData) {
@@ -196,40 +200,95 @@ function AttendanceView({ employees, user }) {
     loadDay();
   }, [selectedDate]);
 
-  // Update local draft state (does not save to DB yet)
   const toggle = (id, field, value) => {
-    if (isLocked) return; // Prevent edits if locked by admin
+    if (isLocked) return; 
     setDayAttendance(prev => ({
       ...prev,
       [id]: { ...(prev[id] || { status: "Present", ot_hours: 0 }), [field]: value }
     }));
   };
 
-  const handleSubmit = async () => {
-    if (!window.confirm(`Save and submit attendance for ${selectedDate}?`)) return;
+  const handleHolidaySubmit = async () => {
+    if (selectedDate > todayStr) return alert("Cannot submit for future dates!");
+    if (!window.confirm(`Mark ${selectedDate} as a Non-Functioning Holiday?\n\nStaff present yesterday will be marked Present. Staff absent yesterday will be marked Absent.`)) return;
     setSaving(true);
 
-    // Prepare all active employees for bulk insertion
+    // 1. Get yesterday's date to calculate carry-over
+    const yesterday = new Date(selectedDate);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = getLocalDateStr(yesterday);
+
+    // 2. Fetch yesterday's attendance
+    const { data: yAtt } = await supabase.from("attendance").select("*").eq("date", yesterdayStr);
+    const yMap = {};
+    if (yAtt) yAtt.forEach(a => yMap[a.employee_id] = a.status);
+
+    // 3. Prepare holiday data based on yesterday
     const insertData = active.map(emp => {
-      const rec = dayAttendance[emp.id] || { status: "Present", ot_hours: 0 };
+      const wasPresent = yMap[emp.id] === "Present";
       return {
         employee_id: emp.id,
         date: selectedDate,
-        status: rec.status,
-        ot_hours: rec.ot_hours
+        status: wasPresent ? "Present" : "Absent",
+        ot_hours: 0
       };
     });
 
-    // 1. Wipe existing records for this day to avoid duplicates
     await supabase.from("attendance").delete().eq("date", selectedDate);
-    
-    // 2. Insert the fresh data
     const { error: attError } = await supabase.from("attendance").insert(insertData);
 
-    // 3. Lock the day (if not already locked)
     if (!isSubmitted && !attError) {
-      await supabase.from("daily_submissions").insert({ date: selectedDate });
+      await supabase.from("daily_submissions").insert({ date: selectedDate, is_holiday: true });
       setIsSubmitted(true);
+      setIsHoliday(true);
+      
+      // Update local state to reflect new values
+      const newMap = {};
+      insertData.forEach(d => newMap[d.employee_id] = { status: d.status, ot_hours: 0 });
+      setDayAttendance(newMap);
+    }
+    setSaving(false);
+  };
+
+  const handleSubmit = async () => {
+    if (selectedDate > todayStr) return alert("Cannot submit for future dates!");
+    if (!window.confirm(`Save and submit regular attendance for ${selectedDate}?`)) return;
+    setSaving(true);
+
+    const insertData = active.map(emp => {
+      const rec = dayAttendance[emp.id] || { status: "Present", ot_hours: 0 };
+      return { employee_id: emp.id, date: selectedDate, status: rec.status, ot_hours: rec.ot_hours };
+    });
+
+    await supabase.from("attendance").delete().eq("date", selectedDate);
+    const { error: attError } = await supabase.from("attendance").insert(insertData);
+
+    if (!isSubmitted && !attError) {
+      // Upsert submission
+      const { error: subErr } = await supabase.from("daily_submissions").upsert({ date: selectedDate, is_holiday: false });
+      if (!subErr) {
+        setIsSubmitted(true);
+        setIsHoliday(false);
+      }
+    }
+
+    // --- SMART SANDWICH RULE CHECK ---
+    // If we just submitted today, check if yesterday was a holiday.
+    // If yes, anyone marked present today gets their yesterday (holiday) attendance switched to present!
+    const yesterday = new Date(selectedDate);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = getLocalDateStr(yesterday);
+
+    const { data: ySub } = await supabase.from("daily_submissions").select("*").eq("date", yesterdayStr).single();
+    if (ySub && ySub.is_holiday) {
+      const presentTodayIds = active.filter(emp => (dayAttendance[emp.id]?.status || "Present") === "Present").map(e => e.id);
+      if (presentTodayIds.length > 0) {
+        // Retroactively update yesterday
+        await supabase.from("attendance")
+          .update({ status: "Present" })
+          .eq("date", yesterdayStr)
+          .in("employee_id", presentTodayIds);
+      }
     }
 
     setSaving(false);
@@ -240,6 +299,17 @@ function AttendanceView({ employees, user }) {
     if (!window.confirm("Unlock this day? Staff will be able to edit it again.")) return;
     await supabase.from("daily_submissions").delete().eq("date", selectedDate);
     setIsSubmitted(false);
+    setIsHoliday(false);
+  };
+
+  // Prevent selection of future dates
+  const handleDateChange = (e) => {
+    const newVal = e.target.value;
+    if (newVal > todayStr) {
+      alert("You cannot log attendance for future dates.");
+      return;
+    }
+    setSelectedDate(newVal);
   };
 
   return (
@@ -248,14 +318,27 @@ function AttendanceView({ employees, user }) {
         <div>
           <div style={{ fontSize: 10, color: C.textDim, letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>ATTENDANCE LOG</div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            {/* The Date Picker */}
             <input 
               type="date" 
+              max={todayStr}
               value={selectedDate} 
-              onChange={e => setSelectedDate(e.target.value)} 
-              style={{ ...css.input, fontSize: 18, fontWeight: 700, padding: "8px 12px", border: `2px solid ${C.accent}44` }}
+              onChange={handleDateChange} 
+              style={{ 
+                ...css.input, 
+                fontSize: 18, 
+                fontWeight: 700, 
+                padding: "8px 12px", 
+                border: `2px solid ${C.accent}44`,
+                color: "#1E293B", 
+                backgroundColor: "#FFFFFF",
+                colorScheme: "light" 
+              }}
             />
-            {isSubmitted ? (
+            {isHoliday ? (
+              <span style={css.badge(isAdmin ? C.accent : C.blue)}>
+                {isAdmin ? "⚠ HOLIDAY / OFF DAY (ADMIN OVERRIDE ACTIVE)" : "⛱ HOLIDAY / OFF DAY"}
+              </span>
+            ) : isSubmitted ? (
               <span style={css.badge(isAdmin ? C.accent : C.green)}>
                 {isAdmin ? "⚠ SUBMITTED (ADMIN OVERRIDE ACTIVE)" : "✓ SUBMITTED & LOCKED"}
               </span>
@@ -282,7 +365,7 @@ function AttendanceView({ employees, user }) {
                   <tr><td colSpan={7} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No active employees.</td></tr>
                 )}
                 {filtered.map(emp => {
-                  const rec = dayAttendance[emp.id] || { status: "Present", ot_hours: 0 };
+                  const rec = dayAttendance[emp.id] || { status: isHoliday ? "Absent" : "Present", ot_hours: 0 };
                   return (
                     <tr key={emp.id} style={{ background: rec.status === "Absent" ? C.red + "08" : "transparent" }}>
                       <td style={css.td}><div style={{ fontWeight: 700 }}>{emp.name}</div></td>
@@ -296,7 +379,7 @@ function AttendanceView({ employees, user }) {
                           value={rec.ot_hours || 0} 
                           onChange={e => toggle(emp.id, "ot_hours", +e.target.value)} 
                           style={{ ...css.input, width: 60, textAlign: "center" }} 
-                          disabled={isLocked}
+                          disabled={isLocked || isHoliday}
                         />
                       </td>
                       <td style={css.td}>
@@ -304,9 +387,9 @@ function AttendanceView({ employees, user }) {
                           {["Present", "Absent", "Leave"].map(s => (
                             <button 
                               key={s} 
-                              style={{ ...css.btn(statusColor(s)), opacity: rec.status === s ? 1 : 0.25, padding: "4px 10px", fontSize: 10, cursor: isLocked ? "not-allowed" : "pointer" }} 
+                              style={{ ...css.btn(statusColor(s)), opacity: rec.status === s ? 1 : 0.25, padding: "4px 10px", fontSize: 10, cursor: (isLocked || isHoliday) ? "not-allowed" : "pointer" }} 
                               onClick={() => toggle(emp.id, "status", s)}
-                              disabled={isLocked}
+                              disabled={isLocked || isHoliday}
                             >
                               {s}
                             </button>
@@ -321,20 +404,27 @@ function AttendanceView({ employees, user }) {
           </div>
 
           {/* Action Bar at the bottom */}
-          <div style={{ marginTop: 20, padding: 20, background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-             <div style={{ fontSize: 12, color: C.textDim }}>
-               {isLocked ? "This day has been submitted and cannot be changed." : "Changes are kept as a draft until you submit the day."}
+          <div style={{ marginTop: 20, padding: 20, background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 15 }}>
+             <div style={{ fontSize: 12, color: C.textDim, maxWidth: 500, lineHeight: 1.5 }}>
+               {isHoliday ? "This is a Holiday. Attendance carried over from previous working day. Overrides apply if staff show up next day." 
+                : isLocked ? "This day has been submitted and cannot be changed." 
+                : "Changes are kept as a draft until you submit the day."}
              </div>
              
-             <div style={{ display: "flex", gap: 10 }}>
+             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                {isAdmin && isSubmitted && (
                  <button style={css.btn(C.red)} onClick={handleUnsubmit}>Unlock Day</button>
                )}
                
                {(!isSubmitted || isAdmin) && (
-                 <button style={css.btn(C.green)} onClick={handleSubmit} disabled={saving}>
-                   {saving ? "Saving..." : isSubmitted ? "Update Submitted Day" : "Submit Full Day"}
-                 </button>
+                 <>
+                   <button style={css.btn(C.blue)} onClick={handleHolidaySubmit} disabled={saving || isHoliday}>
+                     {saving ? "Processing..." : "Mark as Holiday / Off"}
+                   </button>
+                   <button style={css.btn(C.green)} onClick={handleSubmit} disabled={saving}>
+                     {saving ? "Saving..." : isSubmitted ? "Update Submitted Day" : "Submit Full Day"}
+                   </button>
+                 </>
                )}
              </div>
           </div>
