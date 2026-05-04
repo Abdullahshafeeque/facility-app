@@ -616,16 +616,44 @@ function PayrollView({ employees, attendance, posts, ledger, setLedger, user }) 
 
 function StaffView({ employees, setEmployees, posts, ledger }) {
   const [viewing, setViewing] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [form, setForm] = useState({ name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company" });
   
-  // Safety check: shows a loader if data is still fetching
   if (!employees) return <div style={{ padding: 20 }}>Loading workforce data...</div>;
-
   const active = employees.filter(e => e.status === "active");
+
+  const addEmployee = async () => {
+    if (!form.name || !form.post) return alert("Name and Post are required");
+    setLoading(true);
+    
+    // Auto-fill salary for contract staff based on the post requirements in Settings
+    let salary = form.base_salary;
+    if (form.staff_type === "contract") {
+      const postData = posts.find(p => p.name === form.post);
+      salary = postData ? postData.contract_salary : 0;
+    }
+
+    const { data, error } = await supabase.from("employees").insert({
+      ...form,
+      base_salary: Number(salary),
+      status: "active"
+    }).select().single();
+
+    if (!error && data) {
+      setEmployees(prev => [...prev, data]);
+      setShowForm(false);
+      setForm({ name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company" });
+    } else {
+      alert("Error adding staff: " + error.message);
+    }
+    setLoading(false);
+  };
 
   const updateEmployee = async (id, field, value) => {
     let updateData = { [field]: value };
     
-    // If shifting post, automatically update salary if they are a contracted worker
+    // AUTOMATIC SALARY SHIFT: If changing post for a contract worker, update their salary
     if (field === "post") {
       const newPostData = posts.find(p => p.name === value);
       if (newPostData && viewing.staff_type === "contract") {
@@ -653,78 +681,92 @@ function StaffView({ employees, setEmployees, posts, ledger }) {
 
   return (
     <div style={css.page}>
+      {/* --- HEADER WITH ADD BUTTON --- */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div>
+          <div style={css.sectionTitle}>Workforce</div>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>Staff Directory</div>
+        </div>
+        <button style={css.btn(C.green)} onClick={() => setShowForm(!showForm)}>
+          {showForm ? "Close Form" : "+ Add Employee"}
+        </button>
+      </div>
+
+      {/* --- ADD EMPLOYEE FORM --- */}
+      {showForm && (
+        <div style={{ ...css.card, marginBottom: 20, border: `1px solid ${C.green}44` }}>
+          <div style={css.sectionTitle}>Register New Staff</div>
+          <div style={css.grid4}>
+            <input placeholder="Full Name" style={css.input} value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
+            <input placeholder="Aadhar Number" style={css.input} value={form.aadhar} onChange={e => setForm({...form, aadhar: e.target.value})} />
+            <select style={css.input} value={form.staff_type} onChange={e => setForm({...form, staff_type: e.target.value})}>
+              <option value="company">Company Staff</option>
+              <option value="contract">Contract Staff</option>
+            </select>
+            <select style={css.input} value={form.post} onChange={e => setForm({...form, post: e.target.value})}>
+              <option value="">Select Post</option>
+              {posts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+            </select>
+            <select style={css.input} value={form.shift} onChange={e => setForm({...form, shift: e.target.value})}>
+              <option value="Morning">Morning Shift</option>
+              <option value="Night">Night Shift</option>
+            </select>
+            {form.staff_type === "company" && (
+              <input type="number" placeholder="Base Salary" style={css.input} value={form.base_salary} onChange={e => setForm({...form, base_salary: e.target.value})} />
+            )}
+          </div>
+          <button style={{ ...css.btn(C.green), marginTop: 15 }} onClick={addEmployee} disabled={loading}>
+            {loading ? "Registering..." : "Complete Registration"}
+          </button>
+        </div>
+      )}
+
+      {/* --- INDIVIDUAL PROFILE POPUP (With High Contrast Close) --- */}
       {viewing && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
           <div style={{ ...css.card, maxWidth: 500, width: "100%", border: `2px solid ${C.accent}` }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <div style={{ fontSize: 18, fontWeight: 700, color: C.accent }}>Staff Profile</div>
-              {/* High Contrast Close Button */}
               <button 
                 onClick={() => setViewing(null)} 
-                style={{ background: C.red, color: "white", border: "none", borderRadius: "4px", padding: "4px 12px", cursor: "pointer", fontWeight: "bold" }}
+                style={{ background: C.red, color: "white", border: "none", borderRadius: "4px", padding: "6px 14px", cursor: "pointer", fontWeight: "bold", fontSize: 12 }}
               >
                 CLOSE [X]
               </button>
             </div>
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-          <div style={{ ...css.card, maxWidth: 500, width: "100%" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: C.accent }}>Staff Profile</div>
-              <button onClick={() => setViewing(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20 }}>✕</button>
-            </div>
             
-            <div style={{ textAlign: "center", marginBottom: 25, borderBottom: `1px solid ${C.border}`, paddingBottom: 20 }}>
-              <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>{viewing.name}</div>
-              <span style={css.badge(C.green)}>{viewing.staff_type}</span>
+            <div style={{ textAlign: "center", marginBottom: 20, borderBottom: `1px solid ${C.border}`, paddingBottom: 15 }}>
+              <div style={{ fontSize: 24, fontWeight: 700 }}>{viewing.name}</div>
+              <span style={css.badge(staffTypeColor(viewing.staff_type))}>{viewing.staff_type}</span>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 25, background: C.bg, padding: 15, borderRadius: 8 }}>
-              <div>
-                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>AADHAR</div>
-                <div style={{ fontWeight: 700 }}>{viewing.aadhar}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>SALARY (AUTO)</div>
-                <div style={{ fontWeight: 700, color: C.green }}>₹{Number(viewing.base_salary).toLocaleString()}</div>
-              </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 15, marginBottom: 25, background: C.bg, padding: 15, borderRadius: 8 }}>
+              <div><div style={{ fontSize: 10, color: C.textDim }}>AADHAR</div><strong>{viewing.aadhar || "-"}</strong></div>
+              <div><div style={{ fontSize: 10, color: C.textDim }}>SALARY (MONTHLY)</div><strong style={{color: C.green}}>₹{Number(viewing.base_salary).toLocaleString()}</strong></div>
               <div>
                 <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>POST / ROLE</div>
-                <select 
-                  style={{ ...css.input, width: "100%", fontSize: 12, fontWeight: 700 }}
-                  value={viewing.post}
-                  onChange={(e) => updateEmployee(viewing.id, "post", e.target.value)}
-                >
+                <select style={{...css.input, width: "100%"}} value={viewing.post} onChange={(e) => updateEmployee(viewing.id, "post", e.target.value)}>
                   {posts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
                 </select>
               </div>
               <div>
                 <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>SHIFT</div>
-                <select 
-                  style={{ ...css.input, width: "100%", fontSize: 12, fontWeight: 700 }}
-                  value={viewing.shift}
-                  onChange={(e) => updateEmployee(viewing.id, "shift", e.target.value)}
-                >
+                <select style={{...css.input, width: "100%"}} value={viewing.shift} onChange={(e) => updateEmployee(viewing.id, "shift", e.target.value)}>
                   <option value="Morning">Morning</option>
                   <option value="Night">Night</option>
                 </select>
               </div>
             </div>
 
-            <div style={css.sectionTitle}>Recent Ledger Activity</div>
-            <div style={{ maxHeight: 200, overflowY: "auto", background: C.bg, borderRadius: 6, padding: 10 }}>
-              {/* Safety check: uses empty array if ledger is undefined */}
+            <div style={css.sectionTitle}>Ledger History</div>
+            <div style={{ maxHeight: 150, overflowY: "auto", background: C.bg, borderRadius: 6, padding: 10 }}>
               {(ledger || []).filter(l => l.employee_id === viewing.id).length === 0 ? (
-                <div style={{ fontSize: 12, color: C.textDim, textAlign: "center", padding: 10 }}>No history found.</div>
+                <div style={{ fontSize: 11, color: C.textDim, textAlign: "center" }}>No history found.</div>
               ) : (
                 ledger.filter(l => l.employee_id === viewing.id).map(l => (
-                  <div key={l.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
-                    <div style={{ fontSize: 12 }}>
-                      <div style={{ fontWeight: 700 }}>{l.transaction_type}</div>
-                      <div style={{ fontSize: 10, color: C.textDim }}>{l.date}</div>
-                    </div>
-                    <strong style={{ fontSize: 13, color: l.transaction_type === "Bonus" ? C.green : C.red }}>
-                      ₹{Number(l.amount).toLocaleString()}
-                    </strong>
+                  <div key={l.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.border}` }}>
+                    <span style={{ fontSize: 11 }}>{l.date} - {l.transaction_type}</span>
+                    <strong style={{ fontSize: 11, color: l.transaction_type === "Bonus" ? C.green : C.red }}>₹{l.amount}</strong>
                   </div>
                 ))
               )}
@@ -733,15 +775,11 @@ function StaffView({ employees, setEmployees, posts, ledger }) {
         </div>
       )}
 
-      <div style={{ marginBottom: 20 }}>
-        <div style={css.sectionTitle}>Workforce</div>
-        <div style={{ fontSize: 22, fontWeight: 700 }}>Staff Directory</div>
-      </div>
-
+      {/* --- STAFF TABLE --- */}
       <div style={{ overflowX: "auto" }}>
         <table style={css.table}>
           <thead>
-            <tr>{["Name", "Post", "Shift", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr>
+            <tr>{["Name", "Post", "Shift", "Type", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr>
           </thead>
           <tbody>
             {active.map(emp => (
@@ -750,7 +788,8 @@ function StaffView({ employees, setEmployees, posts, ledger }) {
                   <div style={{ color: C.accent, fontWeight: 700, textDecoration: "underline" }}>{emp.name}</div>
                 </td>
                 <td style={css.td}>{emp.post}</td>
-                <td style={css.td}>{emp.shift}</td>
+                <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
+                <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
                 <td style={css.td}>
                   <button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => markInactive(emp)}>Remove</button>
                 </td>
