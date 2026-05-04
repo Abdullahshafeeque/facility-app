@@ -1005,8 +1005,8 @@ export default function App() {
   const [employees, setEmployees] = useState([]);
   const [attendance, setAttendance] = useState({});
   const [posts, setPosts] = useState([]);
+  const [ledger, setLedger] = useState([]); // <--- ADD THIS EXACT LINE HERE
   const [loading, setLoading] = useState(true);
-
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
@@ -1031,6 +1031,11 @@ export default function App() {
         att.forEach(a => { attMap[a.employee_id] = { status: a.status, ot_hours: a.ot_hours, dbId: a.id }; });
         setAttendance(attMap);
       }
+
+      // <--- ADD THESE TWO EXACT LINES HERE --->
+      const { data: ledgData } = await supabase.from("financial_ledger").select("*").order("date", { ascending: false });
+      if (ledgData) setLedger(ledgData);
+
       setLoading(false);
     };
     loadData();
@@ -1082,7 +1087,7 @@ export default function App() {
           {tab === "dashboard" && <DashboardView employees={employees} attendance={attendance} posts={posts} />}
           {tab === "attendance" && <AttendanceView employees={employees} user={user} />}
           {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} />}
-          {tab === "payroll" && <PayrollView employees={employees} attendance={attendance} posts={posts} />}
+          {tab === "payroll" && <PayrollView employees={employees} attendance={attendance} posts={posts} ledger={ledger} setLedger={setLedger} user={user} />}
           {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} />}
         </>
       )}
