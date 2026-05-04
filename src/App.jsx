@@ -237,11 +237,11 @@ function AttendanceView({ employees, user }) {
     const { error: attError } = await supabase.from("attendance").insert(insertData);
 
     if (!attError) {
+      // Use UPSERT so it overrides if the day was already submitted
       const { error: subErr } = await supabase.from("daily_submissions").upsert({ date: selectedDate, is_holiday: true });
       if (!subErr) {
         setIsSubmitted(true);
         setIsHoliday(true);
-        
         const newMap = {};
         insertData.forEach(d => newMap[d.employee_id] = { status: d.status, ot_hours: 0 });
         setDayAttendance(newMap);
@@ -251,7 +251,6 @@ function AttendanceView({ employees, user }) {
     }
     setSaving(false);
   };
-
   const handleSubmit = async () => {
     if (selectedDate > todayStr) return alert("Cannot submit for future dates!");
     if (!window.confirm(`Save and submit regular attendance for ${selectedDate}?`)) return;
@@ -435,317 +434,189 @@ function AttendanceView({ employees, user }) {
     </div>
   );
 }
+const generateAdvancedPDF = ({ target, start, end, ledger, employees }) => {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  
+  const filteredLedger = ledger.filter(l => {
+    const isDateInRange = l.date >= start && l.date <= end;
+    const isTargetMatch = target === "All" || l.employee_id === target;
+    return isDateInRange && isTargetMatch;
+  });
+
+  doc.setFontSize(18);
+  doc.text("PRFM HR - Financial Statement", 14, 22);
+  doc.setFontSize(10);
+  doc.text(`Period: ${start} to ${end}`, 14, 30);
+  doc.text(`Target: ${target === "All" ? "Full Workforce" : employees.find(e => e.id === target)?.name}`, 14, 35);
+
+  const tableData = filteredLedger.map(l => [
+    l.date,
+    employees.find(e => e.id === l.employee_id)?.name || "Unknown",
+    l.transaction_type,
+    `Rs. ${Number(l.amount).toLocaleString()}`,
+    l.notes || "-"
+  ]);
+
+  window.jspdf.autoTable(doc, {
+    startY: 45,
+    head: [["Date", "Name", "Type", "Amount", "Notes"]],
+    body: tableData,
+    theme: 'grid',
+    headStyles: { fillColor: [30, 111, 219] },
+    styles: { fontSize: 8 }
+  });
+
+  doc.save(`PRFM_Report_${start}_to_${end}.pdf`);
+};
 
 function PayrollView({ employees, attendance, posts, ledger, setLedger, user }) {
-  const [showTransactionModal, setShowTransactionModal] = useState(false);
-  const [selectedEmp, setSelectedEmp] = useState(null);
+  const [target, setTarget] = useState("All");
+  const [start, setStart] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
+  const [end, setEnd] = useState(new Date().toISOString().split('T')[0]);
+  const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ type: "Advance", amount: "", notes: "", date: new Date().toISOString().split("T")[0] });
   const [saving, setSaving] = useState(false);
 
-  const isAdmin = user?.email === "abdshafeeque@gmail.com";
   const active = employees.filter(e => e.status === "active");
-  const companyStaff = active.filter(e => e.staff_type === "company");
-  const contractStaff = active.filter(e => e.staff_type === "contract");
-
-  // Helper to calculate totals for a specific employee
-  const getEmployeeTotals = (emp) => {
-    const pay = calcPayroll(emp, attendance, posts);
-    const empLedger = ledger.filter(l => l.employee_id === emp.id);
-    
-    const totalBonus = empLedger.filter(l => l.transaction_type === "Bonus").reduce((sum, l) => sum + Number(l.amount), 0);
-    const totalAdvance = empLedger.filter(l => l.transaction_type === "Advance").reduce((sum, l) => sum + Number(l.amount), 0);
-    const totalFine = empLedger.filter(l => l.transaction_type === "Fine").reduce((sum, l) => sum + Number(l.amount), 0);
-    const totalPayouts = empLedger.filter(l => l.transaction_type === "Payout").reduce((sum, l) => sum + Number(l.amount), 0);
-
-    // Net Owed = (Base + OT + Bonus) - Advances - Fines
-    const netOwed = (pay.total + totalBonus) - totalAdvance - totalFine;
-    const pendingAmount = netOwed - totalPayouts;
-
-    return { ...pay, totalBonus, totalAdvance, totalFine, totalPayouts, netOwed, pendingAmount, ledger: empLedger };
-  };
-
-  const companyRows = companyStaff.map(e => ({ emp: e, totals: getEmployeeTotals(e) }));
-  
-  // Calculate consolidated contractor totals
-  const contractorRows = contractStaff.map(e => ({ emp: e, totals: getEmployeeTotals(e) }));
-  const contractorNetOwed = contractorRows.reduce((sum, r) => sum + r.totals.netOwed, 0);
-  const contractorPayouts = contractorRows.reduce((sum, r) => sum + r.totals.totalPayouts, 0);
-  const contractorFines = contractorRows.reduce((sum, r) => sum + r.totals.totalFine, 0);
-  const contractorPending = contractorNetOwed - contractorPayouts;
 
   const handleTransactionSubmit = async () => {
-    if (!form.amount || Number(form.amount) <= 0) return alert("Enter a valid amount.");
-    if (!selectedEmp && form.type !== "Payout") return alert("Select an employee.");
+    if (!form.amount || Number(form.amount) <= 0) return alert("Enter amount");
     setSaving(true);
-
-    const targetEmpId = selectedEmp ? selectedEmp.id : contractStaff[0]?.id;
-
-    const newLedgerEntry = {
-      employee_id: targetEmpId,
+    const { data, error } = await supabase.from("financial_ledger").insert({
+      employee_id: target === "All" ? active[0]?.id : target,
       date: form.date,
       transaction_type: form.type,
       amount: Number(form.amount),
-      notes: form.notes || (selectedEmp ? "" : "Consolidated Contractor Payout")
-    };
+      notes: form.notes
+    }).select().single();
 
-    const { data, error } = await supabase.from("financial_ledger").insert(newLedgerEntry).select().single();
     if (!error && data) {
       setLedger(prev => [data, ...prev]);
-      setShowTransactionModal(false);
+      setShowModal(false);
       setForm({ type: "Advance", amount: "", notes: "", date: new Date().toISOString().split("T")[0] });
-    } else {
-      alert("Error saving transaction.");
     }
     setSaving(false);
-  };
-
-  const generatePDF = () => {
-    try {
-      const doc = new jsPDF();
-      const today = new Date().toLocaleDateString();
-      
-      doc.setFontSize(18);
-      doc.text("PRFM HR Portal - Monthly Payroll Report", 14, 22);
-      doc.setFontSize(11);
-      doc.text(`Generated: ${today}`, 14, 30);
-
-      const companyData = companyRows.map(r => [
-        r.emp.name,
-        r.emp.post,
-        `Rs. ${r.totals.base.toLocaleString()}`,
-        `+ Rs. ${r.totals.ot.toFixed(2)}`,
-        `+ Rs. ${r.totals.totalBonus.toLocaleString()}`,
-        `- Rs. ${r.totals.totalAdvance.toLocaleString()}`,
-        `- Rs. ${r.totals.totalFine.toLocaleString()}`,
-        `Rs. ${r.totals.netOwed.toLocaleString()}`,
-        `Rs. ${r.totals.pendingAmount.toLocaleString()}`
-      ]);
-
-      autoTable(doc, {
-        startY: 50,
-        head: [["Name", "Role", "Base", "OT", "Bonus", "Advances", "Fines", "Net Total", "Pending"]],
-        body: companyData,
-        theme: 'grid',
-        headStyles: { fillColor: [30, 111, 219] },
-        styles: { fontSize: 8 }
-      });
-
-      const finalY = doc.lastAutoTable?.finalY || 50;
-      doc.setFontSize(14);
-      doc.text("Contractor Consolidation", 14, finalY + 15);
-
-      autoTable(doc, {
-        startY: finalY + 20,
-        head: [["Total Contract Staff", "Total Fines", "Total Net Owed", "Total Paid Out", "Pending"]],
-        body: [[
-          contractStaff.length.toString(),
-          `Rs. ${contractorFines.toLocaleString()}`,
-          `Rs. ${contractorNetOwed.toLocaleString()}`,
-          `Rs. ${contractorPayouts.toLocaleString()}`,
-          `Rs. ${contractorPending.toLocaleString()}`
-        ]],
-        theme: 'grid',
-        headStyles: { fillColor: [22, 163, 74] }
-      });
-
-      doc.addPage();
-      doc.setFontSize(14);
-      doc.text("Transaction Log", 14, 22);
-
-      const logData = ledger.map(l => {
-        const emp = active.find(e => e.id === l.employee_id);
-        return [l.date, emp ? emp.name : "Unknown", l.transaction_type, `Rs. ${Number(l.amount).toLocaleString()}`, l.notes || ""];
-      });
-
-      autoTable(doc, {
-        startY: 30,
-        head: [["Date", "Target", "Type", "Amount", "Notes"]],
-        body: logData,
-        theme: 'striped',
-        styles: { fontSize: 8 }
-      });
-
-      doc.save(`PRFM_Payroll_Report_${today.replace(/\//g, "-")}.pdf`);
-    } catch (err) {
-      alert("Failed to generate PDF. Check if you saved the changes.");
-    }
   };
 
   return (
     <div style={css.page}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20, flexWrap: "wrap", gap: 15 }}>
         <div>
-          <div style={{ fontSize: 10, color: C.textDim, letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>FINANCE</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>Payroll & Ledger</div>
+          <div style={css.sectionTitle}>Finance & Reports</div>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>Payroll Ledger</div>
         </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <button style={css.btn(C.blue)} onClick={() => { setSelectedEmp(null); setShowTransactionModal(true); }}>+ Add Transaction</button>
-          <button style={css.btn(C.accent)} onClick={generatePDF}>📥 Export PDF Report</button>
+        <button style={css.btn(C.blue)} onClick={() => setShowModal(true)}>+ Add Transaction</button>
+      </div>
+
+      <div style={{ ...css.card, marginBottom: 25, background: "#f8fafc" }}>
+        <div style={{ ...css.sectionTitle, marginBottom: 15 }}>Export Filtered Report</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 15, alignItems: "flex-end" }}>
+          <div>
+            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>SELECT PERSON</div>
+            <select style={{ ...css.input, width: "100%" }} value={target} onChange={e => setTarget(e.target.value)}>
+              <option value="All">All Staff</option>
+              {active.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM DATE</div>
+            <input type="date" style={{ ...css.input, width: "100%" }} value={start} onChange={e => setStart(e.target.value)} />
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO DATE</div>
+            <input type="date" style={{ ...css.input, width: "100%" }} value={end} onChange={e => setEnd(e.target.value)} />
+          </div>
+          <button 
+            style={{ ...css.btn(C.accent), height: 35 }} 
+            onClick={() => generateAdvancedPDF({ target, start, end, ledger, employees })}
+          >
+            📥 Extract PDF Statement
+          </button>
         </div>
       </div>
 
-      {showTransactionModal && (
-        <div style={{ ...css.card, marginBottom: 20, borderColor: C.blue + "44", background: C.blue + "08" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 15 }}>
-            <div style={css.sectionTitle}>New Ledger Transaction</div>
-            <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16 }} onClick={() => setShowTransactionModal(false)}>✕</button>
+      {showModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ ...css.card, maxWidth: 400, width: "100%" }}>
+             <div style={css.sectionTitle}>New Transaction</div>
+             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 10 }}>
+                <select style={css.input} value={form.type} onChange={e => setForm({...form, type: e.target.value})}>
+                  <option value="Advance">Advance</option>
+                  <option value="Bonus">Bonus</option>
+                  <option value="Fine">Fine / Penalty</option>
+                  <option value="Payout">Salary Payout</option>
+                </select>
+                <input type="number" placeholder="Amount (Rs)" style={css.input} value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} />
+                <input type="text" placeholder="Notes (optional)" style={css.input} value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} />
+                <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+                  <button style={{ ...css.btn(C.blue), flex: 1 }} onClick={handleTransactionSubmit} disabled={saving}>{saving ? "Saving..." : "Save"}</button>
+                  <button style={{ ...css.btn(C.red), flex: 1 }} onClick={() => setShowModal(false)}>Cancel</button>
+                </div>
+             </div>
           </div>
-          
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12 }}>
-             <div>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TRANSACTION TYPE</div>
-              <select style={{ ...css.input, width: "100%" }} value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
-                <option value="Advance">Advance (Deduction)</option>
-                <option value="Fine">Fine / Penalty (Deduction)</option>
-                <option value="Bonus">Bonus (Addition)</option>
-                <option value="Payout">Actual Payout (Settlement)</option>
-              </select>
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>EMPLOYEE / TARGET</div>
-              <select style={{ ...css.input, width: "100%" }} value={selectedEmp?.id || ""} onChange={e => setSelectedEmp(active.find(emp => emp.id === e.target.value))}>
-                <option value="">-- Select Employee --</option>
-                <optgroup label="Company Staff">
-                  {companyStaff.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-                </optgroup>
-                <optgroup label="Contractors (Consolidated)">
-                  {contractStaff.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-                  <option value="contractor_bulk" disabled>--- (Payouts log to first contractor) ---</option>
-                </optgroup>
-              </select>
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>AMOUNT (₹)</div>
-              <input type="number" style={{ ...css.input, width: "100%" }} value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} placeholder="e.g. 500" />
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>DATE</div>
-              <input type="date" style={{ ...css.input, width: "100%" }} value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} />
-            </div>
-            <div style={{ gridColumn: "1 / -1" }}>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>NOTES (Reason)</div>
-              <input type="text" style={{ ...css.input, width: "100%" }} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Reason for fine, advance, bonus, or payment ref..." />
-            </div>
-          </div>
-          <button style={{ ...css.btn(C.blue), marginTop: 15 }} onClick={handleTransactionSubmit} disabled={saving || !isAdmin}>
-            {saving ? "Saving..." : "Record Transaction"}
-          </button>
-          {!isAdmin && <div style={{ fontSize: 10, color: C.red, marginTop: 8 }}>Only Admins can record financial transactions.</div>}
         </div>
       )}
 
-      {/* --- COMPANY STAFF SECTION --- */}
-      <div style={css.sectionTitle}>Individual Company Staff</div>
-      <div style={{ overflowX: "auto", marginBottom: 30 }}>
-        <table style={css.table}>
-          <thead><tr>{["Employee", "Post", "Base + OT", "Bonus", "Advances", "Fines", "Net Total", "Payouts Made", "Pending Due"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
-          <tbody>
-            {companyRows.length === 0 && <tr><td colSpan={9} style={{ ...css.td, textAlign: "center", padding: 30 }}>No company employees.</td></tr>}
-            {companyRows.map(({ emp, totals }) => (
-              <tr key={emp.id}>
-                <td style={css.td}><strong>{emp.name}</strong></td>
-                <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
-                <td style={css.td}>₹{(totals.base + totals.ot).toLocaleString()}</td>
-                <td style={css.td}><span style={{ color: C.green }}>+ ₹{totals.totalBonus.toLocaleString()}</span></td>
-                <td style={css.td}><span style={{ color: C.red }}>- ₹{totals.totalAdvance.toLocaleString()}</span></td>
-                <td style={css.td}><span style={{ color: C.red }}>- ₹{totals.totalFine.toLocaleString()}</span></td>
-                <td style={css.td}><strong>₹{totals.netOwed.toLocaleString()}</strong></td>
-                <td style={css.td}><span style={{ color: C.blue }}>₹{totals.totalPayouts.toLocaleString()}</span></td>
-                <td style={css.td}>
-                  <strong style={{ color: totals.pendingAmount > 0 ? C.accent : C.green, fontSize: 14 }}>
-                    ₹{totals.pendingAmount.toLocaleString()}
-                  </strong>
-                </td>
+      <div style={{ marginTop: 10 }}>
+        <div style={css.sectionTitle}>Transaction History</div>
+        <div style={{ overflowX: "auto", background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8 }}>
+          <table style={css.table}>
+            <thead>
+              <tr>
+                {["Date", "Staff Name", "Type", "Amount", "Notes"].map(h => (
+                  <th key={h} style={css.th}>{h}</th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* --- CONTRACTOR CONSOLIDATION SECTION --- */}
-      <div style={css.sectionTitle}>Contractor Consolidation (Grouped)</div>
-      <div style={{ overflowX: "auto" }}>
-        <table style={css.table}>
-          <thead><tr>{["Group", "Total Staff", "Base + OT Total", "Total Fines", "Net Owed to Contractor", "Payouts Made", "Pending Due"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
-          <tbody>
-            {contractStaff.length === 0 ? (
-               <tr><td colSpan={7} style={{ ...css.td, textAlign: "center", padding: 30 }}>No contract employees.</td></tr>
-            ) : (
-              <tr style={{ background: C.green + "08" }}>
-                <td style={css.td}><strong>Contract Labor Group</strong></td>
-                <td style={css.td}><span style={css.badge(C.green)}>{contractStaff.length} People</span></td>
-                <td style={css.td}>₹{contractorRows.reduce((s, r) => s + r.totals.base + r.totals.ot, 0).toLocaleString()}</td>
-                <td style={css.td}><span style={{ color: C.red }}>- ₹{contractorFines.toLocaleString()}</span></td>
-                <td style={css.td}><strong>₹{contractorNetOwed.toLocaleString()}</strong></td>
-                <td style={css.td}><span style={{ color: C.blue }}>₹{contractorPayouts.toLocaleString()}</span></td>
-                <td style={css.td}>
-                  <strong style={{ color: contractorPending > 0 ? C.accent : C.green, fontSize: 16 }}>
-                    ₹{contractorPending.toLocaleString()}
-                  </strong>
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {ledger
+                .filter(l => {
+                  const isDateInRange = l.date >= start && l.date <= end;
+                  const isTargetMatch = target === "All" || l.employee_id === target;
+                  return isDateInRange && isTargetMatch;
+                })
+                .map(l => {
+                  const emp = employees.find(e => e.id === l.employee_id);
+                  return (
+                    <tr key={l.id}>
+                      <td style={css.td}>{l.date}</td>
+                      <td style={css.td}><strong>{emp ? emp.name : "Unknown"}</strong></td>
+                      <td style={css.td}>
+                        <span style={css.badge(
+                          l.transaction_type === "Bonus" ? C.green : 
+                          l.transaction_type === "Payout" ? C.blue : C.red
+                        )}>
+                          {l.transaction_type}
+                        </span>
+                      </td>
+                      <td style={css.td}>
+                        <strong style={{ color: l.transaction_type === "Bonus" ? C.green : C.text }}>
+                          ₹{Number(l.amount).toLocaleString()}
+                        </strong>
+                      </td>
+                      <td style={{ ...css.td, fontSize: 10, color: C.textDim }}>{l.notes || "-"}</td>
+                    </tr>
+                  );
+                })}
+              {ledger.filter(l => (target === "All" || l.employee_id === target) && (l.date >= start && l.date <= end)).length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ ...css.td, textAlign: "center", padding: 40, color: C.textDim }}>
+                    No transactions found for the selected filters.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
 }
 
-function StaffView({ employees, setEmployees, posts }) {
-  const [showForm, setShowForm] = useState(false);
-  const [showInactive, setShowInactive] = useState(false);
-  const [searchPost, setSearchPost] = useState("All");
-  const [form, setForm] = useState({ name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company" });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
+function StaffView({ employees, setEmployees, posts, ledger }) {
+  const [viewing, setViewing] = useState(null);
   const active = employees.filter(e => e.status === "active");
-  const inactive = employees.filter(e => e.status === "inactive");
-  const filtered = searchPost === "All" ? active : active.filter(e => e.post === searchPost);
-
-  const getContractSalary = (postName) => {
-    const post = posts.find(p => p.name === postName);
-    return post?.contract_salary || 0;
-  };
-
-  const handlePostChange = (postName) => {
-    setForm(f => ({
-      ...f,
-      post: postName,
-      base_salary: f.staff_type === "contract" ? getContractSalary(postName) : f.base_salary
-    }));
-  };
-
-  const handleTypeChange = (type) => {
-    setForm(f => ({
-      ...f,
-      staff_type: type,
-      base_salary: type === "contract" ? getContractSalary(f.post) : ""
-    }));
-  };
-
-  const addEmp = async () => {
-    setError("");
-    if (!form.name.trim()) { setError("Name is required."); return; }
-    if (!form.aadhar.trim() || form.aadhar.length !== 12 || isNaN(form.aadhar)) { setError("Valid 12-digit Aadhar number is required."); return; }
-    if (!form.post) { setError("Please select a post."); return; }
-    if (!form.base_salary) { setError("Salary is required."); return; }
-
-    setLoading(true);
-    const { data, error: dbError } = await supabase.from("employees").insert({
-      name: form.name, aadhar: form.aadhar, post: form.post, shift: form.shift,
-      base_salary: +form.base_salary, staff_type: form.staff_type, status: "active"
-    }).select().single();
-    if (!dbError && data) {
-      setEmployees(prev => [...prev, data]);
-      setForm({ name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company" });
-      setShowForm(false);
-    } else {
-      setError("Failed to save. Try again.");
-    }
-    setLoading(false);
-  };
 
   const markInactive = async (emp) => {
     if (!window.confirm(`Mark ${emp.name} as left/inactive?`)) return;
@@ -753,132 +624,78 @@ function StaffView({ employees, setEmployees, posts }) {
     setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "inactive" } : e));
   };
 
-  const reactivate = async (emp) => {
-    await supabase.from("employees").update({ status: "active" }).eq("id", emp.id);
-    setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "active" } : e));
-  };
-
   return (
     <div style={css.page}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
-        <div>
-          <div style={{ fontSize: 10, color: C.textDim, letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>WORKFORCE</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>Staff Directory</div>
-        </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button style={css.btn(C.textDim)} onClick={() => setShowInactive(v => !v)}>{showInactive ? "Hide" : "Show"} Inactive ({inactive.length})</button>
-          <button style={css.btn(C.green)} onClick={() => setShowForm(v => !v)}>+ Add Employee</button>
-        </div>
-      </div>
+      {/* --- INDIVIDUAL PROFILE POPUP --- */}
+      {viewing && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ ...css.card, maxWidth: 500, width: "100%", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.2)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: C.accent }}>Staff Profile</div>
+              <button onClick={() => setViewing(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20 }}>✕</button>
+            </div>
+            
+            <div style={{ textAlign: "center", marginBottom: 25, borderBottom: `1px solid ${C.border}`, paddingBottom: 20 }}>
+              <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>{viewing.name}</div>
+              <span style={css.badge(staffTypeColor(viewing.staff_type))}>{viewing.staff_type}</span>
+            </div>
 
-      {showForm && (
-        <div style={{ ...css.card, marginBottom: 20, borderColor: C.green + "44" }}>
-          <div style={css.sectionTitle}>New Employee</div>
-          {posts.length === 0 && <div style={{ color: C.red, fontSize: 12, marginBottom: 12 }}>⚠ Please add posts in Settings first!</div>}
-          {error && <div style={{ color: C.red, fontSize: 12, marginBottom: 12 }}>⚠ {error}</div>}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>
-            <div>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FULL NAME *</div>
-              <input style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Full name" />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 25 }}>
+              <div><div style={{ fontSize: 10, color: C.textDim, letterSpacing: 1 }}>AADHAR NUMBER</div><strong style={{ fontSize: 13 }}>{viewing.aadhar}</strong></div>
+              <div><div style={{ fontSize: 10, color: C.textDim, letterSpacing: 1 }}>POST / ROLE</div><strong style={{ fontSize: 13 }}>{viewing.post}</strong></div>
+              <div><div style={{ fontSize: 10, color: C.textDim, letterSpacing: 1 }}>ASSIGNED SHIFT</div><strong style={{ fontSize: 13 }}>{viewing.shift}</strong></div>
+              <div><div style={{ fontSize: 10, color: C.textDim, letterSpacing: 1 }}>BASE SALARY</div><strong style={{ fontSize: 13 }}>₹{Number(viewing.base_salary).toLocaleString()}</strong></div>
             </div>
-            <div>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>AADHAR NUMBER * (12 digits)</div>
-              <input type="text" maxLength={12} style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.aadhar} onChange={e => setForm(f => ({ ...f, aadhar: e.target.value.replace(/\D/g, "") }))} placeholder="123456789012" />
+
+            <div style={css.sectionTitle}>Recent Ledger Activity</div>
+            <div style={{ maxHeight: 200, overflowY: "auto", background: C.bg, borderRadius: 6, padding: 10 }}>
+              {ledger.filter(l => l.employee_id === viewing.id).length === 0 ? (
+                <div style={{ fontSize: 12, color: C.textDim, textAlign: "center", padding: 10 }}>No transactions found for this employee.</div>
+              ) : (
+                ledger.filter(l => l.employee_id === viewing.id).map(l => (
+                  <div key={l.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
+                    <div style={{ fontSize: 12 }}>
+                      <div style={{ fontWeight: 700 }}>{l.transaction_type}</div>
+                      <div style={{ fontSize: 10, color: C.textDim }}>{l.date}</div>
+                    </div>
+                    <strong style={{ fontSize: 13, color: l.transaction_type === "Bonus" ? C.green : C.red }}>
+                      {l.transaction_type === "Bonus" ? "+" : "-"} ₹{Number(l.amount).toLocaleString()}
+                    </strong>
+                  </div>
+                ))
+              )}
             </div>
-            <div>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>STAFF TYPE *</div>
-              <select style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.staff_type} onChange={e => handleTypeChange(e.target.value)}>
-                <option value="company">Company Staff</option>
-                <option value="contract">Contract Staff</option>
-              </select>
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>POST / ROLE *</div>
-              <select style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.post} onChange={e => handlePostChange(e.target.value)}>
-                <option value="">Select post...</option>
-                {posts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>SHIFT *</div>
-              <select style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.shift} onChange={e => setForm(f => ({ ...f, shift: e.target.value }))}>
-                <option>Morning</option><option>Night</option>
-              </select>
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>BASE SALARY (₹) *</div>
-              <input
-                type="number"
-                style={{ ...css.input, width: "100%", boxSizing: "border-box", background: form.staff_type === "contract" ? C.border : C.bg }}
-                value={form.base_salary}
-                onChange={e => form.staff_type === "company" && setForm(f => ({ ...f, base_salary: e.target.value }))}
-                readOnly={form.staff_type === "contract"}
-                placeholder={form.staff_type === "contract" ? "Auto from post" : "e.g. 20000"}
-              />
-              {form.staff_type === "contract" && <div style={{ fontSize: 10, color: C.textDim, marginTop: 3 }}>Auto-set from post's contract salary</div>}
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-            <button style={css.btn(C.green)} onClick={addEmp} disabled={loading || posts.length === 0}>{loading ? "Saving..." : "Save Employee"}</button>
-            <button style={css.btn(C.red)} onClick={() => { setShowForm(false); setError(""); }}>Cancel</button>
           </div>
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <span style={{ fontSize: 11, color: C.textDim, marginRight: 4 }}>FILTER BY ROLE:</span>
-        {["All", ...posts.map(p => p.name)].map(p => (
-          <button key={p} style={{ ...css.navBtn(searchPost === p), padding: "4px 12px" }} onClick={() => setSearchPost(p)}>{p}</button>
-        ))}
+      <div style={{ marginBottom: 20 }}>
+        <div style={css.sectionTitle}>Workforce</div>
+        <div style={{ fontSize: 22, fontWeight: 700 }}>Staff Directory</div>
       </div>
 
-      <div style={css.sectionTitle}>Active Staff ({filtered.length}{searchPost !== "All" ? ` in ${searchPost}` : ""})</div>
-      <div style={{ overflowX: "auto", marginBottom: 30 }}>
+      <div style={{ overflowX: "auto" }}>
         <table style={css.table}>
-          <thead><tr>{["Name", "Aadhar", "Post / Role", "Type", "Shift", "Salary", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+          <thead>
+            <tr>{["Name", "Post", "Shift", "Type", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr>
+          </thead>
           <tbody>
-            {filtered.length === 0 && (
-              <tr><td colSpan={7} style={{ ...css.td, color: C.textDim, textAlign: "center", padding: 30 }}>No employees found.</td></tr>
-            )}
-            {filtered.map(emp => (
+            {active.map(emp => (
               <tr key={emp.id}>
-                <td style={css.td}><strong>{emp.name}</strong></td>
-                <td style={css.td}><span style={{ fontSize: 11, color: C.textDim, letterSpacing: 1 }}>{emp.aadhar ? `••••••${emp.aadhar.slice(-4)}` : "—"}</span></td>
-                <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
-                <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
+                <td style={{ ...css.td, cursor: "pointer" }} onClick={() => setViewing(emp)}>
+                  <div style={{ color: C.accent, fontWeight: 700, textDecoration: "underline" }}>{emp.name}</div>
+                </td>
+                <td style={css.td}>{emp.post}</td>
                 <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
-                <td style={css.td}><span style={{ color: C.accent }}>₹{Number(emp.base_salary).toLocaleString("en-IN")}</span></td>
-                <td style={css.td}><button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => markInactive(emp)}>Mark as Left</button></td>
+                <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
+                <td style={css.td}>
+                  <button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => markInactive(emp)}>Remove</button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-
-      {showInactive && (
-        <>
-          <div style={css.sectionTitle}>Inactive / Left Staff ({inactive.length})</div>
-          <div style={{ overflowX: "auto" }}>
-            <table style={css.table}>
-              <thead><tr>{["Name", "Post / Role", "Type", "Shift", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
-              <tbody>
-                {inactive.length === 0 && (
-                  <tr><td colSpan={5} style={{ ...css.td, color: C.textDim, textAlign: "center", padding: 30 }}>No inactive employees.</td></tr>
-                )}
-                {inactive.map(emp => (
-                  <tr key={emp.id} style={{ opacity: 0.5 }}>
-                    <td style={css.td}><strong>{emp.name}</strong></td>
-                    <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
-                    <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
-                    <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
-                    <td style={css.td}><button style={{ ...css.btn(C.green), padding: "4px 10px", fontSize: 10 }} onClick={() => reactivate(emp)}>Reactivate</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
     </div>
   );
 }
@@ -1125,7 +942,7 @@ export default function App() {
         <>
           {tab === "dashboard" && <DashboardView employees={employees} attendance={attendance} posts={posts} />}
           {tab === "attendance" && <AttendanceView employees={employees} user={user} />}
-          {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} />}
+          {tab === "staff" && <StaffView employees="{employees}" setEmployees="{setEmployees}" posts="{posts}" ledger="{ledger}"/>}
           {tab === "payroll" && <PayrollView employees={employees} attendance={attendance} posts={posts} ledger={ledger} setLedger={setLedger} user={user} />}
           {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} />}
         </>
