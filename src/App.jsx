@@ -475,16 +475,50 @@ function PayrollView({ employees, attendance, posts, ledger, setLedger, user }) 
   const [start, setStart] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
   const [end, setEnd] = useState(new Date().toISOString().split('T')[0]);
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ type: "Advance", amount: "", notes: "", date: new Date().toISOString().split("T")[0] });
+  const [form, setForm] = useState({ type: "Advance", amount: "", notes: "", date: new Date().toISOString().split("T")[0], empId: "" });
   const [saving, setSaving] = useState(false);
 
   const active = employees.filter(e => e.status === "active");
 
+  // --- COMPREHENSIVE CALCULATION ENGINE ---
+  const calculateStaffFinances = (emp) => {
+    // 1. Determine base monthly salary
+    const salary = emp.staff_type === "contract" 
+      ? (posts.find(p => p.name === emp.post)?.contract_salary || 0) 
+      : emp.base_salary;
+    
+    // 2. Fetch all ledger entries for this person in the selected date range
+    const staffLedger = ledger.filter(l => l.employee_id === emp.id && l.date >= start && l.date <= end);
+    
+    const totalAdvances = staffLedger
+      .filter(l => l.transaction_type === "Advance" || l.transaction_type === "Fine")
+      .reduce((sum, l) => sum + Number(l.amount), 0);
+      
+    const totalPaid = staffLedger
+      .filter(l => l.transaction_type === "Payout")
+      .reduce((sum, l) => sum + Number(l.amount), 0);
+      
+    const totalBonuses = staffLedger
+      .filter(l => l.transaction_type === "Bonus")
+      .reduce((sum, l) => sum + Number(l.amount), 0);
+
+    // 3. Pending Balance Calculation
+    // We assume 'Salary' is the target for the month. 
+    // Net Balance = (Monthly Salary + Bonuses) - (Advances + Previous Payouts)
+    const netBalance = (salary + totalBonuses) - (totalAdvances + totalPaid);
+
+    return { salary, totalAdvances, totalPaid, totalBonuses, netBalance };
+  };
+
   const handleTransactionSubmit = async () => {
-    if (!form.amount || Number(form.amount) <= 0) return alert("Enter amount");
+    // MANDATORY FIELD CHECK
+    if (!form.empId || !form.amount || Number(form.amount) <= 0 || !form.date) {
+      return alert("ALL FIELDS ARE MANDATORY: Select a staff member, enter a valid amount, and pick a date.");
+    }
+
     setSaving(true);
     const { data, error } = await supabase.from("financial_ledger").insert({
-      employee_id: target === "All" ? active[0]?.id : target,
+      employee_id: form.empId,
       date: form.date,
       transaction_type: form.type,
       amount: Number(form.amount),
@@ -494,122 +528,130 @@ function PayrollView({ employees, attendance, posts, ledger, setLedger, user }) 
     if (!error && data) {
       setLedger(prev => [data, ...prev]);
       setShowModal(false);
-      setForm({ type: "Advance", amount: "", notes: "", date: new Date().toISOString().split("T")[0] });
+      setForm({ type: "Advance", amount: "", notes: "", date: new Date().toISOString().split("T")[0], empId: "" });
+    } else {
+      alert("Error: " + (error?.message || "Database connection issue"));
     }
     setSaving(false);
   };
 
   return (
     <div style={css.page}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20, flexWrap: "wrap", gap: 15 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20 }}>
         <div>
-          <div style={css.sectionTitle}>Finance & Reports</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>Payroll Ledger</div>
+          <div style={css.sectionTitle}>Financial Oversight</div>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>Payroll & Pending Balances</div>
         </div>
-        <button style={css.btn(C.blue)} onClick={() => setShowModal(true)}>+ Add Transaction</button>
+        <button style={css.btn(C.blue)} onClick={() => setShowModal(true)}>+ Register Payment/Advance</button>
       </div>
 
-      <div style={{ ...css.card, marginBottom: 25, background: "#f8fafc" }}>
-        <div style={{ ...css.sectionTitle, marginBottom: 15 }}>Export Filtered Report</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 15, alignItems: "flex-end" }}>
+      {/* --- FILTER & REPORTING SECTION --- */}
+      <div style={{ ...css.card, marginBottom: 20, background: "#f8fafc" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 15, alignItems: "flex-end" }}>
           <div>
-            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>SELECT PERSON</div>
+            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>VIEW MODE</div>
             <select style={{ ...css.input, width: "100%" }} value={target} onChange={e => setTarget(e.target.value)}>
-              <option value="All">All Staff</option>
+              <option value="All">Full Workforce Summary</option>
               {active.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
           </div>
-          <div>
-            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM DATE</div>
-            <input type="date" style={{ ...css.input, width: "100%" }} value={start} onChange={e => setStart(e.target.value)} />
-          </div>
-          <div>
-            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO DATE</div>
-            <input type="date" style={{ ...css.input, width: "100%" }} value={end} onChange={e => setEnd(e.target.value)} />
-          </div>
-          <button 
-            style={{ ...css.btn(C.accent), height: 35 }} 
-            onClick={() => generateAdvancedPDF({ target, start, end, ledger, employees })}
-          >
-            📥 Extract PDF Statement
-          </button>
+          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={{...css.input, width:"100%"}} value={start} onChange={e => setStart(e.target.value)} /></div>
+          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={{...css.input, width:"100%"}} value={end} onChange={e => setEnd(e.target.value)} /></div>
+          <button style={css.btn(C.accent)} onClick={() => generateAdvancedPDF({ target, start, end, ledger, employees })}>Extract PDF Report</button>
         </div>
       </div>
 
+      {/* --- LIVE FINANCIAL TABLE --- */}
+      <div style={{ ...css.card, padding: 0, overflow: "hidden", border: `1px solid ${C.border}` }}>
+        <table style={css.table}>
+          <thead>
+            <tr style={{ background: C.bg }}>
+              <th style={css.th}>Staff Member</th>
+              <th style={css.th}>Base Salary</th>
+              <th style={css.th}>Advances/Fines</th>
+              <th style={css.th}>Bonuses</th>
+              <th style={css.th}>Paid Out</th>
+              <th style={{ ...css.th, background: C.accentDim, color: C.accent }}>Net Payable</th>
+            </tr>
+          </thead>
+          <tbody>
+            {active
+              .filter(e => target === "All" || e.id === target)
+              .map(emp => {
+                const fin = calculateStaffFinances(emp);
+                return (
+                  <tr key={emp.id}>
+                    <td style={css.td}>
+                        <strong>{emp.name}</strong><br/>
+                        <span style={{fontSize: 9, color: C.textDim}}>{emp.post.toUpperCase()} • {emp.staff_type}</span>
+                    </td>
+                    <td style={css.td}>₹{fin.salary.toLocaleString()}</td>
+                    <td style={{ ...css.td, color: C.red }}>-₹{fin.totalAdvances.toLocaleString()}</td>
+                    <td style={{ ...css.td, color: C.green }}>+₹{fin.totalBonuses.toLocaleString()}</td>
+                    <td style={css.td}>₹{fin.totalPaid.toLocaleString()}</td>
+                    <td style={{ ...css.td, background: C.accentDim }}>
+                      <strong style={{ color: fin.netBalance < 0 ? C.red : C.accent, fontSize: 14 }}>
+                        ₹{fin.netBalance.toLocaleString()}
+                      </strong>
+                    </td>
+                  </tr>
+                );
+              })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* --- NEW TRANSACTION MODAL (FULL VERSION) --- */}
       {showModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ ...css.card, maxWidth: 400, width: "100%" }}>
-             <div style={css.sectionTitle}>New Transaction</div>
-             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 10 }}>
-                <select style={css.input} value={form.type} onChange={e => setForm({...form, type: e.target.value})}>
-                  <option value="Advance">Advance</option>
-                  <option value="Bonus">Bonus</option>
-                  <option value="Fine">Fine / Penalty</option>
-                  <option value="Payout">Salary Payout</option>
-                </select>
-                <input type="number" placeholder="Amount (Rs)" style={css.input} value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} />
-                <input type="text" placeholder="Notes (optional)" style={css.input} value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} />
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ ...css.card, maxWidth: 450, width: "100%", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.3)" }}>
+             <div style={{ ...css.sectionTitle, marginBottom: 20 }}>Register New Transaction</div>
+             <div style={{ display: "flex", flexDirection: "column", gap: 15 }}>
+                
+                <div>
+                  <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>SELECT STAFF MEMBER (MANDATORY)</div>
+                  <select style={{ ...css.input, width: "100%" }} value={form.empId} onChange={e => setForm({...form, empId: e.target.value})}>
+                    <option value="">-- Select Person --</option>
+                    {active.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                  </select>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TYPE</div>
+                    <select style={{ ...css.input, width: "100%" }} value={form.type} onChange={e => setForm({...form, type: e.target.value})}>
+                      <option value="Advance">Advance</option>
+                      <option value="Bonus">Bonus</option>
+                      <option value="Fine">Fine / Penalty</option>
+                      <option value="Payout">Salary Payout</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>DATE</div>
+                    <input type="date" style={{ ...css.input, width: "100%" }} value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>AMOUNT (₹)</div>
+                  <input type="number" placeholder="Enter Amount" style={{ ...css.input, width: "100%", fontSize: 16, fontWeight: 700 }} value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} />
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>REMARKS / NOTES</div>
+                  <input type="text" placeholder="e.g. For festival, emergency, etc." style={{ ...css.input, width: "100%" }} value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} />
+                </div>
+
                 <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-                  <button style={{ ...css.btn(C.blue), flex: 1 }} onClick={handleTransactionSubmit} disabled={saving}>{saving ? "Saving..." : "Save"}</button>
-                  <button style={{ ...css.btn(C.red), flex: 1 }} onClick={() => setShowModal(false)}>Cancel</button>
+                  <button style={{ ...css.btn(C.blue), flex: 1, padding: 12 }} onClick={handleTransactionSubmit} disabled={saving}>
+                    {saving ? "Processing..." : "Confirm & Save"}
+                  </button>
+                  <button style={{ ...css.btn(C.red), flex: 1, padding: 12 }} onClick={() => setShowModal(false)}>Cancel</button>
                 </div>
              </div>
           </div>
         </div>
       )}
-
-      <div style={{ marginTop: 10 }}>
-        <div style={css.sectionTitle}>Transaction History</div>
-        <div style={{ overflowX: "auto", background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8 }}>
-          <table style={css.table}>
-            <thead>
-              <tr>
-                {["Date", "Staff Name", "Type", "Amount", "Notes"].map(h => (
-                  <th key={h} style={css.th}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {ledger
-                .filter(l => {
-                  const isDateInRange = l.date >= start && l.date <= end;
-                  const isTargetMatch = target === "All" || l.employee_id === target;
-                  return isDateInRange && isTargetMatch;
-                })
-                .map(l => {
-                  const emp = employees.find(e => e.id === l.employee_id);
-                  return (
-                    <tr key={l.id}>
-                      <td style={css.td}>{l.date}</td>
-                      <td style={css.td}><strong>{emp ? emp.name : "Unknown"}</strong></td>
-                      <td style={css.td}>
-                        <span style={css.badge(
-                          l.transaction_type === "Bonus" ? C.green : 
-                          l.transaction_type === "Payout" ? C.blue : C.red
-                        )}>
-                          {l.transaction_type}
-                        </span>
-                      </td>
-                      <td style={css.td}>
-                        <strong style={{ color: l.transaction_type === "Bonus" ? C.green : C.text }}>
-                          ₹{Number(l.amount).toLocaleString()}
-                        </strong>
-                      </td>
-                      <td style={{ ...css.td, fontSize: 10, color: C.textDim }}>{l.notes || "-"}</td>
-                    </tr>
-                  );
-                })}
-              {ledger.filter(l => (target === "All" || l.employee_id === target) && (l.date >= start && l.date <= end)).length === 0 && (
-                <tr>
-                  <td colSpan={5} style={{ ...css.td, textAlign: "center", padding: 40, color: C.textDim }}>
-                    No transactions found for the selected filters.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
   );
 }
@@ -624,10 +666,13 @@ function StaffView({ employees, setEmployees, posts, ledger }) {
   const active = employees.filter(e => e.status === "active");
 
   const addEmployee = async () => {
-    if (!form.name || !form.post) return alert("Name and Post are required");
+    // Strict validation: Every field must be filled
+    const isCompanyStaff = form.staff_type === "company";
+    if (!form.name.trim() || !form.aadhar.trim() || !form.post || !form.shift || (isCompanyStaff && !form.base_salary)) {
+      return alert("ALL FIELDS ARE MANDATORY: Please ensure Name, Aadhar, Post, Shift, and Salary are filled.");
+    }
+
     setLoading(true);
-    
-    // Auto-fill salary for contract staff based on the post requirements in Settings
     let salary = form.base_salary;
     if (form.staff_type === "contract") {
       const postData = posts.find(p => p.name === form.post);
@@ -645,7 +690,7 @@ function StaffView({ employees, setEmployees, posts, ledger }) {
       setShowForm(false);
       setForm({ name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company" });
     } else {
-      alert("Error adding staff: " + error.message);
+      alert("Error: " + error.message);
     }
     setLoading(false);
   };
