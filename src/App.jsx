@@ -385,6 +385,16 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company", joining_date: todayStr });
+  const [viewingAtt, setViewingAtt] = useState([]);
+
+  // Fetch this specific person's historical attendance when their profile opens
+  useEffect(() => {
+    if (viewing) supabase.from("attendance").select("*").eq("employee_id", viewing.id).then(({ data }) => setViewingAtt(data || []));
+    else setViewingAtt([]);
+  }, [viewing]);
+
+  // Run the lifetime calculation engine for the popup
+  const fin = viewing ? calcFinances(viewing, posts, viewingAtt, ledger, viewing.joining_date || "2020-01-01", todayStr, postHistory) : null;
 
   const active = employees.filter(e => e.status === "active");
   const inactive = employees.filter(e => e.status === "inactive");
@@ -589,6 +599,19 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
                 </div>
               </>
             )}
+
+            {fin && (
+              <>
+                <div style={css.sectionTitle}>Lifetime Ledger Summary</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16, background: C.bg, padding: 14, borderRadius: 8, textAlign: "center" }}>
+                  <div><div style={{ fontSize: 10, color: C.textDim }}>TOTAL PAID</div><strong style={{ color: C.green }}>₹{fin.totalPaid.toLocaleString("en-IN")}</strong></div>
+                  <div><div style={{ fontSize: 10, color: C.textDim }}>ADVANCES / FINES</div><strong style={{ color: C.red }}>₹{fin.totalAdvances.toLocaleString("en-IN")}</strong></div>
+                  <div><div style={{ fontSize: 10, color: C.textDim, fontWeight: 700 }}>NET PAYABLE</div><strong style={{ color: fin.netPayable < 0 ? C.red : C.orange, fontSize: 16 }}>₹{Math.round(fin.netPayable).toLocaleString("en-IN")}</strong></div>
+                </div>
+              </>
+            )}
+
+            <div style={css.sectionTitle}>Recent Transactions</div>
             <div style={css.sectionTitle}>Recent Transactions</div>
             <div style={{ maxHeight: 120, overflowY: "auto", background: C.bg, borderRadius: 6, padding: 10, marginBottom: 16 }}>
               {(ledger || []).filter(l => l.employee_id === viewing.id).slice(0, 10).length === 0
