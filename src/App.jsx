@@ -691,11 +691,12 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
 
   useEffect(() => {
     const fetch = async () => {
-      const { data } = await supabase.from("attendance").select("*").gte("date", start).lte("date", end);
+      // Fetches full history so the "Actual Payable" can accurately calculate past absences/OT
+      const { data } = await supabase.from("attendance").select("*");
       if (data) setRangeAttendance(data);
     };
     fetch();
-  }, [start, end]);
+  }, []);
 
   const handleTransaction = async () => {
     if (!form.empId || !form.amount || Number(form.amount) <= 0) return alert("Select staff and enter a valid amount.");
@@ -732,8 +733,17 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
   const PayrollTable = ({ staffList, label, color }) => {
     let filteredList = staffList;
     if (search.trim()) filteredList = filteredList.filter(e => e.name.toLowerCase().includes(search.toLowerCase()));
-    const rows = filteredList.map(emp => ({ emp, fin: calcFinances(emp, posts, rangeAttendance, ledger, start, end, postHistory) }));
+    
+    // Calculate both Period Net and Lifetime Actual Net
+    const rows = filteredList.map(emp => ({ 
+      emp, 
+      fin: calcFinances(emp, posts, rangeAttendance, ledger, start, end, postHistory),
+      finLifetime: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || "2020-01-01", end, postHistory)
+    }));
+    
     const totalNet = rows.reduce((s, r) => s + r.fin.netPayable, 0);
+    const totalActual = rows.reduce((s, r) => s + r.finLifetime.netPayable, 0);
+
     return (
       <div style={{ marginBottom: 30 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -742,12 +752,12 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
-            <thead><tr style={{ background: C.bg }}>{["Name / Post", "Prorated Base", "Absent", "Leave", "OT", "Bonus", "Adv/Fine", "Paid", "Net Payable", ""].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+            <thead><tr style={{ background: C.bg }}>{["Name / Post", "Prorated Base", "Absent", "Leave", "OT", "Bonus", "Adv/Fine", "Paid", "Period Net", "Actual Payable", ""].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
             <tbody>
-              {rows.length === 0 && <tr><td colSpan={10} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No staff.</td></tr>}
-              {rows.map(({ emp, fin }) => (
-                <>
-                  <tr key={emp.id} style={{ background: expandedRow === emp.id ? color + "08" : "transparent" }}>
+              {rows.length === 0 && <tr><td colSpan={11} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No staff.</td></tr>}
+              {rows.map(({ emp, fin, finLifetime }) => (
+                <React.Fragment key={emp.id}>
+                  <tr style={{ background: expandedRow === emp.id ? color + "08" : "transparent" }}>
                     <td style={css.td}><strong>{emp.name}</strong><br /><small style={{ color: C.textDim }}>{emp.post}</small>{fin.periods.length > 1 && <div style={{ ...css.badge(C.orange), display: "inline-block", marginTop: 4, fontSize: 9 }}>SPLIT</div>}</td>
                     <td style={css.td}>₹{Math.round(fin.proratedSalary).toLocaleString("en-IN")}<br /><small style={{ color: C.textDim }}>joined {fin.joiningDate}</small></td>
                     <td style={{ ...css.td, color: fin.absentDays > 0 ? C.red : C.textDim }}>{fin.absentDays}d<br /><small>-₹{Math.round(fin.attendanceDeduction).toLocaleString()}</small></td>
@@ -757,6 +767,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
                     <td style={{ ...css.td, color: C.red }}>-₹{fin.totalAdvances.toLocaleString()}</td>
                     <td style={{ ...css.td, color: C.textDim }}>₹{fin.totalPaid.toLocaleString()}</td>
                     <td style={{ ...css.td, background: color + "11" }}><strong style={{ color: fin.netPayable < 0 ? C.red : color, fontSize: 14 }}>₹{Math.round(fin.netPayable).toLocaleString("en-IN")}</strong></td>
+                    <td style={{ ...css.td, background: C.orange + "15", borderLeft: `2px solid ${C.orange}44` }}><strong style={{ color: finLifetime.netPayable < 0 ? C.red : C.orange, fontSize: 15 }}>₹{Math.round(finLifetime.netPayable).toLocaleString("en-IN")}</strong></td>
                     <td style={css.td}>{fin.periods.length > 1 && <button style={{ ...css.btn(C.accent), padding: "3px 8px", fontSize: 10 }} onClick={() => setExpandedRow(expandedRow === emp.id ? null : emp.id)}>{expandedRow === emp.id ? "▲" : "▼"}</button>}</td>
                   </tr>
                   {expandedRow === emp.id && fin.periods.map((p, i) => (
@@ -765,14 +776,14 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
                       <td style={{ ...css.td, color: C.red }}><small>{p.absentDays}d · -₹{Math.round(p.attendanceDeduction).toLocaleString()}</small></td>
                       <td style={{ ...css.td, color: C.accent }}><small>{p.leaveDays}d</small></td>
                       <td style={{ ...css.td, color: C.green }}><small>{p.otHours}h · +₹{Math.round(p.otEarnings).toLocaleString()}</small></td>
-                      <td colSpan={4} style={css.td}><small style={{ color: C.textDim }}>Period subtotal: ₹{Math.round(p.proratedSalary - p.attendanceDeduction + p.otEarnings).toLocaleString()}</small></td>
+                      <td colSpan={5} style={css.td}><small style={{ color: C.textDim }}>Period subtotal: ₹{Math.round(p.proratedSalary - p.attendanceDeduction + p.otEarnings).toLocaleString()}</small></td>
                       <td style={css.td}></td>
                     </tr>
                   ))}
-                </>
+                </React.Fragment>
               ))}
             </tbody>
-            <tfoot><tr style={{ borderTop: `2px solid ${C.border}` }}><td colSpan={8} style={{ ...css.td, textAlign: "right", fontWeight: 700 }}>TOTAL NET PAYABLE</td><td style={css.td}><strong style={{ color, fontSize: 16 }}>₹{Math.round(totalNet).toLocaleString("en-IN")}</strong></td><td style={css.td}></td></tr></tfoot>
+            <tfoot><tr style={{ borderTop: `2px solid ${C.border}` }}><td colSpan={8} style={{ ...css.td, textAlign: "right", fontWeight: 700 }}>TOTAL PAYABLE</td><td style={css.td}><strong style={{ color, fontSize: 16 }}>₹{Math.round(totalNet).toLocaleString("en-IN")}</strong></td><td style={{...css.td, borderLeft: `2px solid ${C.orange}44`}}><strong style={{ color: C.orange, fontSize: 16 }}>₹{Math.round(totalActual).toLocaleString("en-IN")}</strong></td><td style={css.td}></td></tr></tfoot>
           </table>
         </div>
       </div>
