@@ -83,11 +83,23 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
   const periodBreakdown = [];
 
   for (const period of periods) {
-    const pStart = new Date(period.from), pEnd = new Date(period.to);
-    const daysInPeriod = Math.round((pEnd - pStart) / 86400000) + 1;
+    // Parse dates safely to avoid timezone shifting bugs
+    const [sYear, sMonth, sDay] = period.from.split('-').map(Number);
+    const [eYear, eMonth, eDay] = period.to.split('-').map(Number);
+    let curr = new Date(sYear, sMonth - 1, sDay);
+    const endDt = new Date(eYear, eMonth - 1, eDay);
     
-    // FIXED MATH 1: Base Salary is prorated using a standard 30-day calendar month
-    const proratedSalary = (period.salary / 30) * daysInPeriod; 
+    const daysInPeriod = Math.round((endDt - curr) / 86400000) + 1;
+    
+    // FIXED MATH 1: Base Salary accounts for the exact number of days in the month.
+    // This guarantees a full 28-day Feb or 31-day March equals exactly 100% of the monthly salary.
+    let proratedSalary = 0;
+    let tempCurr = new Date(curr);
+    while (tempCurr <= endDt) {
+      const daysInThisMonth = new Date(tempCurr.getFullYear(), tempCurr.getMonth() + 1, 0).getDate();
+      proratedSalary += period.salary / daysInThisMonth;
+      tempCurr.setDate(tempCurr.getDate() + 1);
+    }
     
     // FIXED MATH 2: Absences and OT MUST strictly use the 26-day working rate
     const dailyWorkingRate = period.salary / 26; 
