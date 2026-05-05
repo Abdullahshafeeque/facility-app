@@ -614,14 +614,13 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
               <>
                 <div style={css.sectionTitle}>Post Change History</div>
                 <div style={{ background: C.bg, borderRadius: 6, padding: 10, marginBottom: 16 }}>
-                 <div key={l.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: `1px solid ${C.border}` }}>
-                      <span style={{ fontSize: 11 }}>{fDate(l.date)} · {l.transaction_type}</span>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <strong style={{ fontSize: 11, color: l.transaction_type === "Bonus" || l.transaction_type === "Payout" ? C.green : C.red }}>₹{l.amount}</strong>
-                        <button style={{ background: "transparent", border: "none", color: C.blue, cursor: "pointer", fontSize: 14, padding: "0 4px" }} title="Edit Amount" onClick={() => editTransaction(l)}>✎</button>
-                        <button style={{ background: "transparent", border: "none", color: C.red, cursor: "pointer", fontSize: 12, padding: "0 4px" }} title="Delete Transaction" onClick={() => deleteTransaction(l.id)}>✕</button>
-                      </div>
+                  {empHistory.map(h => (
+                    <div key={h.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border}`, fontSize: 11 }}>
+                      <span>{h.post}</span>
+                      <span style={{ color: C.textDim }}>{fDate(h.valid_from)} → {h.valid_to ? fDate(h.valid_to) : "present"}</span>
+                      <strong style={{ color: C.accent }}>₹{Number(h.salary).toLocaleString("en-IN")}</strong>
                     </div>
+                  ))}
                 </div>
               </>
             )}
@@ -638,14 +637,17 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
             )}
 
             <div style={css.sectionTitle}>Recent Transactions</div>
-            <div style={css.sectionTitle}>Recent Transactions</div>
             <div style={{ maxHeight: 120, overflowY: "auto", background: C.bg, borderRadius: 6, padding: 10, marginBottom: 16 }}>
               {(ledger || []).filter(l => l.employee_id === viewing.id).slice(0, 10).length === 0
                 ? <div style={{ fontSize: 11, color: C.textDim, textAlign: "center" }}>No transactions found.</div>
                 : (ledger || []).filter(l => l.employee_id === viewing.id).slice(0, 10).map(l => (
-                  <div key={l.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border}` }}>
+                  <div key={l.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: `1px solid ${C.border}` }}>
                     <span style={{ fontSize: 11 }}>{fDate(l.date)} · {l.transaction_type}</span>
-                    <strong style={{ fontSize: 11, color: l.transaction_type === "Bonus" || l.transaction_type === "Payout" ? C.green : C.red }}>₹{l.amount}</strong>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <strong style={{ fontSize: 11, color: l.transaction_type === "Bonus" || l.transaction_type === "Payout" ? C.green : C.red }}>₹{l.amount}</strong>
+                      <button style={{ background: "transparent", border: "none", color: C.blue, cursor: "pointer", fontSize: 14, padding: "0 4px" }} title="Edit Amount" onClick={() => editTransaction(l)}>✎</button>
+                      <button style={{ background: "transparent", border: "none", color: C.red, cursor: "pointer", fontSize: 12, padding: "0 4px" }} title="Delete Transaction" onClick={() => deleteTransaction(l.id)}>✕</button>
+                    </div>
                   </div>
                 ))
               }
