@@ -37,7 +37,7 @@ const staffTypeColor = (t) => t === "company" ? C.blue : C.green;
 const getLocalDateStr = (d = new Date()) => { const dt = new Date(d); dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset()); return dt.toISOString().split("T")[0]; };
 const todayStr = getLocalDateStr();
 // NEW: Formats yyyy-mm-dd into dd-mm-yyyy for display
-const fDate = (d) => d ? d.split("-").reverse().join("-") : "—";
+const fDate = (d) => (d && typeof d === "string" && d.includes("-")) ? d.split("-").reverse().join("-") : (d || "—");
 
 function getCoverage(employees, attendance, posts) {
   if (!posts || posts.length === 0) return [];
@@ -54,7 +54,7 @@ function getCoverage(employees, attendance, posts) {
 
 function calcFinances(employee, posts, rangeAttendance, ledger, start, end, postHistory) {
   // 1. Resolve Post History (Handles role promotions/shifts correctly)
-  const empHistory = (postHistory || []).filter(h => h.employee_id === employee.id).sort((a, b) => a.valid_from.localeCompare(b.valid_from));
+  const empHistory = (postHistory || []).filter(h => h.employee_id === employee.id).sort((a, b) => (a.valid_from || "").localeCompare(b.valid_from || ""));
   const joiningDate = employee.joining_date || start;
   const effectiveStart = joiningDate > start ? joiningDate : start;
   const effectiveEnd = employee.left_date && employee.left_date < end ? employee.left_date : end;
@@ -521,7 +521,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
     setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "active", left_date: null, settlement_done: false } : e));
   };
 
-  const empHistory = viewing ? (postHistory || []).filter(h => h.employee_id === viewing.id).sort((a, b) => b.valid_from.localeCompare(a.valid_from)) : [];
+  const empHistory = viewing ? (postHistory || []).filter(h => h.employee_id === viewing.id).sort((a, b) => (b.valid_from || "").localeCompare(a.valid_from || "")) : [];
 
   return (
     <div style={css.page}>
