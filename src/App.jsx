@@ -36,6 +36,8 @@ const shiftColor = (s) => s === "Morning" ? C.accent : C.blue;
 const staffTypeColor = (t) => t === "company" ? C.blue : C.green;
 const getLocalDateStr = (d = new Date()) => { const dt = new Date(d); dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset()); return dt.toISOString().split("T")[0]; };
 const todayStr = getLocalDateStr();
+// NEW: Formats yyyy-mm-dd into dd-mm-yyyy for display
+const fDate = (d) => d ? d.split("-").reverse().join("-") : "—";
 
 function getCoverage(employees, attendance, posts) {
   if (!posts || posts.length === 0) return [];
@@ -570,7 +572,7 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16, background: C.bg, padding: 14, borderRadius: 8 }}>
               <div><div style={{ fontSize: 10, color: C.textDim }}>AADHAR</div><strong>{viewing.aadhar || "—"}</strong></div>
               <div><div style={{ fontSize: 10, color: C.textDim }}>CURRENT SALARY</div><strong style={{ color: C.green }}>₹{Number(viewing.base_salary).toLocaleString("en-IN")}</strong></div>
-              <div><div style={{ fontSize: 10, color: C.textDim }}>JOINED</div><strong>{viewing.joining_date || "—"}</strong></div>
+              <div><div style={{ fontSize: 10, color: C.textDim }}>JOINED</div><strong>{fDate(viewing.joining_date)}</strong></div>
               <div><div style={{ fontSize: 10, color: C.textDim }}>CURRENT POST</div><strong>{viewing.post}</strong></div>
             </div>
             <div style={{ marginBottom: 16 }}>
@@ -592,7 +594,7 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
                   {empHistory.map(h => (
                     <div key={h.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border}`, fontSize: 11 }}>
                       <span>{h.post}</span>
-                      <span style={{ color: C.textDim }}>{h.valid_from} → {h.valid_to || "present"}</span>
+                      <span style={{ color: C.textDim }}>{fDate(h.valid_from)} → {h.valid_to ? fDate(h.valid_to) : "present"}</span>
                       <strong style={{ color: C.accent }}>₹{Number(h.salary).toLocaleString("en-IN")}</strong>
                     </div>
                   ))}
@@ -618,7 +620,7 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
                 ? <div style={{ fontSize: 11, color: C.textDim, textAlign: "center" }}>No transactions found.</div>
                 : (ledger || []).filter(l => l.employee_id === viewing.id).slice(0, 10).map(l => (
                   <div key={l.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border}` }}>
-                    <span style={{ fontSize: 11 }}>{l.date} · {l.transaction_type}</span>
+                    <span style={{ fontSize: 11 }}>{fDate(l.date)} · {l.transaction_type}</span>
                     <strong style={{ fontSize: 11, color: l.transaction_type === "Bonus" || l.transaction_type === "Payout" ? C.green : C.red }}>₹{l.amount}</strong>
                   </div>
                 ))
@@ -658,7 +660,7 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
                 <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
                 <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
                 <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
-                <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.joining_date || "—"}</span></td>
+                <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{fDate(emp.joining_date)}</span></td>
                 <td style={css.td}><span style={{ color: C.accent }}>₹{Number(emp.base_salary).toLocaleString("en-IN")}</span></td>
                 <td style={css.td}><span style={{ fontSize: 11, color: C.accent }}>View →</span></td>
               </tr>
@@ -680,7 +682,7 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
                     <td style={css.td}><strong>{emp.name}</strong></td>
                     <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
                     <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
-                    <td style={css.td}><span style={{ fontSize: 11, color: C.red }}>{emp.left_date || "—"}</span></td>
+                    <td style={css.td}><span style={{ fontSize: 11, color: C.red }}>{fDate(emp.left_date)}</span></td>
                     <td style={css.td}><button style={{ ...css.btn(C.green), padding: "4px 10px", fontSize: 10 }} onClick={() => reactivate(emp)}>Reactivate</button></td>
                   </tr>
                 ))}
@@ -736,12 +738,12 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
         doc.setFontSize(16);
         doc.text("PRFM HR Portal — " + label, 14, 18);
         doc.setFontSize(10);
-        doc.text(`Period: ${start} to ${end}`, 14, 26);
-        doc.text(`Generated: ${todayStr}`, 14, 32);
+        doc.text(`Period: ${fDate(start)} to ${fDate(end)}`, 14, 26);
+        doc.text(`Generated: ${fDate(todayStr)}`, 14, 32);
         autoTable(doc, {
           startY: 38,
           head: [["Name", "Post", "Joined", "Base (Prorated)", "Absent", "Leave", "OT Hrs", "OT Earn", "Bonus", "Adv/Fine", "Paid", "Net Payable"]],
-          body: rows.map(({ emp, fin }) => [emp.name, emp.post, fin.joiningDate, "Rs." + Math.round(fin.proratedSalary).toLocaleString("en-IN"), fin.absentDays + "d", fin.leaveDays + "d", fin.totalOTHours + "h", "Rs." + Math.round(fin.otEarnings).toLocaleString("en-IN"), "Rs." + fin.totalBonuses.toLocaleString("en-IN"), "Rs." + fin.totalAdvances.toLocaleString("en-IN"), "Rs." + fin.totalPaid.toLocaleString("en-IN"), "Rs." + Math.round(fin.netPayable).toLocaleString("en-IN")]),
+          body: rows.map(({ emp, fin }) => [emp.name, emp.post, fDate(fin.joiningDate), "Rs." + Math.round(fin.proratedSalary).toLocaleString("en-IN"), fin.absentDays + "d", fin.leaveDays + "d", fin.totalOTHours + "h", "Rs." + Math.round(fin.otEarnings).toLocaleString("en-IN"), "Rs." + fin.totalBonuses.toLocaleString("en-IN"), "Rs." + fin.totalAdvances.toLocaleString("en-IN"), "Rs." + fin.totalPaid.toLocaleString("en-IN"), "Rs." + Math.round(fin.netPayable).toLocaleString("en-IN")]),
           theme: "grid",
           headStyles: { fillColor: [30, 111, 219], fontSize: 8 },
           bodyStyles: { fontSize: 8 },
@@ -782,7 +784,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
                 <React.Fragment key={emp.id}>
                   <tr style={{ background: expandedRow === emp.id ? color + "08" : "transparent" }}>
                     <td style={css.td}><strong>{emp.name}</strong><br /><small style={{ color: C.textDim }}>{emp.post}</small>{fin.periods.length > 1 && <div style={{ ...css.badge(C.orange), display: "inline-block", marginTop: 4, fontSize: 9 }}>SPLIT</div>}</td>
-                    <td style={css.td}>₹{Math.round(fin.proratedSalary).toLocaleString("en-IN")}<br /><small style={{ color: C.textDim }}>joined {fin.joiningDate}</small></td>
+                    <td style={css.td}>₹{Math.round(fin.proratedSalary).toLocaleString("en-IN")}<br /><small style={{ color: C.textDim }}>joined {fDate(fin.joiningDate)}</small></td>
                     <td style={{ ...css.td, color: fin.absentDays > 0 ? C.red : C.textDim }}>{fin.absentDays}d<br /><small>-₹{Math.round(fin.attendanceDeduction).toLocaleString()}</small></td>
                     <td style={{ ...css.td, color: fin.leaveDays > 0 ? C.accent : C.textDim }}>{fin.leaveDays}d</td>
                     <td style={{ ...css.td, color: C.green }}>{fin.totalOTHours}h<br /><small>+₹{Math.round(fin.otEarnings).toLocaleString()}</small></td>
@@ -795,7 +797,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
                   </tr>
                   {expandedRow === emp.id && fin.periods.map((p, i) => (
                     <tr key={i} style={{ background: C.accent + "08" }}>
-                      <td style={{ ...css.td, paddingLeft: 30 }} colSpan={2}><small style={{ color: C.accent }}>📌 {p.post} · {p.from} → {p.to}</small><br /><small style={{ color: C.textDim }}>₹{p.salary.toLocaleString()}/month · {p.daysInPeriod} days</small></td>
+                      <td style={{ ...css.td, paddingLeft: 30 }} colSpan={2}><small style={{ color: C.accent }}>📌 {p.post} · {fDate(p.from)} → {fDate(p.to)}</small><br /><small style={{ color: C.textDim }}>₹{p.salary.toLocaleString()}/month · {p.daysInPeriod} days</small></td>
                       <td style={{ ...css.td, color: C.red }}><small>{p.absentDays}d · -₹{Math.round(p.attendanceDeduction).toLocaleString()}</small></td>
                       <td style={{ ...css.td, color: C.accent }}><small>{p.leaveDays}d</small></td>
                       <td style={{ ...css.td, color: C.green }}><small>{p.otHours}h · +₹{Math.round(p.otEarnings).toLocaleString()}</small></td>
@@ -845,7 +847,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
                 <tr key={emp.id}>
                   <td style={css.td}><strong>{emp.name}</strong></td>
                   <td style={css.td}>{emp.post}</td>
-                  <td style={{ ...css.td, color: C.red }}>{emp.left_date || "—"}</td>
+                  <td style={{ ...css.td, color: C.red }}>{fDate(emp.left_date)}</td>
                   <td style={css.td}>
                     <strong style={{ color: fin.netPayable < 0 ? C.red : C.green, fontSize: 15 }}>₹{Math.round(Math.abs(fin.netPayable)).toLocaleString("en-IN")}</strong>
                     <br /><small style={{ color: C.textDim }}>{fin.netPayable < 0 ? "Overpaid — recover" : "Owed to staff"}</small>
