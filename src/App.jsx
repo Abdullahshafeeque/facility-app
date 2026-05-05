@@ -65,6 +65,18 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
     let cursor = effectiveStart;
     for (let i = 0; i < empHistory.length; i++) {
       const h = empHistory[i];
+      
+      // FIX: Catch any undocumented time *before* this history record and backfill their standard salary
+      if (h.valid_from > cursor && h.valid_from <= effectiveEnd) {
+         const gapEndObj = new Date(h.valid_from);
+         gapEndObj.setDate(gapEndObj.getDate() - 1);
+         const gapEnd = gapEndObj.toISOString().split("T")[0];
+         if (gapEnd >= cursor) {
+            const fallbackSalary = employee.staff_type === "contract" ? (posts.find(p => p.name === employee.post)?.contract_salary || 0) : (employee.base_salary || 0);
+            periods.push({ from: cursor, to: gapEnd, post: employee.post, salary: fallbackSalary });
+         }
+      }
+
       const periodEnd = h.valid_to ? (h.valid_to < effectiveEnd ? h.valid_to : effectiveEnd) : effectiveEnd;
       const periodStart = h.valid_from > cursor ? h.valid_from : cursor;
       if (periodStart <= periodEnd && periodStart <= effectiveEnd) {
@@ -479,8 +491,9 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
 
     if (histData) setPostHistory(prev => [...prev, histData]);
 
-    await supabase.from("employees").update({ status: "active", left_date: null }).eq("id", emp.id);
-    setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "active", left_date: null } : e));
+    // FIX: Clear the settlement flag so they aren't still marked as "Settled" in their new active tenure
+    await supabase.from("employees").update({ status: "active", left_date: null, settlement_done: false }).eq("id", emp.id);
+    setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "active", left_date: null, settlement_done: false } : e));
   };
 
   const empHistory = viewing ? (postHistory || []).filter(h => h.employee_id === viewing.id).sort((a, b) => b.valid_from.localeCompare(a.valid_from)) : [];
