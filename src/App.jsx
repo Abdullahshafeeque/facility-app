@@ -754,16 +754,41 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
     setSaving(false);
   };
 
-  const exportCSV = (rows, filename) => {
-    const header = ["Name", "Post", "Prorated Salary", "Absent Days", "Leave Days", "OT Hours", "OT Earnings", "Bonuses", "Advances/Fines", "Total Paid", "Net Payable"];
-    const lines = rows.map(({ emp, fin }) => [
-      emp.name, emp.post, fin.proratedSalary.toFixed(2), fin.absentDays, fin.leaveDays,
-      fin.totalOTHours, fin.otEarnings.toFixed(2), fin.totalBonuses, fin.totalAdvances, fin.totalPaid, fin.netPayable.toFixed(2)
-    ]);
-    const csv = [header, ...lines].map(r => r.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = filename; a.click();
+  const exportPDF = (rows, label) => {
+    import("jspdf").then(({ jsPDF }) => {
+      import("jspdf-autotable").then(({ default: autoTable }) => {
+        const doc = new jsPDF({ orientation: "landscape" });
+        doc.setFontSize(16);
+        doc.text("PRFM HR Portal — " + label, 14, 18);
+        doc.setFontSize(10);
+        doc.text(`Period: ${start} to ${end}`, 14, 26);
+        doc.text(`Generated: ${todayStr}`, 14, 32);
+        autoTable(doc, {
+          startY: 38,
+          head: [["Name", "Post", "Joined", "Base (Prorated)", "Absent", "Leave", "OT Hrs", "OT Earn", "Bonus", "Adv/Fine", "Paid", "Net Payable"]],
+          body: rows.map(({ emp, fin }) => [
+            emp.name,
+            emp.post,
+            fin.joiningDate,
+            "Rs." + Math.round(fin.proratedSalary).toLocaleString("en-IN"),
+            fin.absentDays + "d",
+            fin.leaveDays + "d",
+            fin.totalOTHours + "h",
+            "Rs." + Math.round(fin.otEarnings).toLocaleString("en-IN"),
+            "Rs." + fin.totalBonuses.toLocaleString("en-IN"),
+            "Rs." + fin.totalAdvances.toLocaleString("en-IN"),
+            "Rs." + fin.totalPaid.toLocaleString("en-IN"),
+            "Rs." + Math.round(fin.netPayable).toLocaleString("en-IN"),
+          ]),
+          theme: "grid",
+          headStyles: { fillColor: [30, 111, 219], fontSize: 8 },
+          bodyStyles: { fontSize: 8 },
+          foot: [["", "", "TOTAL", "", "", "", "", "", "", "", "", "Rs." + Math.round(rows.reduce((s, r) => s + r.fin.netPayable, 0)).toLocaleString("en-IN")]],
+          footStyles: { fillColor: [240, 245, 255], textColor: [30, 111, 219], fontStyle: "bold" },
+        });
+        doc.save(`PRFM_${label.replace(/ /g, "_")}_${start}_to_${end}.pdf`);
+      });
+    });
   };
 
   const PayrollTable = ({ staffList, label, color }) => {
@@ -776,7 +801,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
       <div style={{ marginBottom: 30 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div style={css.sectionTitle}>{label} ({filteredList.length})</div>
-          <button style={css.btn(C.textDim)} onClick={() => exportCSV(rows, `${label.replace(/ /g, "_")}_${start}_${end}.csv`)}>📥 Export CSV</button>
+          <button style={css.btn(C.textDim)} onClick={() => exportPDF(rows, label)}>📥 Export CSV</button>
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
@@ -857,8 +882,15 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
     );
     return (
       <div>
-        <div style={{ marginBottom: 12, padding: "10px 14px", background: C.orange + "15", border: `1px solid ${C.orange}44`, borderRadius: 6, fontSize: 12, color: C.orange }}>
-          ⚠ Former employees with pending dues. Record their final payout using "+ Register Transaction".
+        <div style={{ marginBottom: 12, padding: "10px 14px", background: C.orange + "15", border: `1px solid ${C.orange}44`, borderRadius: 6, fontSize: 12, color: C.orange, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <span>⚠ Former employees with pending dues. Record their final payout using "+ Register Transaction".</span>
+          <button style={css.btn(C.green)} onClick={async () => {
+            if (!window.confirm("Mark ALL former staff as fully settled? This will record a ₹0 payout for all.")) return;
+            for (const { emp } of rows) {
+              await supabase.from("financial_ledger").insert({ employee_id: emp.id, date: todayStr, transaction_type: "Payout", amount: 0, notes: "Marked as settled" });
+            }
+            alert("All marked as settled!");
+          }}>✓ Mark All Settled</button>
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
@@ -1103,6 +1135,7 @@ export default function App() {
 
   const alerts = getCoverage(employees.filter(e => e.status === "active"), attendance, posts);
   const pendingSettlements = employees.filter(e => e.status === "inactive").length;
+const hasRealSettlements = employees.some(e => e.status === "inactive");
 
   const TABS = [
     { id: "dashboard", label: "Dashboard" },
@@ -1128,7 +1161,7 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontSize: 11, color: C.textDim }}>{user.email}</span>
           {alerts.length > 0 && <span style={{ ...css.badge(C.red), cursor: "pointer" }} onClick={() => setTab("dashboard")}>⚠ {alerts.length} Alert{alerts.length > 1 ? "s" : ""}</span>}
-          {pendingSettlements > 0 && <span style={{ ...css.badge(C.orange), cursor: "pointer" }} onClick={() => setTab("payroll")}>⚖ {pendingSettlements} Settlement{pendingSettlements > 1 ? "s" : ""}</span>}
+          {pendingSettlements > 0 && <span style={{ ...css.badge(C.orange), cursor: "pointer" }} onClick={() => setTab("payroll")}>⚖ {pendingSettlements} Pending</span>}
           <span style={css.badge(C.green)}>LIVE</span>
           <button onClick={handleSignOut} style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }}>Sign Out</button>
         </div>
