@@ -68,14 +68,16 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
     for (let i = 0; i < empHistory.length; i++) {
       const h = empHistory[i];
       
-      // FIX: Catch any undocumented time *before* this history record and backfill their standard salary
-      if (h.valid_from > cursor && h.valid_from <= effectiveEnd) {
+      if (h.valid_from && h.valid_from > cursor && h.valid_from <= effectiveEnd) {
          const gapEndObj = new Date(h.valid_from);
-         gapEndObj.setDate(gapEndObj.getDate() - 1);
-         const gapEnd = gapEndObj.toISOString().split("T")[0];
-         if (gapEnd >= cursor) {
-            const fallbackSalary = employee.staff_type === "contract" ? (posts.find(p => p.name === employee.post)?.contract_salary || 0) : (employee.base_salary || 0);
-            periods.push({ from: cursor, to: gapEnd, post: employee.post, salary: fallbackSalary });
+         // SAFETY NET: Only format if the date is valid to prevent crashes
+         if (!isNaN(gapEndObj)) {
+           gapEndObj.setDate(gapEndObj.getDate() - 1);
+           const gapEnd = gapEndObj.toISOString().split("T")[0];
+           if (gapEnd >= cursor) {
+              const fallbackSalary = employee.staff_type === "contract" ? (posts.find(p => p.name === employee.post)?.contract_salary || 0) : (employee.base_salary || 0);
+              periods.push({ from: cursor, to: gapEnd, post: employee.post, salary: fallbackSalary });
+           }
          }
       }
 
@@ -83,7 +85,8 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
       const periodStart = h.valid_from > cursor ? h.valid_from : cursor;
       if (periodStart <= periodEnd && periodStart <= effectiveEnd) {
         periods.push({ from: periodStart, to: periodEnd, post: h.post, salary: h.salary });
-        cursor = new Date(new Date(periodEnd).getTime() + 86400000).toISOString().split("T")[0];
+        const nextDayObj = new Date(new Date(periodEnd).getTime() + 86400000);
+        cursor = isNaN(nextDayObj) ? periodEnd : nextDayObj.toISOString().split("T")[0];
       }
     }
     if (cursor <= effectiveEnd) {
@@ -384,6 +387,13 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
     await supabase.from("financial_ledger").delete().eq("id", txId);
     setLedger(prev => prev.filter(l => l.id !== txId));
   };
+  const editTransaction = async (tx) => {
+    const newAmount = window.prompt(`Edit amount for this ${tx.transaction_type} (Currently ₹${tx.amount}):`, tx.amount);
+    if (!newAmount || isNaN(newAmount) || Number(newAmount) <= 0 || Number(newAmount) === tx.amount) return;
+    
+    await supabase.from("financial_ledger").update({ amount: Number(newAmount) }).eq("id", tx.id);
+    setLedger(prev => prev.map(l => l.id === tx.id ? { ...l, amount: Number(newAmount) } : l));
+  };
   const [showForm, setShowForm] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
   const [search, setSearch] = useState("");
@@ -604,13 +614,14 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
               <>
                 <div style={css.sectionTitle}>Post Change History</div>
                 <div style={{ background: C.bg, borderRadius: 6, padding: 10, marginBottom: 16 }}>
-                <div key={l.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: `1px solid ${C.border}` }}>
+                 <div key={l.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: `1px solid ${C.border}` }}>
                       <span style={{ fontSize: 11 }}>{fDate(l.date)} · {l.transaction_type}</span>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <strong style={{ fontSize: 11, color: l.transaction_type === "Bonus" || l.transaction_type === "Payout" ? C.green : C.red }}>₹{l.amount}</strong>
-                        <button style={{ background: "transparent", border: "none", color: C.red, cursor: "pointer", fontSize: 12, padding: "0 4px" }} onClick={() => deleteTransaction(l.id)}>✕</button>
+                        <button style={{ background: "transparent", border: "none", color: C.blue, cursor: "pointer", fontSize: 14, padding: "0 4px" }} title="Edit Amount" onClick={() => editTransaction(l)}>✎</button>
+                        <button style={{ background: "transparent", border: "none", color: C.red, cursor: "pointer", fontSize: 12, padding: "0 4px" }} title="Delete Transaction" onClick={() => deleteTransaction(l.id)}>✕</button>
                       </div>
-                    </div>  
+                    </div>
                 </div>
               </>
             )}
