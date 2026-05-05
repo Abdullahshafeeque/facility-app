@@ -388,6 +388,8 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company", joining_date: todayStr });
   const [viewingAtt, setViewingAtt] = useState([]);
+  const [datePromptOpts, setDatePromptOpts] = useState(null);
+  const askForDate = (msg) => new Promise(resolve => setDatePromptOpts({ msg, date: todayStr, resolve }));
 
   // Fetch this specific person's historical attendance when their profile opens
   useEffect(() => {
@@ -428,8 +430,8 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
   };
 
   const updateEmployeePost = async (emp, newPost) => {
-    const effectiveDate = window.prompt(`Enter effective date for role change to ${newPost} (YYYY-MM-DD):`, todayStr);
-    if (!effectiveDate) return; 
+    const effectiveDate = await askForDate(`Select effective date for role change to ${newPost}:`);
+    if (!effectiveDate) return;
 
     const newSalary = emp.staff_type === "contract" ? getContractSalary(newPost) : emp.base_salary;
     const dateObj = new Date(effectiveDate);
@@ -476,7 +478,7 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
   };
 
   const reactivate = async (emp) => {
-    const rejoinDate = window.prompt(`Enter rejoining date for ${emp.name} (YYYY-MM-DD):`, todayStr);
+    const rejoinDate = await askForDate(`Select rejoining date for ${emp.name}:`);
     if (!rejoinDate) return;
 
     const dateObj = new Date(rejoinDate);
@@ -690,6 +692,24 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
             </table>
           </div>
         </>
+      )}
+      {/* --- CUSTOM CALENDAR PROMPT --- */}
+      {datePromptOpts && (
+        <div style={css.modal}>
+          <div style={{ ...css.card, maxWidth: 350, width: "100%", textAlign: "center", border: `2px solid ${C.accent}` }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 16 }}>{datePromptOpts.msg}</div>
+            <input 
+              type="date" 
+              style={{ ...css.input, width: "100%", marginBottom: 20, fontSize: 16, padding: 10, textAlign: "center", fontWeight: "bold" }} 
+              value={datePromptOpts.date} 
+              onChange={e => setDatePromptOpts({ ...datePromptOpts, date: e.target.value })} 
+            />
+            <div style={{ display: "flex", gap: 10 }}>
+              <button style={{ ...css.btn(C.green), flex: 1 }} onClick={() => { datePromptOpts.resolve(datePromptOpts.date); setDatePromptOpts(null); }}>Confirm Date</button>
+              <button style={{ ...css.btn(C.red), flex: 1 }} onClick={() => { datePromptOpts.resolve(null); setDatePromptOpts(null); }}>Cancel</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
