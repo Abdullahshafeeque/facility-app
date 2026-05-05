@@ -405,19 +405,29 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
 
   const updateEmployeePost = async (emp, newPost) => {
     const effectiveDate = window.prompt(`Enter effective date for role change to ${newPost} (YYYY-MM-DD):`, todayStr);
-    if (!effectiveDate) return; // User cancelled, dropdown will revert
+    if (!effectiveDate) return; 
 
     const newSalary = emp.staff_type === "contract" ? getContractSalary(newPost) : emp.base_salary;
-
-    // The old role ends the day BEFORE the new role begins
     const dateObj = new Date(effectiveDate);
     dateObj.setDate(dateObj.getDate() - 1);
     const validToDate = dateObj.toISOString().split("T")[0];
 
-    await supabase.from("post_history").update({ valid_to: validToDate }).eq("employee_id", emp.id).is("valid_to", null);
+    // Check if the employee already has a history tracking record
+    const hasHistory = postHistory.some(h => h.employee_id === emp.id && !h.valid_to);
+    
+    if (!hasHistory) {
+      // BACKFILL: Log the old salary & post for the period before the shift so they get paid!
+      const { data: backfill } = await supabase.from("post_history").insert({ employee_id: emp.id, post: emp.post, staff_type: emp.staff_type, salary: emp.base_salary, valid_from: emp.joining_date || "2024-01-01", valid_to: validToDate }).select().single();
+      if (backfill) setPostHistory(prev => [...prev, backfill]);
+    } else {
+      // Safely close out the existing open history record in the database AND local view
+      await supabase.from("post_history").update({ valid_to: validToDate }).eq("employee_id", emp.id).is("valid_to", null);
+      setPostHistory(prev => prev.map(h => (h.employee_id === emp.id && !h.valid_to) ? { ...h, valid_to: validToDate } : h));
+    }
+
     const { data: histData } = await supabase.from("post_history").insert({ employee_id: emp.id, post: newPost, staff_type: emp.staff_type, salary: newSalary, valid_from: effectiveDate, valid_to: null }).select().single();
     
-    if (histData) setPostHistory(prev => [...prev.filter(h => !(h.employee_id === emp.id && !h.valid_to)), histData]);
+    if (histData) setPostHistory(prev => [...prev, histData]);
     const updateData = { post: newPost, base_salary: newSalary };
     await supabase.from("employees").update(updateData).eq("id", emp.id);
     setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, ...updateData } : e));
