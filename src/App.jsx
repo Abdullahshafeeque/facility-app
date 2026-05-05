@@ -34,12 +34,7 @@ const css = {
 const statusColor = (s) => s === "Present" ? C.green : s === "Absent" ? C.red : C.accent;
 const shiftColor = (s) => s === "Morning" ? C.accent : C.blue;
 const staffTypeColor = (t) => t === "company" ? C.blue : C.green;
-
-const getLocalDateStr = (d = new Date()) => {
-  const dt = new Date(d);
-  dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset());
-  return dt.toISOString().split("T")[0];
-};
+const getLocalDateStr = (d = new Date()) => { const dt = new Date(d); dt.setMinutes(dt.getMinutes() - dt.getTimezoneOffset()); return dt.toISOString().split("T")[0]; };
 const todayStr = getLocalDateStr();
 
 function getCoverage(employees, attendance, posts) {
@@ -55,27 +50,17 @@ function getCoverage(employees, attendance, posts) {
   return alerts;
 }
 
-// ─── CORE PAYROLL ENGINE ──────────────────────────────────────────────────────
-// Splits salary calculation by post history periods
 function calcFinances(employee, posts, rangeAttendance, ledger, start, end, postHistory) {
-  const empHistory = (postHistory || [])
-    .filter(h => h.employee_id === employee.id)
-    .sort((a, b) => a.valid_from.localeCompare(b.valid_from));
-
-  // Build periods: each period has { from, to, post, salary }
-  const periods = [];
+  const empHistory = (postHistory || []).filter(h => h.employee_id === employee.id).sort((a, b) => a.valid_from.localeCompare(b.valid_from));
   const joiningDate = employee.joining_date || start;
   const effectiveStart = joiningDate > start ? joiningDate : start;
   const effectiveEnd = employee.left_date && employee.left_date < end ? employee.left_date : end;
+  const periods = [];
 
   if (empHistory.length === 0) {
-    // No history — use current post for entire period
-    const salary = employee.staff_type === "contract"
-      ? (posts.find(p => p.name === employee.post)?.contract_salary || 0)
-      : (employee.base_salary || 0);
+    const salary = employee.staff_type === "contract" ? (posts.find(p => p.name === employee.post)?.contract_salary || 0) : (employee.base_salary || 0);
     periods.push({ from: effectiveStart, to: effectiveEnd, post: employee.post, salary });
   } else {
-    // Build periods from history
     let cursor = effectiveStart;
     for (let i = 0; i < empHistory.length; i++) {
       const h = empHistory[i];
@@ -86,80 +71,44 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
         cursor = new Date(new Date(periodEnd).getTime() + 86400000).toISOString().split("T")[0];
       }
     }
-    // If there's remaining time after last history entry, use current post
     if (cursor <= effectiveEnd) {
-      const currentSalary = employee.staff_type === "contract"
-        ? (posts.find(p => p.name === employee.post)?.contract_salary || 0)
-        : (employee.base_salary || 0);
+      const currentSalary = employee.staff_type === "contract" ? (posts.find(p => p.name === employee.post)?.contract_salary || 0) : (employee.base_salary || 0);
       periods.push({ from: cursor, to: effectiveEnd, post: employee.post, salary: currentSalary });
     }
   }
 
-  // Calculate per period
-  let totalProratedSalary = 0;
-  let totalAttendanceDeduction = 0;
-  let totalOTEarnings = 0;
-  let totalAbsentDays = 0;
-  let totalLeaveDays = 0;
-  let totalOTHours = 0;
+  let totalProratedSalary = 0, totalAttendanceDeduction = 0, totalOTEarnings = 0;
+  let totalAbsentDays = 0, totalLeaveDays = 0, totalOTHours = 0;
   const periodBreakdown = [];
 
   for (const period of periods) {
     const dailyRate = period.salary / 26;
     const hourlyRate = dailyRate / 12;
-
-    // Days in this period
-    const pStart = new Date(period.from);
-    const pEnd = new Date(period.to);
+    const pStart = new Date(period.from), pEnd = new Date(period.to);
     const daysInPeriod = Math.round((pEnd - pStart) / 86400000) + 1;
-    const proratedSalary = dailyRate * Math.min(daysInPeriod, 26);
-
-    const periodAtt = rangeAttendance.filter(a =>
-      a.employee_id === employee.id &&
-      a.date >= period.from &&
-      a.date <= period.to
-    );
-
+    const proratedSalary = dailyRate * daysInPeriod;
+    const periodAtt = rangeAttendance.filter(a => a.employee_id === employee.id && a.date >= period.from && a.date <= period.to);
     const absentDays = periodAtt.filter(a => a.status === "Absent").length;
     const leaveDays = periodAtt.filter(a => a.status === "Leave").length;
     const otHours = periodAtt.reduce((s, a) => s + (Number(a.ot_hours) || 0), 0);
     const attendanceDeduction = (absentDays + leaveDays) * dailyRate;
     const otEarnings = otHours * hourlyRate;
-
     totalProratedSalary += proratedSalary;
     totalAttendanceDeduction += attendanceDeduction;
     totalOTEarnings += otEarnings;
     totalAbsentDays += absentDays;
     totalLeaveDays += leaveDays;
     totalOTHours += otHours;
-
-    periodBreakdown.push({
-      ...period,
-      daysInPeriod, proratedSalary, absentDays, leaveDays, otHours, attendanceDeduction, otEarnings
-    });
+    periodBreakdown.push({ ...period, daysInPeriod, proratedSalary, absentDays, leaveDays, otHours, attendanceDeduction, otEarnings });
   }
 
-  // Ledger
   const staffLedger = (ledger || []).filter(l => l.employee_id === employee.id && l.date >= start && l.date <= end);
   const totalBonuses = staffLedger.filter(l => l.transaction_type === "Bonus").reduce((s, l) => s + Number(l.amount), 0);
   const totalAdvances = staffLedger.filter(l => l.transaction_type === "Advance" || l.transaction_type === "Fine").reduce((s, l) => s + Number(l.amount), 0);
   const totalPaid = staffLedger.filter(l => l.transaction_type === "Payout").reduce((s, l) => s + Number(l.amount), 0);
-
   const netPayable = (totalProratedSalary + totalBonuses + totalOTEarnings) - (totalAttendanceDeduction + totalAdvances + totalPaid);
 
-  return {
-    periods: periodBreakdown,
-    proratedSalary: totalProratedSalary,
-    attendanceDeduction: totalAttendanceDeduction,
-    otEarnings: totalOTEarnings,
-    absentDays: totalAbsentDays,
-    leaveDays: totalLeaveDays,
-    totalOTHours,
-    totalBonuses, totalAdvances, totalPaid,
-    netPayable,
-    joiningDate: employee.joining_date || start,
-    effectiveStart,
-  };
+  return { periods: periodBreakdown, proratedSalary: totalProratedSalary, attendanceDeduction: totalAttendanceDeduction, otEarnings: totalOTEarnings, absentDays: totalAbsentDays, leaveDays: totalLeaveDays, totalOTHours, totalBonuses, totalAdvances, totalPaid, netPayable, joiningDate: employee.joining_date || start, effectiveStart };
 }
 
 function StatCard({ label, value, sub, accent }) {
@@ -201,13 +150,10 @@ function DashboardView({ employees, attendance, posts }) {
   const alerts = getCoverage(active, attendance, posts);
   const company = active.filter(e => e.staff_type === "company").length;
   const contract = active.filter(e => e.staff_type === "contract").length;
-
   return (
     <div style={css.page}>
       <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 10, color: C.textDim, letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>
-          DAILY OVERVIEW · {new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-        </div>
+        <div style={{ fontSize: 10, color: C.textDim, letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>DAILY OVERVIEW · {new Date().toLocaleDateString("en-IN", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</div>
         <div style={{ fontSize: 22, fontWeight: 700 }}>Operations Dashboard</div>
       </div>
       <div style={{ ...css.grid4, marginBottom: 20 }}>
@@ -290,9 +236,7 @@ function AttendanceView({ employees }) {
     loadDay();
   }, [selectedDate]);
 
-  const toggle = (id, field, value) => {
-    setDayAttendance(prev => ({ ...prev, [id]: { ...(prev[id] || { status: "Present", ot_hours: 0 }), [field]: value } }));
-  };
+  const toggle = (id, field, value) => setDayAttendance(prev => ({ ...prev, [id]: { ...(prev[id] || { status: "Present", ot_hours: 0 }), [field]: value } }));
 
   const markAllPresent = () => {
     const newMap = { ...dayAttendance };
@@ -302,41 +246,26 @@ function AttendanceView({ employees }) {
 
   const handleSubmit = async () => {
     if (selectedDate > todayStr) return alert("Cannot submit for future dates!");
-    if (!window.confirm(`Submit attendance for ${selectedDate}?`)) return;
     setSaving(true);
-    const insertData = active.map(emp => {
-      const rec = dayAttendance[emp.id] || { status: "Present", ot_hours: 0 };
-      return { employee_id: emp.id, date: selectedDate, status: rec.status, ot_hours: rec.ot_hours || 0 };
-    });
+    const insertData = active.map(emp => { const rec = dayAttendance[emp.id] || { status: "Present", ot_hours: 0 }; return { employee_id: emp.id, date: selectedDate, status: rec.status, ot_hours: rec.ot_hours || 0 }; });
     await supabase.from("attendance").delete().eq("date", selectedDate);
     await supabase.from("attendance").insert(insertData);
     await supabase.from("daily_submissions").upsert({ date: selectedDate, is_holiday: false });
-    setIsSubmitted(true);
-    setIsHoliday(false);
-    setSaving(false);
+    setIsSubmitted(true); setIsHoliday(false); setSaving(false);
   };
 
   const handleHolidaySubmit = async () => {
-    if (!window.confirm(`Mark ${selectedDate} as Holiday?`)) return;
     setSaving(true);
     const insertData = active.map(emp => ({ employee_id: emp.id, date: selectedDate, status: "Present", ot_hours: 0 }));
     await supabase.from("attendance").delete().eq("date", selectedDate);
     await supabase.from("attendance").insert(insertData);
     await supabase.from("daily_submissions").upsert({ date: selectedDate, is_holiday: true });
-    setIsSubmitted(true);
-    setIsHoliday(true);
-    const newMap = {};
-    active.forEach(e => { newMap[e.id] = { status: "Present", ot_hours: 0 }; });
-    setDayAttendance(newMap);
+    setIsSubmitted(true); setIsHoliday(true);
+    const newMap = {}; active.forEach(e => { newMap[e.id] = { status: "Present", ot_hours: 0 }; }); setDayAttendance(newMap);
     setSaving(false);
   };
 
-  const handleUnsubmit = async () => {
-    if (!window.confirm("Unlock this day for editing?")) return;
-    await supabase.from("daily_submissions").delete().eq("date", selectedDate);
-    setIsSubmitted(false);
-    setIsHoliday(false);
-  };
+  const handleUnsubmit = async () => { await supabase.from("daily_submissions").delete().eq("date", selectedDate); setIsSubmitted(false); setIsHoliday(false); };
 
   const presentCount = filtered.filter(e => (dayAttendance[e.id]?.status || "Present") === "Present").length;
   const absentCount = filtered.filter(e => dayAttendance[e.id]?.status === "Absent").length;
@@ -348,36 +277,24 @@ function AttendanceView({ employees }) {
         <div>
           <div style={{ fontSize: 10, color: C.textDim, letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 }}>ATTENDANCE LOG</div>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <input type="date" max={todayStr} value={selectedDate}
-              onChange={e => { if (e.target.value <= todayStr) setSelectedDate(e.target.value); }}
-              style={{ ...css.input, fontSize: 16, fontWeight: 700, padding: "8px 12px", border: `2px solid ${C.accent}44` }} />
-            {isHoliday ? <span style={css.badge(C.orange)}>⛱ HOLIDAY</span>
-              : isSubmitted ? <span style={css.badge(C.green)}>✓ SUBMITTED</span>
-              : <span style={css.badge(C.textDim)}>DRAFT</span>}
+            <input type="date" max={todayStr} value={selectedDate} onChange={e => { if (e.target.value <= todayStr) setSelectedDate(e.target.value); }} style={{ ...css.input, fontSize: 16, fontWeight: 700, padding: "8px 12px", border: `2px solid ${C.accent}44` }} />
+            {isHoliday ? <span style={css.badge(C.orange)}>⛱ HOLIDAY</span> : isSubmitted ? <span style={css.badge(C.green)}>✓ SUBMITTED</span> : <span style={css.badge(C.textDim)}>DRAFT</span>}
           </div>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {["All", "Morning", "Night"].map(s => <button key={s} style={css.navBtn(filterShift === s)} onClick={() => setFilterShift(s)}>{s}</button>)}
         </div>
       </div>
-
       <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
         <span style={css.badge(C.green)}>✓ {presentCount} Present</span>
         <span style={css.badge(C.red)}>✗ {absentCount} Absent</span>
         <span style={css.badge(C.accent)}>⏸ {leaveCount} Leave</span>
       </div>
-
       <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
-        <input placeholder="🔍 Search employee..." value={search} onChange={e => setSearch(e.target.value)}
-          style={{ ...css.input, flex: 1, minWidth: 180 }} />
-        {!isHoliday && (
-          <button style={css.btn(C.green)} onClick={markAllPresent}>✓ Mark All Present</button>
-        )}
+        <input placeholder="🔍 Search employee..." value={search} onChange={e => setSearch(e.target.value)} style={{ ...css.input, flex: 1, minWidth: 180 }} />
+        {!isHoliday && <button style={css.btn(C.green)} onClick={markAllPresent}>✓ Mark All Present</button>}
       </div>
-
-      {loading ? (
-        <div style={{ textAlign: "center", padding: 40, color: C.textDim }}>Loading {selectedDate}...</div>
-      ) : (
+      {loading ? <div style={{ textAlign: "center", padding: 40, color: C.textDim }}>Loading {selectedDate}...</div> : (
         <>
           <div style={{ overflowX: "auto", opacity: isSubmitted ? 0.8 : 1 }}>
             <table style={css.table}>
@@ -393,18 +310,11 @@ function AttendanceView({ employees }) {
                       <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
                       <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
                       <td style={css.td}><span style={css.badge(statusColor(rec.status))}>{rec.status}</span></td>
-                      <td style={css.td}>
-                        <input type="number" min="0" max="12" step="0.5" value={rec.ot_hours || 0}
-                          onChange={e => toggle(emp.id, "ot_hours", +e.target.value)}
-                          disabled={isHoliday}
-                          style={{ ...css.input, width: 60, textAlign: "center" }} />
-                      </td>
+                      <td style={css.td}><input type="number" min="0" max="12" step="0.5" value={rec.ot_hours || 0} onChange={e => toggle(emp.id, "ot_hours", +e.target.value)} disabled={isHoliday} style={{ ...css.input, width: 60, textAlign: "center" }} /></td>
                       <td style={css.td}>
                         <div style={{ display: "flex", gap: 4 }}>
                           {["Present", "Absent", "Leave"].map(s => (
-                            <button key={s} disabled={isHoliday}
-                              style={{ ...css.btn(statusColor(s)), opacity: rec.status === s ? 1 : 0.25, padding: "4px 8px", fontSize: 10 }}
-                              onClick={() => toggle(emp.id, "status", s)}>{s}</button>
+                            <button key={s} disabled={isHoliday} style={{ ...css.btn(statusColor(s)), opacity: rec.status === s ? 1 : 0.25, padding: "4px 8px", fontSize: 10 }} onClick={() => toggle(emp.id, "status", s)}>{s}</button>
                           ))}
                         </div>
                       </td>
@@ -414,19 +324,12 @@ function AttendanceView({ employees }) {
               </tbody>
             </table>
           </div>
-
           <div style={{ marginTop: 20, ...css.card, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-            <span style={{ fontSize: 12, color: C.textDim }}>
-              {isHoliday ? "Holiday — all staff marked present automatically."
-                : isSubmitted ? "Submitted. Click Unlock to make changes."
-                : "Draft — submit when attendance is finalised."}
-            </span>
+            <span style={{ fontSize: 12, color: C.textDim }}>{isHoliday ? "Holiday — all staff marked present." : isSubmitted ? "Submitted. Click Unlock to make changes." : "Draft — submit when attendance is finalised."}</span>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {isSubmitted && <button style={css.btn(C.red)} onClick={handleUnsubmit}>🔓 Unlock Day</button>}
-              <>
-                <button style={css.btn(C.orange)} onClick={handleHolidaySubmit} disabled={saving}>⛱ Mark Holiday</button>
-                <button style={css.btn(C.green)} onClick={handleSubmit} disabled={saving}>{saving ? "Saving..." : isSubmitted ? "Update Day" : "✓ Submit Day"}</button>
-              </>
+              <button style={css.btn(C.orange)} onClick={handleHolidaySubmit} disabled={saving}>⛱ Mark Holiday</button>
+              <button style={css.btn(C.green)} onClick={handleSubmit} disabled={saving}>{saving ? "Saving..." : isSubmitted ? "Update Day" : "✓ Submit Day"}</button>
             </div>
           </div>
         </>
@@ -442,6 +345,7 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
   const [search, setSearch] = useState("");
   const [filterPost, setFilterPost] = useState("All");
   const [viewing, setViewing] = useState(null);
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company", joining_date: todayStr });
 
@@ -474,28 +378,11 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
     setLoading(false);
   };
 
-  // When changing post, save the OLD post to history first
   const updateEmployeePost = async (emp, newPost) => {
-    const oldSalary = emp.staff_type === "contract"
-      ? (posts.find(p => p.name === emp.post)?.contract_salary || 0)
-      : emp.base_salary;
-    const newSalary = emp.staff_type === "contract"
-      ? (posts.find(p => p.name === newPost)?.contract_salary || 0)
-      : emp.base_salary;
-
-    // Close old history entry
-    await supabase.from("post_history").update({ valid_to: todayStr })
-      .eq("employee_id", emp.id).is("valid_to", null);
-
-    // Insert new history entry starting today
-    const { data: histData } = await supabase.from("post_history").insert({
-      employee_id: emp.id, post: newPost, staff_type: emp.staff_type,
-      salary: newSalary, valid_from: todayStr, valid_to: null
-    }).select().single();
-
+    const newSalary = emp.staff_type === "contract" ? getContractSalary(newPost) : emp.base_salary;
+    await supabase.from("post_history").update({ valid_to: todayStr }).eq("employee_id", emp.id).is("valid_to", null);
+    const { data: histData } = await supabase.from("post_history").insert({ employee_id: emp.id, post: newPost, staff_type: emp.staff_type, salary: newSalary, valid_from: todayStr, valid_to: null }).select().single();
     if (histData) setPostHistory(prev => [...prev.filter(h => !(h.employee_id === emp.id && !h.valid_to)), histData]);
-
-    // Update employee record
     const updateData = { post: newPost, base_salary: newSalary };
     await supabase.from("employees").update(updateData).eq("id", emp.id);
     setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, ...updateData } : e));
@@ -508,69 +395,15 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
     setViewing(prev => ({ ...prev, shift: newShift }));
   };
 
-  const SettlementView = () => {
-    const unsettled = inactive.filter(e => !e.settlement_done);
-    const rows = unsettled.map(emp => ({
-      emp, fin: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || start, emp.left_date || end, postHistory)
-    }));
-
-    const markSettled = async (emp) => {
-      await supabase.from("employees").update({ settlement_done: true }).eq("id", emp.id);
-      setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, settlement_done: true } : e));
-    };
-
-    const markAllSettled = async () => {
-      if (!window.confirm("Mark ALL former staff as fully settled?")) return;
-      for (const { emp } of rows) {
-        await supabase.from("employees").update({ settlement_done: true }).eq("id", emp.id);
-        setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, settlement_done: true } : e));
-      }
-    };
-
-    if (rows.length === 0) return (
-      <div style={{ ...css.card, textAlign: "center", padding: 40, color: C.textDim }}>
-        ✓ No pending settlements. All former staff are cleared.
-      </div>
-    );
-
-    return (
-      <div>
-        <div style={{ marginBottom: 12, padding: "10px 14px", background: C.orange + "15", border: `1px solid ${C.orange}44`, borderRadius: 6, fontSize: 12, color: C.orange, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-          <span>⚠ Former employees with pending dues. Record their final payout using "+ Register Transaction".</span>
-          <button style={css.btn(C.green)} onClick={markAllSettled}>✓ Mark All Settled</button>
-        </div>
-        <div style={{ overflowX: "auto" }}>
-          <table style={css.table}>
-            <thead><tr>{["Name", "Last Post", "Left On", "Net Owed", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
-            <tbody>
-              {rows.map(({ emp, fin }) => (
-                <tr key={emp.id}>
-                  <td style={css.td}><strong>{emp.name}</strong></td>
-                  <td style={css.td}>{emp.post}</td>
-                  <td style={{ ...css.td, color: C.red }}>{emp.left_date || "—"}</td>
-                  <td style={css.td}>
-                    <strong style={{ color: fin.netPayable < 0 ? C.red : C.green, fontSize: 15 }}>
-                      ₹{Math.round(Math.abs(fin.netPayable)).toLocaleString("en-IN")}
-                    </strong>
-                    <br /><small style={{ color: C.textDim }}>{fin.netPayable < 0 ? "Overpaid — recover" : "Owed to staff"}</small>
-                  </td>
-                  <td style={css.td}>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button style={css.btn(C.blue)} onClick={() => { setForm(f => ({ ...f, empId: emp.id, type: "Payout", amount: Math.round(Math.abs(fin.netPayable)) })); setShowModal(true); }}>
-                        Record Payout
-                      </button>
-                      <button style={css.btn(C.green)} onClick={() => markSettled(emp)}>
-                        ✓ Settled
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
+  // Mark inactive WITHOUT window.confirm — uses inline confirmation instead
+  const markInactive = async () => {
+    const emp = viewing;
+    const { error } = await supabase.from("employees").update({ status: "inactive", left_date: todayStr }).eq("id", emp.id);
+    if (error) { alert("Failed to update: " + error.message); return; }
+    await supabase.from("post_history").update({ valid_to: todayStr }).eq("employee_id", emp.id).is("valid_to", null);
+    setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "inactive", left_date: todayStr } : e));
+    setViewing(null);
+    setConfirmLeave(false);
   };
 
   const reactivate = async (emp) => {
@@ -597,45 +430,15 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
         <div style={{ ...css.card, marginBottom: 20, borderColor: C.green + "44" }}>
           <div style={css.sectionTitle}>Register New Employee</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>
-            {[["FULL NAME *", "name", "text", "Full name"], ["AADHAR NO. * (12 digits)", "aadhar", "text", "123456789012"]].map(([label, field, type, ph]) => (
-              <div key={field}>
-                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>{label}</div>
-                <input type={type} style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form[field]} placeholder={ph}
-                  onChange={e => setForm(f => ({ ...f, [field]: field === "aadhar" ? e.target.value.replace(/\D/g, "").slice(0, 12) : e.target.value }))} />
-              </div>
-            ))}
-            <div>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>JOINING DATE *</div>
-              <input type="date" max={todayStr} style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.joining_date}
-                onChange={e => setForm(f => ({ ...f, joining_date: e.target.value }))} />
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>STAFF TYPE *</div>
-              <select style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.staff_type} onChange={e => handleTypeChange(e.target.value)}>
-                <option value="company">Company Staff</option>
-                <option value="contract">Contract Staff</option>
-              </select>
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>POST / ROLE *</div>
-              <select style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.post} onChange={e => handlePostChange(e.target.value)}>
-                <option value="">Select post...</option>
-                {posts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>SHIFT *</div>
-              <select style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.shift} onChange={e => setForm(f => ({ ...f, shift: e.target.value }))}>
-                <option>Morning</option><option>Night</option>
-              </select>
-            </div>
+            <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FULL NAME *</div><input style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Full name" /></div>
+            <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>AADHAR NO. * (12 digits)</div><input maxLength={12} style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.aadhar} onChange={e => setForm(f => ({ ...f, aadhar: e.target.value.replace(/\D/g, "").slice(0, 12) }))} placeholder="123456789012" /></div>
+            <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>JOINING DATE *</div><input type="date" max={todayStr} style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.joining_date} onChange={e => setForm(f => ({ ...f, joining_date: e.target.value }))} /></div>
+            <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>STAFF TYPE *</div><select style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.staff_type} onChange={e => handleTypeChange(e.target.value)}><option value="company">Company Staff</option><option value="contract">Contract Staff</option></select></div>
+            <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>POST / ROLE *</div><select style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.post} onChange={e => handlePostChange(e.target.value)}><option value="">Select post...</option>{posts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}</select></div>
+            <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>SHIFT *</div><select style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.shift} onChange={e => setForm(f => ({ ...f, shift: e.target.value }))}><option>Morning</option><option>Night</option></select></div>
             <div>
               <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>BASE SALARY (₹) *</div>
-              <input type="number" readOnly={form.staff_type === "contract"}
-                style={{ ...css.input, width: "100%", boxSizing: "border-box", background: form.staff_type === "contract" ? C.border : C.bg }}
-                value={form.base_salary}
-                onChange={e => form.staff_type === "company" && setForm(f => ({ ...f, base_salary: e.target.value }))}
-                placeholder={form.staff_type === "contract" ? "Auto from post" : "e.g. 20000"} />
+              <input type="number" readOnly={form.staff_type === "contract"} style={{ ...css.input, width: "100%", boxSizing: "border-box", background: form.staff_type === "contract" ? C.border : C.bg }} value={form.base_salary} onChange={e => form.staff_type === "company" && setForm(f => ({ ...f, base_salary: e.target.value }))} placeholder={form.staff_type === "contract" ? "Auto from post" : "e.g. 20000"} />
               {form.staff_type === "contract" && form.post && <div style={{ fontSize: 10, color: C.textDim, marginTop: 3 }}>₹{getContractSalary(form.post).toLocaleString("en-IN")} from post rate</div>}
             </div>
           </div>
@@ -646,7 +449,6 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
         </div>
       )}
 
-      {/* Search + Filter */}
       <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
         <input placeholder="🔍 Search by name or Aadhar..." value={search} onChange={e => setSearch(e.target.value)} style={{ ...css.input, flex: 1, minWidth: 200 }} />
         <select style={css.input} value={filterPost} onChange={e => setFilterPost(e.target.value)}>
@@ -661,7 +463,7 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
           <div style={{ ...css.card, maxWidth: 520, width: "100%", border: `2px solid ${C.accent}`, maxHeight: "90vh", overflowY: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <div style={{ fontSize: 18, fontWeight: 700, color: C.accent }}>Staff Profile</div>
-              <button onClick={() => setViewing(null)} style={{ background: C.red, color: "white", border: "none", borderRadius: 4, padding: "6px 14px", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>CLOSE ✕</button>
+              <button onClick={() => { setViewing(null); setConfirmLeave(false); }} style={{ background: C.red, color: "white", border: "none", borderRadius: 4, padding: "6px 14px", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>CLOSE ✕</button>
             </div>
             <div style={{ textAlign: "center", marginBottom: 16, paddingBottom: 14, borderBottom: `1px solid ${C.border}` }}>
               <div style={{ fontSize: 22, fontWeight: 700 }}>{viewing.name}</div>
@@ -676,9 +478,8 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
               <div><div style={{ fontSize: 10, color: C.textDim }}>JOINED</div><strong>{viewing.joining_date || "—"}</strong></div>
               <div><div style={{ fontSize: 10, color: C.textDim }}>CURRENT POST</div><strong>{viewing.post}</strong></div>
             </div>
-
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 6, fontWeight: 700 }}>CHANGE POST</div>
+              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 6, fontWeight: 700 }}>CHANGE POST / SHIFT</div>
               <div style={{ display: "flex", gap: 8 }}>
                 <select style={{ ...css.input, flex: 1 }} value={viewing.post} onChange={e => updateEmployeePost(viewing, e.target.value)}>
                   {posts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
@@ -687,9 +488,8 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
                   <option>Morning</option><option>Night</option>
                 </select>
               </div>
-              {viewing.staff_type === "contract" && <div style={{ fontSize: 10, color: C.orange, marginTop: 4 }}>⚠ Changing post will update salary to that post's contract rate from today.</div>}
+              {viewing.staff_type === "contract" && <div style={{ fontSize: 10, color: C.orange, marginTop: 4 }}>⚠ Changing post updates salary to that post's contract rate from today onwards only.</div>}
             </div>
-
             {empHistory.length > 0 && (
               <>
                 <div style={css.sectionTitle}>Post Change History</div>
@@ -704,7 +504,6 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
                 </div>
               </>
             )}
-
             <div style={css.sectionTitle}>Recent Transactions</div>
             <div style={{ maxHeight: 120, overflowY: "auto", background: C.bg, borderRadius: 6, padding: 10, marginBottom: 16 }}>
               {(ledger || []).filter(l => l.employee_id === viewing.id).slice(0, 10).length === 0
@@ -717,7 +516,24 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
                 ))
               }
             </div>
-            <button style={{ ...css.btn(C.red), width: "100%" }} onClick={() => markInactive(viewing)}>Mark as Left / Inactive</button>
+
+            {/* Inline confirm instead of window.confirm */}
+            {!confirmLeave ? (
+              <button style={{ ...css.btn(C.red), width: "100%" }} onClick={() => setConfirmLeave(true)}>
+                ✕ Mark as Left / Inactive
+              </button>
+            ) : (
+              <div style={{ background: C.red + "15", border: `1px solid ${C.red}44`, borderRadius: 6, padding: 14 }}>
+                <div style={{ fontSize: 13, color: C.red, marginBottom: 12, fontWeight: 700 }}>
+                  Are you sure you want to mark {viewing.name} as left?<br />
+                  <span style={{ fontSize: 11, fontWeight: 400 }}>Their final dues will appear in Payroll → Final Settlement.</span>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button style={{ ...css.btn(C.red), flex: 1 }} onClick={markInactive}>Yes, Mark as Left</button>
+                  <button style={{ ...css.btn(C.textDim), flex: 1 }} onClick={() => setConfirmLeave(false)}>Cancel</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -729,7 +545,7 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
           <tbody>
             {filtered.length === 0 && <tr><td colSpan={7} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No employees found.</td></tr>}
             {filtered.map(emp => (
-              <tr key={emp.id} style={{ cursor: "pointer" }} onClick={() => setViewing(emp)}>
+              <tr key={emp.id} style={{ cursor: "pointer" }} onClick={() => { setViewing(emp); setConfirmLeave(false); }}>
                 <td style={css.td}><span style={{ color: C.accent, fontWeight: 700, textDecoration: "underline" }}>{emp.name}</span></td>
                 <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
                 <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
@@ -799,14 +615,8 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
   const handleTransaction = async () => {
     if (!form.empId || !form.amount || Number(form.amount) <= 0) return alert("Select staff and enter a valid amount.");
     setSaving(true);
-    const { data, error } = await supabase.from("financial_ledger").insert({
-      employee_id: form.empId, date: form.date, transaction_type: form.type, amount: Number(form.amount), notes: form.notes
-    }).select().single();
-    if (!error && data) {
-      setLedger(prev => [data, ...prev]);
-      setShowModal(false);
-      setForm({ type: "Advance", amount: "", notes: "", date: todayStr, empId: "" });
-    }
+    const { data, error } = await supabase.from("financial_ledger").insert({ employee_id: form.empId, date: form.date, transaction_type: form.type, amount: Number(form.amount), notes: form.notes }).select().single();
+    if (!error && data) { setLedger(prev => [data, ...prev]); setShowModal(false); setForm({ type: "Advance", amount: "", notes: "", date: todayStr, empId: "" }); }
     setSaving(false);
   };
 
@@ -822,20 +632,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
         autoTable(doc, {
           startY: 38,
           head: [["Name", "Post", "Joined", "Base (Prorated)", "Absent", "Leave", "OT Hrs", "OT Earn", "Bonus", "Adv/Fine", "Paid", "Net Payable"]],
-          body: rows.map(({ emp, fin }) => [
-            emp.name,
-            emp.post,
-            fin.joiningDate,
-            "Rs." + Math.round(fin.proratedSalary).toLocaleString("en-IN"),
-            fin.absentDays + "d",
-            fin.leaveDays + "d",
-            fin.totalOTHours + "h",
-            "Rs." + Math.round(fin.otEarnings).toLocaleString("en-IN"),
-            "Rs." + fin.totalBonuses.toLocaleString("en-IN"),
-            "Rs." + fin.totalAdvances.toLocaleString("en-IN"),
-            "Rs." + fin.totalPaid.toLocaleString("en-IN"),
-            "Rs." + Math.round(fin.netPayable).toLocaleString("en-IN"),
-          ]),
+          body: rows.map(({ emp, fin }) => [emp.name, emp.post, fin.joiningDate, "Rs." + Math.round(fin.proratedSalary).toLocaleString("en-IN"), fin.absentDays + "d", fin.leaveDays + "d", fin.totalOTHours + "h", "Rs." + Math.round(fin.otEarnings).toLocaleString("en-IN"), "Rs." + fin.totalBonuses.toLocaleString("en-IN"), "Rs." + fin.totalAdvances.toLocaleString("en-IN"), "Rs." + fin.totalPaid.toLocaleString("en-IN"), "Rs." + Math.round(fin.netPayable).toLocaleString("en-IN")]),
           theme: "grid",
           headStyles: { fillColor: [30, 111, 219], fontSize: 8 },
           bodyStyles: { fontSize: 8 },
@@ -852,7 +649,6 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
     if (search.trim()) filteredList = filteredList.filter(e => e.name.toLowerCase().includes(search.toLowerCase()));
     const rows = filteredList.map(emp => ({ emp, fin: calcFinances(emp, posts, rangeAttendance, ledger, start, end, postHistory) }));
     const totalNet = rows.reduce((s, r) => s + r.fin.netPayable, 0);
-
     return (
       <div style={{ marginBottom: 30 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -861,49 +657,26 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
-            <thead>
-              <tr style={{ background: C.bg }}>
-                {["Name / Post", "Prorated Base", "Absent", "Leave", "OT", "Bonus", "Adv/Fine", "Paid", "Net Payable", ""].map(h => <th key={h} style={css.th}>{h}</th>)}
-              </tr>
-            </thead>
+            <thead><tr style={{ background: C.bg }}>{["Name / Post", "Prorated Base", "Absent", "Leave", "OT", "Bonus", "Adv/Fine", "Paid", "Net Payable", ""].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
             <tbody>
               {rows.length === 0 && <tr><td colSpan={10} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No staff.</td></tr>}
               {rows.map(({ emp, fin }) => (
                 <>
                   <tr key={emp.id} style={{ background: expandedRow === emp.id ? color + "08" : "transparent" }}>
-                    <td style={css.td}>
-                      <strong>{emp.name}</strong>
-                      <br /><small style={{ color: C.textDim }}>{emp.post}</small>
-                      {fin.periods.length > 1 && <div style={{ ...css.badge(C.orange), display: "inline-block", marginTop: 4, fontSize: 9 }}>SPLIT</div>}
-                    </td>
-                    <td style={css.td}>
-                      ₹{Math.round(fin.proratedSalary).toLocaleString("en-IN")}
-                      <br /><small style={{ color: C.textDim }}>joined {fin.joiningDate}</small>
-                    </td>
+                    <td style={css.td}><strong>{emp.name}</strong><br /><small style={{ color: C.textDim }}>{emp.post}</small>{fin.periods.length > 1 && <div style={{ ...css.badge(C.orange), display: "inline-block", marginTop: 4, fontSize: 9 }}>SPLIT</div>}</td>
+                    <td style={css.td}>₹{Math.round(fin.proratedSalary).toLocaleString("en-IN")}<br /><small style={{ color: C.textDim }}>joined {fin.joiningDate}</small></td>
                     <td style={{ ...css.td, color: fin.absentDays > 0 ? C.red : C.textDim }}>{fin.absentDays}d<br /><small>-₹{Math.round(fin.attendanceDeduction).toLocaleString()}</small></td>
                     <td style={{ ...css.td, color: fin.leaveDays > 0 ? C.accent : C.textDim }}>{fin.leaveDays}d</td>
                     <td style={{ ...css.td, color: C.green }}>{fin.totalOTHours}h<br /><small>+₹{Math.round(fin.otEarnings).toLocaleString()}</small></td>
                     <td style={{ ...css.td, color: C.green }}>+₹{fin.totalBonuses.toLocaleString()}</td>
                     <td style={{ ...css.td, color: C.red }}>-₹{fin.totalAdvances.toLocaleString()}</td>
                     <td style={{ ...css.td, color: C.textDim }}>₹{fin.totalPaid.toLocaleString()}</td>
-                    <td style={{ ...css.td, background: color + "11" }}>
-                      <strong style={{ color: fin.netPayable < 0 ? C.red : color, fontSize: 14 }}>₹{Math.round(fin.netPayable).toLocaleString("en-IN")}</strong>
-                    </td>
-                    <td style={css.td}>
-                      {fin.periods.length > 1 && (
-                        <button style={{ ...css.btn(C.accent), padding: "3px 8px", fontSize: 10 }}
-                          onClick={() => setExpandedRow(expandedRow === emp.id ? null : emp.id)}>
-                          {expandedRow === emp.id ? "▲" : "▼"}
-                        </button>
-                      )}
-                    </td>
+                    <td style={{ ...css.td, background: color + "11" }}><strong style={{ color: fin.netPayable < 0 ? C.red : color, fontSize: 14 }}>₹{Math.round(fin.netPayable).toLocaleString("en-IN")}</strong></td>
+                    <td style={css.td}>{fin.periods.length > 1 && <button style={{ ...css.btn(C.accent), padding: "3px 8px", fontSize: 10 }} onClick={() => setExpandedRow(expandedRow === emp.id ? null : emp.id)}>{expandedRow === emp.id ? "▲" : "▼"}</button>}</td>
                   </tr>
                   {expandedRow === emp.id && fin.periods.map((p, i) => (
                     <tr key={i} style={{ background: C.accent + "08" }}>
-                      <td style={{ ...css.td, paddingLeft: 30 }} colSpan={2}>
-                        <small style={{ color: C.accent }}>📌 {p.post} · {p.from} → {p.to}</small>
-                        <br /><small style={{ color: C.textDim }}>₹{p.salary.toLocaleString()}/month · {p.daysInPeriod} days</small>
-                      </td>
+                      <td style={{ ...css.td, paddingLeft: 30 }} colSpan={2}><small style={{ color: C.accent }}>📌 {p.post} · {p.from} → {p.to}</small><br /><small style={{ color: C.textDim }}>₹{p.salary.toLocaleString()}/month · {p.daysInPeriod} days</small></td>
                       <td style={{ ...css.td, color: C.red }}><small>{p.absentDays}d · -₹{Math.round(p.attendanceDeduction).toLocaleString()}</small></td>
                       <td style={{ ...css.td, color: C.accent }}><small>{p.leaveDays}d</small></td>
                       <td style={{ ...css.td, color: C.green }}><small>{p.otHours}h · +₹{Math.round(p.otEarnings).toLocaleString()}</small></td>
@@ -914,13 +687,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
                 </>
               ))}
             </tbody>
-            <tfoot>
-              <tr style={{ borderTop: `2px solid ${C.border}` }}>
-                <td colSpan={8} style={{ ...css.td, textAlign: "right", fontWeight: 700 }}>TOTAL NET PAYABLE</td>
-                <td style={css.td}><strong style={{ color, fontSize: 16 }}>₹{Math.round(totalNet).toLocaleString("en-IN")}</strong></td>
-                <td style={css.td}></td>
-              </tr>
-            </tfoot>
+            <tfoot><tr style={{ borderTop: `2px solid ${C.border}` }}><td colSpan={8} style={{ ...css.td, textAlign: "right", fontWeight: 700 }}>TOTAL NET PAYABLE</td><td style={css.td}><strong style={{ color, fontSize: 16 }}>₹{Math.round(totalNet).toLocaleString("en-IN")}</strong></td><td style={css.td}></td></tr></tfoot>
           </table>
         </div>
       </div>
@@ -928,25 +695,28 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
   };
 
   const SettlementView = () => {
-    const rows = inactive.map(emp => ({
-      emp, fin: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || start, emp.left_date || end, postHistory)
-    })).filter(r => Math.abs(r.fin.netPayable) > 0);
-    if (rows.length === 0) return (
-      <div style={{ ...css.card, textAlign: "center", padding: 40, color: C.textDim }}>
-        ✓ No pending settlements. All former staff are cleared.
-      </div>
-    );
+    const unsettled = inactive.filter(e => !e.settlement_done);
+    const rows = unsettled.map(emp => ({ emp, fin: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || start, emp.left_date || end, postHistory) }));
+
+    const markSettled = async (emp) => {
+      await supabase.from("employees").update({ settlement_done: true }).eq("id", emp.id);
+      setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, settlement_done: true } : e));
+    };
+
+    const markAllSettled = async () => {
+      for (const { emp } of rows) {
+        await supabase.from("employees").update({ settlement_done: true }).eq("id", emp.id);
+      }
+      setEmployees(prev => prev.map(e => unsettled.find(u => u.id === e.id) ? { ...e, settlement_done: true } : e));
+    };
+
+    if (rows.length === 0) return <div style={{ ...css.card, textAlign: "center", padding: 40, color: C.textDim }}>✓ No pending settlements. All former staff are cleared.</div>;
+
     return (
       <div>
         <div style={{ marginBottom: 12, padding: "10px 14px", background: C.orange + "15", border: `1px solid ${C.orange}44`, borderRadius: 6, fontSize: 12, color: C.orange, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
           <span>⚠ Former employees with pending dues. Record their final payout using "+ Register Transaction".</span>
-          <button style={css.btn(C.green)} onClick={async () => {
-            if (!window.confirm("Mark ALL former staff as fully settled? This will record a ₹0 payout for all.")) return;
-            for (const { emp } of rows) {
-              await supabase.from("financial_ledger").insert({ employee_id: emp.id, date: todayStr, transaction_type: "Payout", amount: 0, notes: "Marked as settled" });
-            }
-            alert("All marked as settled!");
-          }}>✓ Mark All Settled</button>
+          <button style={css.btn(C.green)} onClick={markAllSettled}>✓ Mark All Settled</button>
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
@@ -958,15 +728,14 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
                   <td style={css.td}>{emp.post}</td>
                   <td style={{ ...css.td, color: C.red }}>{emp.left_date || "—"}</td>
                   <td style={css.td}>
-                    <strong style={{ color: fin.netPayable < 0 ? C.red : C.green, fontSize: 15 }}>
-                      ₹{Math.round(Math.abs(fin.netPayable)).toLocaleString("en-IN")}
-                    </strong>
+                    <strong style={{ color: fin.netPayable < 0 ? C.red : C.green, fontSize: 15 }}>₹{Math.round(Math.abs(fin.netPayable)).toLocaleString("en-IN")}</strong>
                     <br /><small style={{ color: C.textDim }}>{fin.netPayable < 0 ? "Overpaid — recover" : "Owed to staff"}</small>
                   </td>
                   <td style={css.td}>
-                    <button style={css.btn(C.green)} onClick={() => { setForm(f => ({ ...f, empId: emp.id, type: "Payout", amount: Math.round(Math.abs(fin.netPayable)) })); setShowModal(true); }}>
-                      Record Payout
-                    </button>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button style={css.btn(C.blue)} onClick={() => { setForm(f => ({ ...f, empId: emp.id, type: "Payout", amount: Math.round(Math.abs(fin.netPayable)) })); setShowModal(true); }}>Record Payout</button>
+                      <button style={css.btn(C.green)} onClick={() => markSettled(emp)}>✓ Settled</button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -980,13 +749,9 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
   return (
     <div style={css.page}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-        <div>
-          <div style={css.sectionTitle}>Financial Overview</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>Payroll & Ledger</div>
-        </div>
+        <div><div style={css.sectionTitle}>Financial Overview</div><div style={{ fontSize: 22, fontWeight: 700 }}>Payroll & Ledger</div></div>
         <button style={css.btn(C.blue)} onClick={() => setShowModal(true)}>+ Register Transaction</button>
       </div>
-
       <div style={{ ...css.card, marginBottom: 20, background: "#f8fafc" }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, alignItems: "flex-end" }}>
           <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={{ ...css.input, width: "100%" }} value={start} onChange={e => setStart(e.target.value)} /></div>
@@ -994,14 +759,11 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
           <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>SEARCH</div><input placeholder="Name..." style={{ ...css.input, width: "100%" }} value={search} onChange={e => setSearch(e.target.value)} /></div>
         </div>
       </div>
-
       <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
         {[["company", "🏢 Company Staff", C.blue], ["contract", "📋 Contract Staff", C.green], ["settlement", "⚖ Final Settlement", C.orange]].map(([id, label, color]) => (
-          <button key={id} style={{ ...css.navBtn(activeTab === id), color: activeTab === id ? color : C.textDim, borderColor: activeTab === id ? color + "55" : "transparent", background: activeTab === id ? color + "15" : "transparent" }}
-            onClick={() => setActiveTab(id)}>{label}</button>
+          <button key={id} style={{ ...css.navBtn(activeTab === id), color: activeTab === id ? color : C.textDim, borderColor: activeTab === id ? color + "55" : "transparent", background: activeTab === id ? color + "15" : "transparent" }} onClick={() => setActiveTab(id)}>{label}</button>
         ))}
       </div>
-
       {activeTab === "company" && <PayrollTable staffList={companyStaff} label="Company Staff Payroll" color={C.blue} />}
       {activeTab === "contract" && <PayrollTable staffList={contractStaff} label="Contract Staff Payroll" color={C.green} />}
       {activeTab === "settlement" && <SettlementView />}
@@ -1014,8 +776,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
               <button onClick={() => setShowModal(false)} style={{ background: C.red, color: "white", border: "none", borderRadius: 4, padding: "4px 12px", cursor: "pointer", fontWeight: 700 }}>✕</button>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>STAFF MEMBER</div>
+              <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>STAFF MEMBER</div>
                 <select style={{ ...css.input, width: "100%" }} value={form.empId} onChange={e => setForm({ ...form, empId: e.target.value })}>
                   <option value="">-- Select Person --</option>
                   <optgroup label="Active Staff">{active.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</optgroup>
@@ -1023,28 +784,15 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
                 </select>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TYPE</div>
+                <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TYPE</div>
                   <select style={{ ...css.input, width: "100%" }} value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
-                    <option value="Advance">Advance</option>
-                    <option value="Bonus">Bonus</option>
-                    <option value="Fine">Fine</option>
-                    <option value="Payout">Salary Payout</option>
+                    <option value="Advance">Advance</option><option value="Bonus">Bonus</option><option value="Fine">Fine</option><option value="Payout">Salary Payout</option>
                   </select>
                 </div>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>DATE</div>
-                  <input type="date" style={{ ...css.input, width: "100%" }} value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} />
-                </div>
+                <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>DATE</div><input type="date" style={{ ...css.input, width: "100%" }} value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
               </div>
-              <div>
-                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>AMOUNT (₹)</div>
-                <input type="number" style={{ ...css.input, width: "100%", fontSize: 18, fontWeight: 700 }} value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} />
-              </div>
-              <div>
-                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>REMARKS</div>
-                <input placeholder="Optional note..." style={{ ...css.input, width: "100%" }} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
-              </div>
+              <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>AMOUNT (₹)</div><input type="number" style={{ ...css.input, width: "100%", fontSize: 18, fontWeight: 700 }} value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} /></div>
+              <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>REMARKS</div><input placeholder="Optional note..." style={{ ...css.input, width: "100%" }} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} /></div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button style={{ ...css.btn(C.blue), flex: 1 }} onClick={handleTransaction} disabled={saving}>{saving ? "Saving..." : "Save Transaction"}</button>
                 <button style={{ ...css.btn(C.red), flex: 1 }} onClick={() => setShowModal(false)}>Cancel</button>
@@ -1066,20 +814,12 @@ function SettingsView({ posts, setPosts, employees, setEmployees }) {
   const addPost = async () => {
     if (!form.name.trim()) return;
     setLoading(true);
-    const { data, error } = await supabase.from("posts").insert({
-      name: form.name, required_morning: +form.required_morning,
-      required_night: +form.required_night, contract_salary: +form.contract_salary,
-    }).select().single();
-    if (!error && data) {
-      setPosts(prev => [...prev, data]);
-      setForm({ name: "", required_morning: 1, required_night: 1, contract_salary: 0 });
-      setShowForm(false);
-    }
+    const { data, error } = await supabase.from("posts").insert({ name: form.name, required_morning: +form.required_morning, required_night: +form.required_night, contract_salary: +form.contract_salary }).select().single();
+    if (!error && data) { setPosts(prev => [...prev, data]); setForm({ name: "", required_morning: 1, required_night: 1, contract_salary: 0 }); setShowForm(false); }
     setLoading(false);
   };
 
   const deletePost = async (post) => {
-    if (!window.confirm(`Remove post "${post.name}"?`)) return;
     await supabase.from("posts").delete().eq("id", post.id);
     setPosts(prev => prev.filter(p => p.id !== post.id));
   };
@@ -1097,10 +837,7 @@ function SettingsView({ posts, setPosts, employees, setEmployees }) {
   return (
     <div style={css.page}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
-        <div>
-          <div style={{ fontSize: 10, color: C.textDim, letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>CONFIGURATION</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>Settings</div>
-        </div>
+        <div><div style={{ fontSize: 10, color: C.textDim, letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>CONFIGURATION</div><div style={{ fontSize: 22, fontWeight: 700 }}>Settings</div></div>
         <button style={css.btn(C.green)} onClick={() => setShowForm(v => !v)}>+ Add Post</button>
       </div>
       {showForm && (
@@ -1108,11 +845,7 @@ function SettingsView({ posts, setPosts, employees, setEmployees }) {
           <div style={css.sectionTitle}>New Post / Role</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
             {[["POST NAME", "name", "text", "e.g. Machine Operator"], ["REQ. MORNING", "required_morning", "number", ""], ["REQ. NIGHT", "required_night", "number", ""], ["CONTRACT SALARY (₹)", "contract_salary", "number", "e.g. 18000"]].map(([label, field, type, ph]) => (
-              <div key={field}>
-                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>{label}</div>
-                <input type={type} style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form[field]} placeholder={ph}
-                  onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))} />
-              </div>
+              <div key={field}><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>{label}</div><input type={type} style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form[field]} placeholder={ph} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))} /></div>
             ))}
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
@@ -1130,8 +863,7 @@ function SettingsView({ posts, setPosts, employees, setEmployees }) {
             <tbody>
               {posts.map(post => (
                 <tr key={post.id}>
-                  <td style={css.td}><input type="text" defaultValue={post.name} onBlur={e => e.target.value !== post.name && updatePost(post, "name", e.target.value)}
-                    style={{ ...css.input, fontWeight: 700, border: "1px solid transparent", background: "transparent", width: "100%" }} /></td>
+                  <td style={css.td}><input type="text" defaultValue={post.name} onBlur={e => e.target.value !== post.name && updatePost(post, "name", e.target.value)} style={{ ...css.input, fontWeight: 700, border: "1px solid transparent", background: "transparent", width: "100%" }} /></td>
                   <td style={css.td}><input type="number" defaultValue={post.required_morning} onBlur={e => updatePost(post, "required_morning", e.target.value)} style={{ ...css.input, width: 70, textAlign: "center" }} /></td>
                   <td style={css.td}><input type="number" defaultValue={post.required_night} onBlur={e => updatePost(post, "required_night", e.target.value)} style={{ ...css.input, width: 70, textAlign: "center" }} /></td>
                   <td style={css.td}><input type="number" defaultValue={post.contract_salary || 0} onBlur={e => updatePost(post, "contract_salary", e.target.value)} style={{ ...css.input, width: 110, textAlign: "center" }} /></td>
@@ -1171,11 +903,7 @@ export default function App() {
       const { data: postsData } = await supabase.from("posts").select("*").order("name");
       if (postsData) setPosts(postsData);
       const { data: att } = await supabase.from("attendance").select("*").eq("date", todayStr);
-      if (att) {
-        const attMap = {};
-        att.forEach(a => { attMap[a.employee_id] = { status: a.status, ot_hours: a.ot_hours, dbId: a.id }; });
-        setAttendance(attMap);
-      }
+      if (att) { const attMap = {}; att.forEach(a => { attMap[a.employee_id] = { status: a.status, ot_hours: a.ot_hours, dbId: a.id }; }); setAttendance(attMap); }
       const { data: ledgData } = await supabase.from("financial_ledger").select("*").order("date", { ascending: false });
       if (ledgData) setLedger(ledgData);
       const { data: histData } = await supabase.from("post_history").select("*").order("valid_from");
@@ -1191,7 +919,6 @@ export default function App() {
 
   const alerts = getCoverage(employees.filter(e => e.status === "active"), attendance, posts);
   const pendingSettlements = employees.filter(e => e.status === "inactive" && !e.settlement_done).length;
-const hasRealSettlements = employees.some(e => e.status === "inactive");
 
   const TABS = [
     { id: "dashboard", label: "Dashboard" },
@@ -1232,7 +959,7 @@ const hasRealSettlements = employees.some(e => e.status === "inactive");
           {tab === "dashboard" && <DashboardView employees={employees} attendance={attendance} posts={posts} />}
           {tab === "attendance" && <AttendanceView employees={employees} user={user} />}
           {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} postHistory={postHistory} setPostHistory={setPostHistory} />}
-          {tab === "payroll" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setTab={setTab} />}
+          {tab === "payroll" && <PayrollView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setTab={setTab} />}
           {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} />}
         </>
       )}
