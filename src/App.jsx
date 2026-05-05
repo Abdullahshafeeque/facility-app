@@ -508,13 +508,69 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
     setViewing(prev => ({ ...prev, shift: newShift }));
   };
 
-  const markInactive = async (emp) => {
-    if (!window.confirm(`Mark ${emp.name} as left? Pending dues will appear in Final Settlement.`)) return;
-    await supabase.from("employees").update({ status: "inactive", left_date: todayStr }).eq("id", emp.id);
-    // Close any open post history
-    await supabase.from("post_history").update({ valid_to: todayStr }).eq("employee_id", emp.id).is("valid_to", null);
-    setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "inactive", left_date: todayStr } : e));
-    setViewing(null);
+  const SettlementView = () => {
+    const unsettled = inactive.filter(e => !e.settlement_done);
+    const rows = unsettled.map(emp => ({
+      emp, fin: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || start, emp.left_date || end, postHistory)
+    }));
+
+    const markSettled = async (emp) => {
+      await supabase.from("employees").update({ settlement_done: true }).eq("id", emp.id);
+      setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, settlement_done: true } : e));
+    };
+
+    const markAllSettled = async () => {
+      if (!window.confirm("Mark ALL former staff as fully settled?")) return;
+      for (const { emp } of rows) {
+        await supabase.from("employees").update({ settlement_done: true }).eq("id", emp.id);
+        setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, settlement_done: true } : e));
+      }
+    };
+
+    if (rows.length === 0) return (
+      <div style={{ ...css.card, textAlign: "center", padding: 40, color: C.textDim }}>
+        ✓ No pending settlements. All former staff are cleared.
+      </div>
+    );
+
+    return (
+      <div>
+        <div style={{ marginBottom: 12, padding: "10px 14px", background: C.orange + "15", border: `1px solid ${C.orange}44`, borderRadius: 6, fontSize: 12, color: C.orange, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <span>⚠ Former employees with pending dues. Record their final payout using "+ Register Transaction".</span>
+          <button style={css.btn(C.green)} onClick={markAllSettled}>✓ Mark All Settled</button>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={css.table}>
+            <thead><tr>{["Name", "Last Post", "Left On", "Net Owed", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {rows.map(({ emp, fin }) => (
+                <tr key={emp.id}>
+                  <td style={css.td}><strong>{emp.name}</strong></td>
+                  <td style={css.td}>{emp.post}</td>
+                  <td style={{ ...css.td, color: C.red }}>{emp.left_date || "—"}</td>
+                  <td style={css.td}>
+                    <strong style={{ color: fin.netPayable < 0 ? C.red : C.green, fontSize: 15 }}>
+                      ₹{Math.round(Math.abs(fin.netPayable)).toLocaleString("en-IN")}
+                    </strong>
+                    <br /><small style={{ color: C.textDim }}>{fin.netPayable < 0 ? "Overpaid — recover" : "Owed to staff"}</small>
+                  </td>
+                  <td style={css.td}>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button style={css.btn(C.blue)} onClick={() => { setForm(f => ({ ...f, empId: emp.id, type: "Payout", amount: Math.round(Math.abs(fin.netPayable)) })); setShowModal(true); }}>
+                        Record Payout
+                      </button>
+                      <button style={css.btn(C.green)} onClick={() => markSettled(emp)}>
+                        ✓ Settled
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
   };
 
   const reactivate = async (emp) => {
@@ -801,7 +857,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
       <div style={{ marginBottom: 30 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div style={css.sectionTitle}>{label} ({filteredList.length})</div>
-          <button style={css.btn(C.textDim)} onClick={() => exportPDF(rows, label)}>📥 Export CSV</button>
+          <button style={css.btn(C.textDim)} onClick={() => exportPDF(rows, label)}>📥 Export PDF</button>
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
@@ -1134,7 +1190,7 @@ export default function App() {
   if (!user) return <Login onLogin={setUser} />;
 
   const alerts = getCoverage(employees.filter(e => e.status === "active"), attendance, posts);
-  const pendingSettlements = employees.filter(e => e.status === "inactive").length;
+  const pendingSettlements = employees.filter(e => e.status === "inactive" && !e.settlement_done).length;
 const hasRealSettlements = employees.some(e => e.status === "inactive");
 
   const TABS = [
