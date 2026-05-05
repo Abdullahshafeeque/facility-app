@@ -469,10 +469,16 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
   // Mark inactive WITHOUT window.confirm — uses inline confirmation instead
   const markInactive = async () => {
     const emp = viewing;
-    const { error } = await supabase.from("employees").update({ status: "inactive", left_date: todayStr }).eq("id", emp.id);
+    
+    // Prompt for exact leaving date using the custom calendar
+    const leftDate = await askForDate(`Select the exact date ${emp.name} left the mill:`);
+    if (!leftDate) return; // User cancelled
+
+    const { error } = await supabase.from("employees").update({ status: "inactive", left_date: leftDate }).eq("id", emp.id);
     if (error) { alert("Failed to update: " + error.message); return; }
-    await supabase.from("post_history").update({ valid_to: todayStr }).eq("employee_id", emp.id).is("valid_to", null);
-    setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "inactive", left_date: todayStr } : e));
+    
+    await supabase.from("post_history").update({ valid_to: leftDate }).eq("employee_id", emp.id).is("valid_to", null);
+    setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "inactive", left_date: leftDate } : e));
     setViewing(null);
     setConfirmLeave(false);
   };
