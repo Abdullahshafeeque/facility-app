@@ -378,7 +378,12 @@ function AttendanceView({ employees }) {
 }
 
 // ─── STAFF ────────────────────────────────────────────────────────────────────
-function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPostHistory }) {
+function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHistory, setPostHistory }) {
+  const deleteTransaction = async (txId) => {
+    if (!window.confirm("Delete this transaction? This will instantly adjust their Net Payable.")) return;
+    await supabase.from("financial_ledger").delete().eq("id", txId);
+    setLedger(prev => prev.filter(l => l.id !== txId));
+  };
   const [showForm, setShowForm] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
   const [search, setSearch] = useState("");
@@ -599,13 +604,13 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
               <>
                 <div style={css.sectionTitle}>Post Change History</div>
                 <div style={{ background: C.bg, borderRadius: 6, padding: 10, marginBottom: 16 }}>
-                  {empHistory.map(h => (
-                    <div key={h.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.border}`, fontSize: 11 }}>
-                      <span>{h.post}</span>
-                      <span style={{ color: C.textDim }}>{fDate(h.valid_from)} → {h.valid_to ? fDate(h.valid_to) : "present"}</span>
-                      <strong style={{ color: C.accent }}>₹{Number(h.salary).toLocaleString("en-IN")}</strong>
-                    </div>
-                  ))}
+                <div key={l.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: `1px solid ${C.border}` }}>
+                      <span style={{ fontSize: 11 }}>{fDate(l.date)} · {l.transaction_type}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <strong style={{ fontSize: 11, color: l.transaction_type === "Bonus" || l.transaction_type === "Payout" ? C.green : C.red }}>₹{l.amount}</strong>
+                        <button style={{ background: "transparent", border: "none", color: C.red, cursor: "pointer", fontSize: 12, padding: "0 4px" }} onClick={() => deleteTransaction(l.id)}>✕</button>
+                      </div>
+                    </div>  
                 </div>
               </>
             )}
@@ -1105,7 +1110,7 @@ export default function App() {
         <>
           {tab === "dashboard" && <DashboardView employees={employees} attendance={attendance} posts={posts} />}
           {tab === "attendance" && <AttendanceView employees={employees} user={user} />}
-          {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} postHistory={postHistory} setPostHistory={setPostHistory} />}
+          {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} />}
           {tab === "payroll" && <PayrollView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setTab={setTab} />}
           {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} />}
         </>
