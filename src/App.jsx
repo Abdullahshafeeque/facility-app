@@ -404,9 +404,19 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
   };
 
   const updateEmployeePost = async (emp, newPost) => {
+    const effectiveDate = window.prompt(`Enter effective date for role change to ${newPost} (YYYY-MM-DD):`, todayStr);
+    if (!effectiveDate) return; // User cancelled, dropdown will revert
+
     const newSalary = emp.staff_type === "contract" ? getContractSalary(newPost) : emp.base_salary;
-    await supabase.from("post_history").update({ valid_to: todayStr }).eq("employee_id", emp.id).is("valid_to", null);
-    const { data: histData } = await supabase.from("post_history").insert({ employee_id: emp.id, post: newPost, staff_type: emp.staff_type, salary: newSalary, valid_from: todayStr, valid_to: null }).select().single();
+
+    // The old role ends the day BEFORE the new role begins
+    const dateObj = new Date(effectiveDate);
+    dateObj.setDate(dateObj.getDate() - 1);
+    const validToDate = dateObj.toISOString().split("T")[0];
+
+    await supabase.from("post_history").update({ valid_to: validToDate }).eq("employee_id", emp.id).is("valid_to", null);
+    const { data: histData } = await supabase.from("post_history").insert({ employee_id: emp.id, post: newPost, staff_type: emp.staff_type, salary: newSalary, valid_from: effectiveDate, valid_to: null }).select().single();
+    
     if (histData) setPostHistory(prev => [...prev.filter(h => !(h.employee_id === emp.id && !h.valid_to)), histData]);
     const updateData = { post: newPost, base_salary: newSalary };
     await supabase.from("employees").update(updateData).eq("id", emp.id);
@@ -432,6 +442,33 @@ function StaffView({ employees, setEmployees, posts, ledger, postHistory, setPos
   };
 
   const reactivate = async (emp) => {
+    const rejoinDate = window.prompt(`Enter rejoining date for ${emp.name} (YYYY-MM-DD):`, todayStr);
+    if (!rejoinDate) return;
+
+    const dateObj = new Date(rejoinDate);
+    dateObj.setDate(dateObj.getDate() - 1);
+    const gapEndDate = dateObj.toISOString().split("T")[0];
+
+    // If they had a left_date, log the unpaid gap so the payroll engine ignores those days
+    if (emp.left_date) {
+      const leftDateObj = new Date(emp.left_date);
+      leftDateObj.setDate(leftDateObj.getDate() + 1);
+      const gapStartDate = leftDateObj.toISOString().split("T")[0];
+      
+      if (gapStartDate <= gapEndDate) {
+         await supabase.from("post_history").insert({
+           employee_id: emp.id, post: "Unpaid Gap", staff_type: emp.staff_type, salary: 0, valid_from: gapStartDate, valid_to: gapEndDate
+         });
+      }
+    }
+
+    // Start a fresh active history record from the new rejoin date
+    const { data: histData } = await supabase.from("post_history").insert({
+      employee_id: emp.id, post: emp.post, staff_type: emp.staff_type, salary: emp.base_salary, valid_from: rejoinDate, valid_to: null
+    }).select().single();
+
+    if (histData) setPostHistory(prev => [...prev, histData]);
+
     await supabase.from("employees").update({ status: "active", left_date: null }).eq("id", emp.id);
     setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "active", left_date: null } : e));
   };
