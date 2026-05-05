@@ -51,6 +51,7 @@ function getCoverage(employees, attendance, posts) {
 }
 
 function calcFinances(employee, posts, rangeAttendance, ledger, start, end, postHistory) {
+  // 1. Resolve Post History (Handles role promotions/shifts correctly)
   const empHistory = (postHistory || []).filter(h => h.employee_id === employee.id).sort((a, b) => a.valid_from.localeCompare(b.valid_from));
   const joiningDate = employee.joining_date || start;
   const effectiveStart = joiningDate > start ? joiningDate : start;
@@ -82,30 +83,42 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
   const periodBreakdown = [];
 
   for (const period of periods) {
-    const dailyRate = period.salary / 26;
-    const hourlyRate = dailyRate / 12;
     const pStart = new Date(period.from), pEnd = new Date(period.to);
     const daysInPeriod = Math.round((pEnd - pStart) / 86400000) + 1;
-    const proratedSalary = dailyRate * daysInPeriod;
+    
+    // FIXED MATH 1: Base Salary is prorated using a standard 30-day calendar month
+    const proratedSalary = (period.salary / 30) * daysInPeriod; 
+    
+    // FIXED MATH 2: Absences and OT MUST strictly use the 26-day working rate
+    const dailyWorkingRate = period.salary / 26; 
+    const hourlyRate = dailyWorkingRate / 12;
+
     const periodAtt = rangeAttendance.filter(a => a.employee_id === employee.id && a.date >= period.from && a.date <= period.to);
     const absentDays = periodAtt.filter(a => a.status === "Absent").length;
     const leaveDays = periodAtt.filter(a => a.status === "Leave").length;
     const otHours = periodAtt.reduce((s, a) => s + (Number(a.ot_hours) || 0), 0);
-    const attendanceDeduction = (absentDays + leaveDays) * dailyRate;
+    
+    // Calculate the actual financial impact of attendance
+    const attendanceDeduction = (absentDays + leaveDays) * dailyWorkingRate;
     const otEarnings = otHours * hourlyRate;
+    
     totalProratedSalary += proratedSalary;
     totalAttendanceDeduction += attendanceDeduction;
     totalOTEarnings += otEarnings;
     totalAbsentDays += absentDays;
     totalLeaveDays += leaveDays;
     totalOTHours += otHours;
+    
     periodBreakdown.push({ ...period, daysInPeriod, proratedSalary, absentDays, leaveDays, otHours, attendanceDeduction, otEarnings });
   }
 
+  // Calculate Ledger impacts (Advances, Fines, Payouts, Bonuses)
   const staffLedger = (ledger || []).filter(l => l.employee_id === employee.id && l.date >= start && l.date <= end);
   const totalBonuses = staffLedger.filter(l => l.transaction_type === "Bonus").reduce((s, l) => s + Number(l.amount), 0);
   const totalAdvances = staffLedger.filter(l => l.transaction_type === "Advance" || l.transaction_type === "Fine").reduce((s, l) => s + Number(l.amount), 0);
   const totalPaid = staffLedger.filter(l => l.transaction_type === "Payout").reduce((s, l) => s + Number(l.amount), 0);
+  
+  // The Final Logical Output
   const netPayable = (totalProratedSalary + totalBonuses + totalOTEarnings) - (totalAttendanceDeduction + totalAdvances + totalPaid);
 
   return { periods: periodBreakdown, proratedSalary: totalProratedSalary, attendanceDeduction: totalAttendanceDeduction, otEarnings: totalOTEarnings, absentDays: totalAbsentDays, leaveDays: totalLeaveDays, totalOTHours, totalBonuses, totalAdvances, totalPaid, netPayable, joiningDate: employee.joining_date || start, effectiveStart };
