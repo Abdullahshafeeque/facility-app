@@ -191,7 +191,9 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
 
   const handleAddOT = async () => {
     if (!form.empId || !form.startDate || !form.endDate || !form.start || !form.end || !form.post) return alert("Please fill all fields.");
-    const emp = employees.find(e => e.id === form.empId);
+    // FIX: Force both IDs to strings so the HTML dropdown matches the database
+    const emp = employees.find(e => String(e.id) === String(form.empId));
+    if (!emp) return alert("Error: Employee could not be matched. Please re-select.");
     
     // 1. Calculate and strictly validate dates/times
     const dStart = new Date(`${form.startDate}T${form.start}`);
