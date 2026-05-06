@@ -1285,9 +1285,20 @@ function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
         <div style={{ fontSize: 22, fontWeight: 700 }}>Reports & Exports</div>
       </div>
 
+      {/* --- CARD 1: CSV EXPORT --- */}
       <div style={{ ...css.card, marginBottom: 20, borderLeft: `3px solid ${C.green}` }}>
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>1. Monthly Payroll Summary (CSV)</div>
-        <div style={{ ...css.card, borderLeft: `3px solid ${C.blue}` }}>
+        <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>Export raw financial data into a spreadsheet for accountants to easily import into Excel, Tally, or QuickBooks.</div>
+        
+        <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={css.input} value={start} onChange={e => setStart(e.target.value)} /></div>
+          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={css.input} value={end} onChange={e => setEnd(e.target.value)} /></div>
+          <button style={css.btn(C.green)} onClick={downloadCSV} disabled={loading}>{loading ? "Fetching Data..." : "📥 Download CSV Spreadsheet"}</button>
+        </div>
+      </div>
+
+      {/* --- CARD 2: OPERATIONS ROSTER --- */}
+      <div style={{ ...css.card, borderLeft: `3px solid ${C.blue}` }}>
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>2. Operations & Shift Roster</div>
         <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>Live overview for supervisors to manage upcoming shifts and monitor employee overtime fatigue.</div>
         
@@ -1327,14 +1338,6 @@ function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
             )}
           </div>
 
-        </div>
-      </div>
-        <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>Export raw financial data into a spreadsheet for accountants to easily import into Excel, Tally, or QuickBooks.</div>
-        
-        <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
-          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={css.input} value={start} onChange={e => setStart(e.target.value)} /></div>
-          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={css.input} value={end} onChange={e => setEnd(e.target.value)} /></div>
-          <button style={css.btn(C.green)} onClick={downloadCSV} disabled={loading}>{loading ? "Fetching Data..." : "📥 Download CSV Spreadsheet"}</button>
         </div>
       </div>
     </div>
