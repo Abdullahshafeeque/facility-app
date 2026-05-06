@@ -279,9 +279,19 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
           </select>
         </div>
         <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>START DATE</div><input type="date" style={css.input} value={form.startDate} onChange={e => setForm({...form, startDate: e.target.value})} /></div>
-        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>START TIME</div><input type="time" step="1800" style={css.input} value={form.start} onChange={e => setForm({...form, start: e.target.value})} /></div>
-        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>END DATE</div><input type="date" style={css.input} value={form.endDate} onChange={e => setForm({...form, endDate: e.target.value})} /></div>
-        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>END TIME</div><input type="time" step="1800" style={css.input} value={form.end} onChange={e => setForm({...form, end: e.target.value})} /></div>
+        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>START TIME</div>
+          <select style={css.input} value={form.start} onChange={e => setForm({...form, start: e.target.value})}>
+            <option value="">-- Time --</option>
+            {Array.from({length: 48}).map((_, i) => { const t = `${String(Math.floor(i/2)).padStart(2,'0')}:${i%2===0?'00':'30'}`; return <option key={t} value={t}>{t}</option>; })}
+          </select>
+        </div>
+        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>END DATE</div><input type="date" style={css.input} value={form.endDate} onChange={e => setForm({...form, endDate: e.target.value})} /></div>
+        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>END TIME</div>
+          <select style={css.input} value={form.end} onChange={e => setForm({...form, end: e.target.value})}>
+            <option value="">-- Time --</option>
+            {Array.from({length: 48}).map((_, i) => { const t = `${String(Math.floor(i/2)).padStart(2,'0')}:${i%2===0?'00':'30'}`; return <option key={t} value={t}>{t}</option>; })}
+          </select>
+        </div>
         <button style={css.btn(C.green)} onClick={handleAddOT} disabled={saving}>+ Save OT</button>
       </div>
 
@@ -870,7 +880,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
 }
 
 // ─── PAYROLL ──────────────────────────────────────────────────────────────────
-function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab }) {
+function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab, overtime }) {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
   const [start, setStart] = useState(monthStart);
@@ -934,11 +944,11 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
     if (search.trim()) filteredList = filteredList.filter(e => e.name.toLowerCase().includes(search.toLowerCase()));
     
     // Calculate both Period Net and Lifetime Actual Net
-    const rows = filteredList.map(emp => ({ 
-      emp, 
-      fin: calcFinances(emp, posts, rangeAttendance, ledger, start, end, postHistory),
-      finLifetime: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || "2020-01-01", end, postHistory)
-    }));
+    const rows = filteredList.map(emp => ({ 
+      emp, 
+      fin: calcFinances(emp, posts, rangeAttendance, ledger, start, end, postHistory, overtime),
+      finLifetime: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || "2020-01-01", end, postHistory, overtime)
+    }));
     
     const totalNet = rows.reduce((s, r) => s + r.fin.netPayable, 0);
     const totalActual = rows.reduce((s, r) => s + r.finLifetime.netPayable, 0);
@@ -991,7 +1001,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab 
 
   const SettlementView = () => {
     const unsettled = inactive.filter(e => !e.settlement_done);
-    const rows = unsettled.map(emp => ({ emp, fin: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || start, emp.left_date || end, postHistory) }));
+    const rows = unsettled.map(emp => ({ emp, fin: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || start, emp.left_date || end, postHistory, overtime) }));
 
     const markSettled = async (emp) => {
       await supabase.from("employees").update({ settlement_done: true }).eq("id", emp.id);
