@@ -1264,6 +1264,19 @@ function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
     link.click();
     document.body.removeChild(link);
   };
+// --- Operations Data ---
+  const tomorrowDt = new Date();
+  tomorrowDt.setDate(tomorrowDt.getDate() + 1);
+  const tomorrowStr = tomorrowDt.toISOString().split("T")[0];
+  
+  const activeStaff = employees.filter(e => e.status === "active");
+  const morningStaff = activeStaff.filter(e => e.shift === "Morning");
+  const nightStaff = activeStaff.filter(e => e.shift === "Night");
+
+  const otWatchlist = activeStaff.map(emp => {
+    const fin = calcFinances(emp, posts, rangeAttendance, ledger, start, end, postHistory, overtime);
+    return { name: emp.name, post: emp.post, hours: fin.totalOTHours };
+  }).filter(e => e.hours > 0).sort((a, b) => b.hours - a.hours).slice(0, 5);
 
   return (
     <div style={css.page}>
@@ -1274,6 +1287,48 @@ function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
 
       <div style={{ ...css.card, marginBottom: 20, borderLeft: `3px solid ${C.green}` }}>
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>1. Monthly Payroll Summary (CSV)</div>
+        <div style={{ ...css.card, borderLeft: `3px solid ${C.blue}` }}>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>2. Operations & Shift Roster</div>
+        <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>Live overview for supervisors to manage upcoming shifts and monitor employee overtime fatigue.</div>
+        
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
+          
+          <div style={{ background: C.bg, padding: 16, borderRadius: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, marginBottom: 10, letterSpacing: 1 }}>TOMORROW'S ROSTER ({fDate(tomorrowStr)})</div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <div style={{ flex: 1, borderRight: `1px solid ${C.border}`, paddingRight: 10 }}>
+                <div style={{ color: C.accent, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Morning Shift</div>
+                <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>{morningStaff.length}</div>
+                <div style={{ fontSize: 10, color: C.textDim }}>Expected Staff</div>
+              </div>
+              <div style={{ flex: 1, paddingLeft: 10 }}>
+                <div style={{ color: C.blue, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Night Shift</div>
+                <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>{nightStaff.length}</div>
+                <div style={{ fontSize: 10, color: C.textDim }}>Expected Staff</div>
+              </div>
+            </div>
+            <button style={{ ...css.btn(C.blue), width: "100%", marginTop: 14 }} onClick={() => window.print()}>🖨 Print Roster / Page</button>
+          </div>
+
+          <div style={{ background: C.orange + "11", padding: 16, borderRadius: 8, border: `1px solid ${C.orange}33` }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.orange, marginBottom: 10, letterSpacing: 1 }}>OVERTIME WATCHLIST (TOP 5)</div>
+            {otWatchlist.length === 0 ? <div style={{ fontSize: 12, color: C.textDim }}>No overtime logged in this period.</div> : (
+              <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+                <tbody>
+                  {otWatchlist.map((w, i) => (
+                    <tr key={i} style={{ borderBottom: `1px solid ${C.orange}22` }}>
+                      <td style={{ padding: "6px 0", fontWeight: 700 }}>{w.name}</td>
+                      <td style={{ padding: "6px 0", color: C.textDim, fontSize: 10 }}>{w.post}</td>
+                      <td style={{ padding: "6px 0", textAlign: "right", color: C.orange, fontWeight: 700 }}>{w.hours}h</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+        </div>
+      </div>
         <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>Export raw financial data into a spreadsheet for accountants to easily import into Excel, Tally, or QuickBooks.</div>
         
         <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
