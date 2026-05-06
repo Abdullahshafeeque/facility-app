@@ -191,50 +191,51 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
 
   const handleAddOT = async () => {
     if (!form.empId || !form.startDate || !form.endDate || !form.start || !form.end || !form.post) return alert("Please fill all fields.");
-    // FIX: Force both IDs to strings so the HTML dropdown matches the database
+    
     const emp = employees.find(e => String(e.id) === String(form.empId));
-    if (!emp) return alert("Error: Employee could not be matched. Please re-select.");
-    
-    // 1. Calculate and strictly validate dates/times
-    const dStart = new Date(`${form.startDate}T${form.start}`);
-    const dEnd = new Date(`${form.endDate}T${form.end}`);
-    
+    if (!emp) return alert("Error: Employee could not be matched.");
+
+    // Append :00 to time to guarantee strict browser parsing
+    const dStart = new Date(`${form.startDate}T${form.start}:00`);
+    const dEnd = new Date(`${form.endDate}T${form.end}:00`);
+
+    if (isNaN(dStart) || isNaN(dEnd)) return alert("Error: Invalid date or time.");
     if (dEnd <= dStart) return alert("Error: The end date/time must be AFTER the start date/time.");
-    
+
     const hours = (dEnd - dStart) / 3600000;
     if (hours > 12) return alert("Error: Overtime cannot exceed 12 hours.");
 
-    // 2. Validate against regular shift ONLY if the OT is in their regular department
     if (emp.post === form.post) {
       const checkOverlap = (s1, e1, s2, e2) => Math.max(s1, s2) < Math.min(e1, e2);
-      
-      // Check 3 consecutive days to catch any overlapping night/morning shifts near the OT
       const isOverlap = [-1, 0, 1].some(offset => {
-        const shiftStartDt = new Date(`${form.startDate}T${emp.shift === "Morning" ? "07:00" : "19:00"}`);
+        const shiftStartDt = new Date(`${form.startDate}T${emp.shift === "Morning" ? "07:00:00" : "19:00:00"}`);
         shiftStartDt.setDate(shiftStartDt.getDate() + offset);
         const shiftEndDt = new Date(shiftStartDt);
-        shiftEndDt.setHours(shiftStartDt.getHours() + 12); 
-        
+        shiftEndDt.setHours(shiftStartDt.getHours() + 12);
         return checkOverlap(dStart, dEnd, shiftStartDt, shiftEndDt);
       });
 
-      if (isOverlap) {
-         return alert(`Overlap Error: ${emp.name} is scheduled for a regular ${emp.shift} shift (7 to 7) in the ${emp.post} department during this time. Regular hours cannot be logged as OT.`);
-      }
+      if (isOverlap) return alert(`Overlap Error: ${emp.name} is scheduled for a regular ${emp.shift} shift (7 to 7) during this time.`);
     }
 
     setSaving(true);
+    
+    // FIX: Removed 'end_date' from the payload to exactly match your SQL table
     const { data, error } = await supabase.from("overtime_entries").insert({
-      employee_id: emp.id, date: form.startDate, end_date: form.endDate, start_time: form.start, end_time: form.end, hours, post: form.post
+      employee_id: emp.id, 
+      date: form.startDate, 
+      start_time: form.start, 
+      end_time: form.end, 
+      hours: Number(hours.toFixed(2)), 
+      post: form.post
     }).select().single();
 
-    if (error) {
-      alert("Error saving: " + error.message);
-    } else { 
-      setOvertime(prev => [data, ...prev]); 
-      setForm({ ...form, start: "", end: "" }); 
-    }
     setSaving(false);
+
+    if (error) return alert("Database Error: " + error.message);
+    
+    setOvertime(prev => [data, ...prev]);
+    setForm({ ...form, start: "", end: "" });
   };
 
   const deleteOT = async (id) => {
