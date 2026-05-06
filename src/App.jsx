@@ -52,7 +52,7 @@ function getCoverage(employees, attendance, posts) {
   return alerts;
 }
 
-function calcFinances(employee, posts, rangeAttendance, ledger, start, end, postHistory) {
+function calcFinances(employee, posts, rangeAttendance, ledger, start, end, postHistory, overtime) {
   // 1. Resolve Post History (Handles role promotions/shifts correctly)
   const empHistory = (postHistory || []).filter(h => h.employee_id === employee.id).sort((a, b) => (a.valid_from || "").localeCompare(b.valid_from || ""));
   const joiningDate = employee.joining_date || start;
@@ -125,7 +125,8 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
     const periodAtt = rangeAttendance.filter(a => a.employee_id === employee.id && a.date >= period.from && a.date <= period.to);
     const absentDays = periodAtt.filter(a => a.status === "Absent").length;
     const leaveDays = periodAtt.filter(a => a.status === "Leave").length;
-    const otHours = periodAtt.reduce((s, a) => s + (Number(a.ot_hours) || 0), 0);
+    const periodOT = (overtime || []).filter(o => o.employee_id === employee.id && o.date >= period.from && o.date <= period.to);
+    const otHours = periodOT.reduce((s, o) => s + (Number(o.hours) || 0), 0);
     
     // Calculate the actual financial impact of attendance
     const attendanceDeduction = (absentDays + leaveDays) * dailyWorkingRate;
@@ -178,6 +179,105 @@ function AlertBanner({ alerts }) {
           <span style={{ color: C.red }}><strong>[{a.shift.toUpperCase()}]</strong> {a.post} — {a.shortage} short ({a.present}/{a.required})</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ─── OVERTIME ─────────────────────────────────────────────────────────────────
+function OvertimeView({ employees, posts, overtime, setOvertime }) {
+  const [form, setForm] = useState({ empId: "", date: todayStr, start: "", end: "", post: "" });
+  const [saving, setSaving] = useState(false);
+  const active = employees.filter(e => e.status === "active");
+
+  const handleAddOT = async () => {
+    if (!form.empId || !form.date || !form.start || !form.end || !form.post) return alert("Please fill all fields.");
+    const emp = employees.find(e => e.id === form.empId);
+    
+    // Calculate OT Hours
+    const dStart = new Date(`${form.date}T${form.start}`);
+    let dEnd = new Date(`${form.date}T${form.end}`);
+    if (dEnd <= dStart) dEnd.setDate(dEnd.getDate() + 1); // Crossed midnight
+    
+    const hours = (dEnd - dStart) / 3600000;
+    if (hours <= 0 || hours > 16) return alert("Invalid time range.");
+
+    // Validate against regular 12-hour shift (7 to 7)
+    const shiftStartDt = new Date(`${form.date}T${emp.shift === "Morning" ? "07:00" : "19:00"}`);
+    const shiftEndDt = new Date(shiftStartDt);
+    shiftEndDt.setHours(shiftStartDt.getHours() + 12);
+    
+    // Also check if it overlaps with a night shift that started the day *before*
+    const prevShiftStart = new Date(shiftStartDt);
+    prevShiftStart.setDate(prevShiftStart.getDate() - 1);
+    const prevShiftEnd = new Date(prevShiftStart);
+    prevShiftEnd.setHours(prevShiftStart.getHours() + 12);
+
+    const checkOverlap = (s1, e1, s2, e2) => Math.max(s1, s2) < Math.min(e1, e2);
+    if (checkOverlap(dStart, dEnd, shiftStartDt, shiftEndDt) || checkOverlap(dStart, dEnd, prevShiftStart, prevShiftEnd)) {
+       return alert(`Overlap Error: ${emp.name}'s regular duty is the ${emp.shift} shift (7 to 7). Overtime cannot fall within regular duty hours.`);
+    }
+
+    setSaving(true);
+    const { data, error } = await supabase.from("overtime_entries").insert({
+      employee_id: emp.id, date: form.date, start_time: form.start, end_time: form.end, hours, post: form.post
+    }).select().single();
+
+    if (error) alert("Error saving: " + error.message);
+    else { setOvertime(prev => [data, ...prev]); setForm({ ...form, start: "", end: "" }); }
+    setSaving(false);
+  };
+
+  const deleteOT = async (id) => {
+    if (!window.confirm("Delete this Overtime entry?")) return;
+    await supabase.from("overtime_entries").delete().eq("id", id);
+    setOvertime(prev => prev.filter(o => o.id !== id));
+  };
+
+  return (
+    <div style={css.page}>
+      <div style={css.sectionTitle}>Log Overtime</div>
+      <div style={{ ...css.card, marginBottom: 20, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
+        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>EMPLOYEE</div>
+          <select style={{...css.input, width: 160}} value={form.empId} onChange={e => setForm({...form, empId: e.target.value})}>
+            <option value="">-- Select --</option>
+            {active.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+        </div>
+        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>WORKED AS (POST)</div>
+          <select style={{...css.input, width: 160}} value={form.post} onChange={e => setForm({...form, post: e.target.value})}>
+            <option value="">-- Select --</option>
+            {posts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+          </select>
+        </div>
+        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>DATE STARTED</div><input type="date" style={css.input} value={form.date} onChange={e => setForm({...form, date: e.target.value})} /></div>
+        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>START TIME</div><input type="time" style={css.input} value={form.start} onChange={e => setForm({...form, start: e.target.value})} /></div>
+        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>END TIME</div><input type="time" style={css.input} value={form.end} onChange={e => setForm({...form, end: e.target.value})} /></div>
+        <button style={css.btn(C.green)} onClick={handleAddOT} disabled={saving}>+ Save OT</button>
+      </div>
+
+      <div style={css.sectionTitle}>Recent OT Entries</div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={css.table}>
+          <thead><tr>{["Date", "Employee", "Post", "From", "To", "Hours", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+          <tbody>
+            {overtime.length === 0 && <tr><td colSpan={7} style={{...css.td, textAlign: "center"}}>No OT entries found.</td></tr>}
+            {overtime.slice(0, 50).map(o => {
+              const emp = employees.find(e => e.id === o.employee_id);
+              return (
+                <tr key={o.id}>
+                  <td style={css.td}>{fDate(o.date)}</td>
+                  <td style={css.td}><strong>{emp?.name || "Unknown"}</strong></td>
+                  <td style={css.td}>{o.post}</td>
+                  <td style={css.td}>{o.start_time}</td>
+                  <td style={css.td}>{o.end_time}</td>
+                  <td style={{...css.td, color: C.green, fontWeight: "bold"}}>{Number(o.hours).toFixed(1)}h</td>
+                  <td style={css.td}><button style={{...css.btn(C.red), padding: "4px 8px"}} onClick={() => deleteOT(o.id)}>✕</button></td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -340,7 +440,7 @@ function AttendanceView({ employees }) {
         <>
           <div style={{ overflowX: "auto", opacity: isSubmitted ? 0.8 : 1 }}>
             <table style={css.table}>
-              <thead><tr>{["Name", "Post", "Type", "Shift", "Status", "OT Hrs", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+              <thead><tr>{["Name", "Post", "Type", "Shift", "Status", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
               <tbody>
                 {filtered.length === 0 && <tr><td colSpan={7} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No employees found.</td></tr>}
                 {filtered.map(emp => {
@@ -352,7 +452,6 @@ function AttendanceView({ employees }) {
                       <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
                       <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
                       <td style={css.td}><span style={css.badge(statusColor(rec.status))}>{rec.status}</span></td>
-                      <td style={css.td}><input type="number" min="0" max="12" step="0.5" value={rec.ot_hours || 0} onChange={e => toggle(emp.id, "ot_hours", +e.target.value)} disabled={isHoliday} style={{ ...css.input, width: 60, textAlign: "center" }} /></td>
                       <td style={css.td}>
                         <div style={{ display: "flex", gap: 4 }}>
                           {["Present", "Absent", "Leave"].map(s => (
@@ -1052,6 +1151,7 @@ export default function App() {
   const [posts, setPosts] = useState([]);
   const [ledger, setLedger] = useState([]);
   const [postHistory, setPostHistory] = useState([]);
+  const [overtime, setOvertime] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -1073,6 +1173,8 @@ export default function App() {
       if (ledgData) setLedger(ledgData);
       const { data: histData } = await supabase.from("post_history").select("*").order("valid_from");
       if (histData) setPostHistory(histData);
+      const { data: otData } = await supabase.from("overtime_entries").select("*").order("date", { ascending: false });
+      if (otData) setOvertime(otData);
       setLoading(false);
     };
     loadData();
@@ -1088,6 +1190,7 @@ export default function App() {
   const TABS = [
     { id: "dashboard", label: "Dashboard" },
     { id: "attendance", label: "Attendance" },
+    { id: "overtime", label: "Overtime" },
     { id: "staff", label: "Staff" },
     { id: "payroll", label: "Payroll" },
     { id: "settings", label: "⚙ Settings" },
@@ -1123,8 +1226,9 @@ export default function App() {
         <>
           {tab === "dashboard" && <DashboardView employees={employees} attendance={attendance} posts={posts} />}
           {tab === "attendance" && <AttendanceView employees={employees} user={user} />}
-          {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} />}
-          {tab === "payroll" && <PayrollView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setTab={setTab} />}
+          {tab === "overtime" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} />}
+          {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} />}
+          {tab === "payroll" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setTab={setTab} overtime={overtime} />}
           {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} />}
         </>
       )}
