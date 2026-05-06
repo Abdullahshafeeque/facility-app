@@ -224,16 +224,21 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
     if (hours > 12) return alert("Error: Overtime cannot exceed 12 hours.");
 
     if (emp.post === form.post) {
+      const otPostData = posts.find(p => p.name === emp.post) || {};
+      const mStart = otPostData.morning_start || "06:00:00";
+      const nStart = otPostData.night_start || "18:00:00";
+      const shiftStartStr = emp.shift === "Morning" ? mStart : nStart;
+
       const checkOverlap = (s1, e1, s2, e2) => Math.max(s1, s2) < Math.min(e1, e2);
       const isOverlap = [-1, 0, 1].some(offset => {
-        const shiftStartDt = new Date(`${form.startDate}T${emp.shift === "Morning" ? "07:00:00" : "19:00:00"}`);
+        const shiftStartDt = new Date(`${form.startDate}T${shiftStartStr}`);
         shiftStartDt.setDate(shiftStartDt.getDate() + offset);
         const shiftEndDt = new Date(shiftStartDt);
         shiftEndDt.setHours(shiftStartDt.getHours() + 12);
         return checkOverlap(dStart, dEnd, shiftStartDt, shiftEndDt);
       });
 
-      if (isOverlap) return alert(`Overlap Error: ${emp.name} is scheduled for a regular ${emp.shift} shift (7 to 7) during this time.`);
+      if (isOverlap) return alert(`Overlap Error: ${emp.name} is scheduled for a regular ${emp.shift} shift during this time.`);
     }
 
     setSaving(true);
@@ -393,7 +398,7 @@ function DashboardView({ employees, attendance, posts }) {
 function AttendanceView({ employees }) {
   const [selectedDate, setSelectedDate] = useState(todayStr);
   const [dayAttendance, setDayAttendance] = useState({});
-  const [filterShift, setFilterShift] = useState("All");
+  const [activeShift, setActiveShift] = useState("Morning");
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isHoliday, setIsHoliday] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -401,23 +406,38 @@ function AttendanceView({ employees }) {
   const [search, setSearch] = useState("");
 
   const active = employees.filter(e => e.status === "active");
-  let filtered = filterShift === "All" ? active : active.filter(e => e.shift === filterShift);
+  let filtered = active.filter(e => e.shift === activeShift);
   if (search.trim()) filtered = filtered.filter(e => e.name.toLowerCase().includes(search.toLowerCase()));
 
   useEffect(() => {
     const loadDay = async () => {
       setLoading(true);
-      const { data: subData } = await supabase.from("daily_submissions").select("*").eq("date", selectedDate).single();
-      setIsSubmitted(!!subData);
-      setIsHoliday(subData?.is_holiday || false);
       const { data: attData } = await supabase.from("attendance").select("*").eq("date", selectedDate);
+      
       const attMap = {};
-      if (attData) attData.forEach(a => { attMap[a.employee_id] = { status: a.status, ot_hours: a.ot_hours }; });
+      let shiftHasData = false;
+      let shiftAllPresent = true;
+      let shiftRecordCount = 0;
+      
+      if (attData) {
+        attData.forEach(a => { 
+          attMap[a.employee_id] = { status: a.status, ot_hours: a.ot_hours }; 
+          const emp = active.find(e => e.id === a.employee_id);
+          if (emp && emp.shift === activeShift) {
+            shiftHasData = true;
+            shiftRecordCount++;
+            if (a.status !== "Present") shiftAllPresent = false;
+          }
+        });
+      }
+      
+      setIsSubmitted(shiftHasData);
+      setIsHoliday(shiftHasData && shiftAllPresent && shiftRecordCount > 0);
       setDayAttendance(attMap);
       setLoading(false);
     };
     loadDay();
-  }, [selectedDate]);
+  }, [selectedDate, activeShift, employees]);
 
   const toggle = (id, field, value) => setDayAttendance(prev => ({ ...prev, [id]: { ...(prev[id] || { status: "Present", ot_hours: 0 }), [field]: value } }));
 
@@ -430,25 +450,43 @@ function AttendanceView({ employees }) {
   const handleSubmit = async () => {
     if (selectedDate > todayStr) return alert("Cannot submit for future dates!");
     setSaving(true);
-    const insertData = active.map(emp => { const rec = dayAttendance[emp.id] || { status: "Present", ot_hours: 0 }; return { employee_id: emp.id, date: selectedDate, status: rec.status, ot_hours: rec.ot_hours || 0 }; });
-    await supabase.from("attendance").delete().eq("date", selectedDate);
-    await supabase.from("attendance").insert(insertData);
-    await supabase.from("daily_submissions").upsert({ date: selectedDate, is_holiday: false });
+    const insertData = filtered.map(emp => { const rec = dayAttendance[emp.id] || { status: "Present", ot_hours: 0 }; return { employee_id: emp.id, date: selectedDate, status: rec.status, ot_hours: rec.ot_hours || 0 }; });
+    
+    const empIds = filtered.map(e => e.id);
+    if (empIds.length > 0) {
+      await supabase.from("attendance").delete().eq("date", selectedDate).in("employee_id", empIds);
+      await supabase.from("attendance").insert(insertData);
+    }
+    
     setIsSubmitted(true); setIsHoliday(false); setSaving(false);
   };
 
   const handleHolidaySubmit = async () => {
     setSaving(true);
-    const insertData = active.map(emp => ({ employee_id: emp.id, date: selectedDate, status: "Present", ot_hours: 0 }));
-    await supabase.from("attendance").delete().eq("date", selectedDate);
-    await supabase.from("attendance").insert(insertData);
-    await supabase.from("daily_submissions").upsert({ date: selectedDate, is_holiday: true });
+    const insertData = filtered.map(emp => ({ employee_id: emp.id, date: selectedDate, status: "Present", ot_hours: 0 }));
+    
+    const empIds = filtered.map(e => e.id);
+    if (empIds.length > 0) {
+      await supabase.from("attendance").delete().eq("date", selectedDate).in("employee_id", empIds);
+      await supabase.from("attendance").insert(insertData);
+    }
+    
     setIsSubmitted(true); setIsHoliday(true);
-    const newMap = {}; active.forEach(e => { newMap[e.id] = { status: "Present", ot_hours: 0 }; }); setDayAttendance(newMap);
+    const newMap = { ...dayAttendance };
+    filtered.forEach(e => { newMap[e.id] = { status: "Present", ot_hours: 0 }; });
+    setDayAttendance(newMap);
     setSaving(false);
   };
 
-  const handleUnsubmit = async () => { await supabase.from("daily_submissions").delete().eq("date", selectedDate); setIsSubmitted(false); setIsHoliday(false); };
+  const handleUnsubmit = async () => { 
+    setSaving(true);
+    const empIds = filtered.map(e => e.id);
+    if (empIds.length > 0) {
+      await supabase.from("attendance").delete().eq("date", selectedDate).in("employee_id", empIds);
+    }
+    setIsSubmitted(false); setIsHoliday(false); 
+    setSaving(false);
+  };
 
   const presentCount = filtered.filter(e => (dayAttendance[e.id]?.status || "Present") === "Present").length;
   const absentCount = filtered.filter(e => dayAttendance[e.id]?.status === "Absent").length;
@@ -465,7 +503,7 @@ function AttendanceView({ employees }) {
           </div>
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {["All", "Morning", "Night"].map(s => <button key={s} style={css.navBtn(filterShift === s)} onClick={() => setFilterShift(s)}>{s}</button>)}
+          {["Morning", "Night"].map(s => <button key={s} style={css.navBtn(activeShift === s)} onClick={() => setActiveShift(s)}>{s} Shift</button>)}
         </div>
       </div>
       <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
@@ -1114,14 +1152,14 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
 function SettingsView({ posts, setPosts, employees, setEmployees }) {
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: "", required_morning: 1, required_night: 1, contract_salary: 0 });
+  const [form, setForm] = useState({ name: "", required_morning: 1, required_night: 1, contract_salary: 0, morning_start: "06:00", night_start: "18:00" });
   const [loading, setLoading] = useState(false);
 
   const addPost = async () => {
     if (!form.name.trim()) return;
     setLoading(true);
-    const { data, error } = await supabase.from("posts").insert({ name: form.name, required_morning: +form.required_morning, required_night: +form.required_night, contract_salary: +form.contract_salary }).select().single();
-    if (!error && data) { setPosts(prev => [...prev, data]); setForm({ name: "", required_morning: 1, required_night: 1, contract_salary: 0 }); setShowForm(false); }
+    const { data, error } = await supabase.from("posts").insert({ name: form.name, required_morning: +form.required_morning, required_night: +form.required_night, contract_salary: +form.contract_salary, morning_start: form.morning_start, night_start: form.night_start }).select().single();
+    if (!error && data) { setPosts(prev => [...prev, data]); setForm({ name: "", required_morning: 1, required_night: 1, contract_salary: 0, morning_start: "06:00", night_start: "18:00" }); setShowForm(false); }
     setLoading(false);
   };
 
@@ -1150,7 +1188,7 @@ function SettingsView({ posts, setPosts, employees, setEmployees }) {
         <div style={{ ...css.card, marginBottom: 20, borderColor: C.green + "44" }}>
           <div style={css.sectionTitle}>New Post / Role</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
-            {[["POST NAME", "name", "text", "e.g. Machine Operator"], ["REQ. MORNING", "required_morning", "number", ""], ["REQ. NIGHT", "required_night", "number", ""], ["CONTRACT SALARY (₹)", "contract_salary", "number", "e.g. 18000"]].map(([label, field, type, ph]) => (
+            {[["POST NAME", "name", "text", "e.g. Machine Operator"], ["REQ. MORNING", "required_morning", "number", ""], ["REQ. NIGHT", "required_night", "number", ""], ["CONTRACT SALARY (₹)", "contract_salary", "number", "e.g. 18000"], ["MORNING SHIFT START", "morning_start", "time", ""], ["NIGHT SHIFT START", "night_start", "time", ""]].map(([label, field, type, ph]) => (
               <div key={field}><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>{label}</div><input type={type} style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form[field]} placeholder={ph} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))} /></div>
             ))}
           </div>
@@ -1165,7 +1203,7 @@ function SettingsView({ posts, setPosts, employees, setEmployees }) {
       {posts.length > 0 && (
         <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
-            <thead><tr>{["Post Name", "Req. Morning", "Req. Night", "Contract Salary (₹)", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+            <thead><tr>{["Post Name", "Req. Morning", "Req. Night", "Contract Salary", "Morn Start", "Night Start", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
             <tbody>
               {posts.map(post => (
                 <tr key={post.id}>
@@ -1173,6 +1211,8 @@ function SettingsView({ posts, setPosts, employees, setEmployees }) {
                   <td style={css.td}><input type="number" defaultValue={post.required_morning} onBlur={e => updatePost(post, "required_morning", e.target.value)} style={{ ...css.input, width: 70, textAlign: "center" }} /></td>
                   <td style={css.td}><input type="number" defaultValue={post.required_night} onBlur={e => updatePost(post, "required_night", e.target.value)} style={{ ...css.input, width: 70, textAlign: "center" }} /></td>
                   <td style={css.td}><input type="number" defaultValue={post.contract_salary || 0} onBlur={e => updatePost(post, "contract_salary", e.target.value)} style={{ ...css.input, width: 110, textAlign: "center" }} /></td>
+                  <td style={css.td}><input type="time" defaultValue={post.morning_start || "06:00"} onBlur={e => updatePost(post, "morning_start", e.target.value)} style={{ ...css.input, width: 100 }} /></td>
+                  <td style={css.td}><input type="time" defaultValue={post.night_start || "18:00"} onBlur={e => updatePost(post, "night_start", e.target.value)} style={{ ...css.input, width: 100 }} /></td>
                   <td style={css.td}><button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => deletePost(post)}>Remove</button></td>
                 </tr>
               ))}
