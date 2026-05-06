@@ -553,7 +553,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
   }, [viewing]);
 
   // Run the lifetime calculation engine for the popup
-  const fin = viewing ? calcFinances(viewing, posts, viewingAtt, ledger, viewing.joining_date || "2020-01-01", todayStr, postHistory) : null;
+  const fin = viewing ? calcFinances(viewing, posts, viewingAtt, ledger, viewing.joining_date || "2020-01-01", todayStr, postHistory, overtime) : null;
 
   const active = employees.filter(e => e.status === "active");
   const inactive = employees.filter(e => e.status === "inactive");
@@ -768,9 +768,10 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
             {fin && (
               <>
                 <div style={css.sectionTitle}>Lifetime Ledger Summary</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16, background: C.bg, padding: 14, borderRadius: 8, textAlign: "center" }}>
-                  <div><div style={{ fontSize: 10, color: C.textDim }}>TOTAL PAID</div><strong style={{ color: C.green }}>₹{fin.totalPaid.toLocaleString("en-IN")}</strong></div>
-                  <div><div style={{ fontSize: 10, color: C.textDim }}>ADVANCES / FINES</div><strong style={{ color: C.red }}>₹{fin.totalAdvances.toLocaleString("en-IN")}</strong></div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10, marginBottom: 16, background: C.bg, padding: 14, borderRadius: 8, textAlign: "center" }}>
+                  <div><div style={{ fontSize: 10, color: C.textDim }}>OT EARNINGS</div><strong style={{ color: C.green }}>+₹{Math.round(fin.otEarnings).toLocaleString("en-IN")}</strong></div>
+                  <div><div style={{ fontSize: 10, color: C.textDim }}>TOTAL PAID</div><strong style={{ color: C.textDim }}>₹{fin.totalPaid.toLocaleString("en-IN")}</strong></div>
+                  <div><div style={{ fontSize: 10, color: C.textDim }}>ADVANCES/FINES</div><strong style={{ color: C.red }}>-₹{fin.totalAdvances.toLocaleString("en-IN")}</strong></div>
                   <div><div style={{ fontSize: 10, color: C.textDim, fontWeight: 700 }}>NET PAYABLE</div><strong style={{ color: fin.netPayable < 0 ? C.red : C.orange, fontSize: 16 }}>₹{Math.round(fin.netPayable).toLocaleString("en-IN")}</strong></div>
                 </div>
               </>
