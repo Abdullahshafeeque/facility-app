@@ -185,45 +185,53 @@ function AlertBanner({ alerts }) {
 
 // ─── OVERTIME ─────────────────────────────────────────────────────────────────
 function OvertimeView({ employees, posts, overtime, setOvertime }) {
-  const [form, setForm] = useState({ empId: "", date: todayStr, start: "", end: "", post: "" });
+  const [form, setForm] = useState({ empId: "", startDate: todayStr, endDate: todayStr, start: "", end: "", post: "" });
   const [saving, setSaving] = useState(false);
   const active = employees.filter(e => e.status === "active");
 
   const handleAddOT = async () => {
-    if (!form.empId || !form.date || !form.start || !form.end || !form.post) return alert("Please fill all fields.");
+    if (!form.empId || !form.startDate || !form.endDate || !form.start || !form.end || !form.post) return alert("Please fill all fields.");
     const emp = employees.find(e => e.id === form.empId);
     
-    // Calculate OT Hours
-    const dStart = new Date(`${form.date}T${form.start}`);
-    let dEnd = new Date(`${form.date}T${form.end}`);
-    if (dEnd <= dStart) dEnd.setDate(dEnd.getDate() + 1); // Crossed midnight
+    // 1. Calculate and strictly validate dates/times
+    const dStart = new Date(`${form.startDate}T${form.start}`);
+    const dEnd = new Date(`${form.endDate}T${form.end}`);
+    
+    if (dEnd <= dStart) return alert("Error: The end date/time must be AFTER the start date/time.");
     
     const hours = (dEnd - dStart) / 3600000;
-    if (hours <= 0 || hours > 16) return alert("Invalid time range.");
+    if (hours > 12) return alert("Error: Overtime cannot exceed 12 hours.");
 
-    // Validate against regular 12-hour shift (7 to 7)
-    const shiftStartDt = new Date(`${form.date}T${emp.shift === "Morning" ? "07:00" : "19:00"}`);
-    const shiftEndDt = new Date(shiftStartDt);
-    shiftEndDt.setHours(shiftStartDt.getHours() + 12);
-    
-    // Also check if it overlaps with a night shift that started the day *before*
-    const prevShiftStart = new Date(shiftStartDt);
-    prevShiftStart.setDate(prevShiftStart.getDate() - 1);
-    const prevShiftEnd = new Date(prevShiftStart);
-    prevShiftEnd.setHours(prevShiftStart.getHours() + 12);
+    // 2. Validate against regular shift ONLY if the OT is in their regular department
+    if (emp.post === form.post) {
+      const checkOverlap = (s1, e1, s2, e2) => Math.max(s1, s2) < Math.min(e1, e2);
+      
+      // Check 3 consecutive days to catch any overlapping night/morning shifts near the OT
+      const isOverlap = [-1, 0, 1].some(offset => {
+        const shiftStartDt = new Date(`${form.startDate}T${emp.shift === "Morning" ? "07:00" : "19:00"}`);
+        shiftStartDt.setDate(shiftStartDt.getDate() + offset);
+        const shiftEndDt = new Date(shiftStartDt);
+        shiftEndDt.setHours(shiftStartDt.getHours() + 12); 
+        
+        return checkOverlap(dStart, dEnd, shiftStartDt, shiftEndDt);
+      });
 
-    const checkOverlap = (s1, e1, s2, e2) => Math.max(s1, s2) < Math.min(e1, e2);
-    if (checkOverlap(dStart, dEnd, shiftStartDt, shiftEndDt) || checkOverlap(dStart, dEnd, prevShiftStart, prevShiftEnd)) {
-       return alert(`Overlap Error: ${emp.name}'s regular duty is the ${emp.shift} shift (7 to 7). Overtime cannot fall within regular duty hours.`);
+      if (isOverlap) {
+         return alert(`Overlap Error: ${emp.name} is scheduled for a regular ${emp.shift} shift (7 to 7) in the ${emp.post} department during this time. Regular hours cannot be logged as OT.`);
+      }
     }
 
     setSaving(true);
     const { data, error } = await supabase.from("overtime_entries").insert({
-      employee_id: emp.id, date: form.date, start_time: form.start, end_time: form.end, hours, post: form.post
+      employee_id: emp.id, date: form.startDate, end_date: form.endDate, start_time: form.start, end_time: form.end, hours, post: form.post
     }).select().single();
 
-    if (error) alert("Error saving: " + error.message);
-    else { setOvertime(prev => [data, ...prev]); setForm({ ...form, start: "", end: "" }); }
+    if (error) {
+      alert("Error saving: " + error.message);
+    } else { 
+      setOvertime(prev => [data, ...prev]); 
+      setForm({ ...form, start: "", end: "" }); 
+    }
     setSaving(false);
   };
 
@@ -249,8 +257,9 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
             {posts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
           </select>
         </div>
-        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>DATE STARTED</div><input type="date" style={css.input} value={form.date} onChange={e => setForm({...form, date: e.target.value})} /></div>
+        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>START DATE</div><input type="date" style={css.input} value={form.startDate} onChange={e => setForm({...form, startDate: e.target.value})} /></div>
         <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>START TIME</div><input type="time" style={css.input} value={form.start} onChange={e => setForm({...form, start: e.target.value})} /></div>
+        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>END DATE</div><input type="date" style={css.input} value={form.endDate} onChange={e => setForm({...form, endDate: e.target.value})} /></div>
         <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>END TIME</div><input type="time" style={css.input} value={form.end} onChange={e => setForm({...form, end: e.target.value})} /></div>
         <button style={css.btn(C.green)} onClick={handleAddOT} disabled={saving}>+ Save OT</button>
       </div>
@@ -258,7 +267,7 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
       <div style={css.sectionTitle}>Recent OT Entries</div>
       <div style={{ overflowX: "auto" }}>
         <table style={css.table}>
-          <thead><tr>{["Date", "Employee", "Post", "From", "To", "Hours", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+          <thead><tr>{["Start Date", "End Date", "Employee", "Post", "From", "To", "Hours", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
           <tbody>
             {overtime.length === 0 && <tr><td colSpan={7} style={{...css.td, textAlign: "center"}}>No OT entries found.</td></tr>}
             {overtime.slice(0, 50).map(o => {
@@ -266,6 +275,7 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
               return (
                 <tr key={o.id}>
                   <td style={css.td}>{fDate(o.date)}</td>
+                  <td style={css.td}>{fDate(o.end_date || o.date)}</td>
                   <td style={css.td}><strong>{emp?.name || "Unknown"}</strong></td>
                   <td style={css.td}>{o.post}</td>
                   <td style={css.td}>{o.start_time}</td>
