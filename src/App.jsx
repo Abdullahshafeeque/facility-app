@@ -1039,9 +1039,24 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
   const handleTransaction = async () => {
     if (!form.empId || !form.amount || Number(form.amount) <= 0) return alert("Select staff and enter a valid amount.");
     setSaving(true);
-    const { data, error } = await supabase.from("financial_ledger").insert({ employee_id: form.empId, date: form.date, transaction_type: form.type, amount: Number(form.amount), notes: form.notes }).select().single();
-    if (!error && data) { setLedger(prev => [data, ...prev]); setShowModal(false); setForm({ type: "Advance", amount: "", notes: "", date: todayStr, empId: "" }); }
+    
+    const { data, error } = await supabase.from("financial_ledger").insert({ 
+      employee_id: form.empId, 
+      date: form.date, 
+      transaction_type: form.type, 
+      amount: Number(form.amount), 
+      notes: form.notes 
+    }).select().single();
+    
     setSaving(false);
+
+    if (error) {
+      alert("Database Error: " + error.message);
+    } else if (data) { 
+      setLedger(prev => [data, ...prev]); 
+      setShowModal(false); 
+      setForm({ type: "Advance", amount: "", notes: "", date: todayStr, empId: "" }); 
+    }
   };
 
   const exportPDF = (rows, label) => {
