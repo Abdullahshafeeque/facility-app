@@ -1389,6 +1389,38 @@ const printRoster = () => {
       });
     });
   };
+  const downloadOTReport = () => {
+    import("jspdf").then(({ jsPDF }) => {
+      import("jspdf-autotable").then(({ default: autoTable }) => {
+        const doc = new jsPDF();
+        doc.setFontSize(18);
+        doc.setTextColor(234, 88, 12); // Orange theme
+        doc.text("Overtime Analysis Report", 14, 20);
+        doc.setFontSize(11);
+        doc.setTextColor(100);
+        doc.text(`Period: ${fDate(start)} to ${fDate(end)}`, 14, 28);
+        doc.text(`Generated: ${fDate(todayStr)}`, 14, 34);
+
+        // Fetch and rank everyone who did OT in this specific period
+        const allOT = employees.map(emp => {
+          const fin = calcFinances(emp, posts, rangeAttendance, ledger, start, end, postHistory, overtime);
+          return { name: emp.name, post: emp.post, type: emp.staff_type, hours: fin.totalOTHours, earnings: Math.round(fin.otEarnings) };
+        }).filter(e => e.hours > 0).sort((a, b) => b.hours - a.hours);
+
+        autoTable(doc, {
+          startY: 40,
+          head: [["Rank", "Name", "Post", "Type", "Total OT Hours", "OT Earnings (Rs)"]],
+          body: allOT.map((e, i) => [i + 1, e.name, e.post, e.type === "company" ? "Company" : "Contract", e.hours + "h", e.earnings.toLocaleString("en-IN")]),
+          theme: "grid",
+          headStyles: { fillColor: [234, 88, 12] },
+          styles: { fontSize: 10 }
+        });
+
+        doc.save(`PRFM_Overtime_Report_${start}_to_${end}.pdf`);
+      });
+    });
+  };
+
   return (
     <div style={css.page}>
       <div style={{ marginBottom: 20 }}>
@@ -1432,21 +1464,24 @@ const printRoster = () => {
             <button style={{ ...css.btn(C.blue), width: "100%", marginTop: 14 }} onClick={printRoster}>🖨 Download Roster PDF</button>
           </div>
 
-          <div style={{ background: C.orange + "11", padding: 16, borderRadius: 8, border: `1px solid ${C.orange}33` }}>
+          <div style={{ background: C.orange + "11", padding: 16, borderRadius: 8, border: `1px solid ${C.orange}33`, display: "flex", flexDirection: "column" }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: C.orange, marginBottom: 10, letterSpacing: 1 }}>OVERTIME WATCHLIST (TOP 5)</div>
-            {otWatchlist.length === 0 ? <div style={{ fontSize: 12, color: C.textDim }}>No overtime logged in this period.</div> : (
-              <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
-                <tbody>
-                  {otWatchlist.map((w, i) => (
-                    <tr key={i} style={{ borderBottom: `1px solid ${C.orange}22` }}>
-                      <td style={{ padding: "6px 0", fontWeight: 700 }}>{w.name}</td>
-                      <td style={{ padding: "6px 0", color: C.textDim, fontSize: 10 }}>{w.post}</td>
-                      <td style={{ padding: "6px 0", textAlign: "right", color: C.orange, fontWeight: 700 }}>{w.hours}h</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            <div style={{ flex: 1 }}>
+              {otWatchlist.length === 0 ? <div style={{ fontSize: 12, color: C.textDim }}>No overtime logged in this period.</div> : (
+                <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+                  <tbody>
+                    {otWatchlist.map((w, i) => (
+                      <tr key={i} style={{ borderBottom: `1px solid ${C.orange}22` }}>
+                        <td style={{ padding: "6px 0", fontWeight: 700 }}>{w.name}</td>
+                        <td style={{ padding: "6px 0", color: C.textDim, fontSize: 10 }}>{w.post}</td>
+                        <td style={{ padding: "6px 0", textAlign: "right", color: C.orange, fontWeight: 700 }}>{w.hours}h</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <button style={{ ...css.btn(C.orange), width: "100%", marginTop: 14 }} onClick={downloadOTReport} disabled={loading}>📥 Download Full OT Report</button>
           </div>
 
         </div>
