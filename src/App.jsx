@@ -118,14 +118,14 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
       tempCurr.setDate(tempCurr.getDate() + 1);
     }
     
-    // FIXED MATH 2: Absences and OT MUST strictly use the 26-day working rate
-    const dailyWorkingRate = period.salary / 26; 
-    const hourlyRate = dailyWorkingRate / 12;
+    // FIXED MATH 2: Absences use 26-day rate, but OT uses the annualized 365-day formula rounded to nearest 0.50
+    const dailyWorkingRate = period.salary / 26; 
+    const hourlyRate = Math.round((((period.salary * 12) / 365) / 12) * 2) / 2;
 
-    const periodAtt = rangeAttendance.filter(a => a.employee_id === employee.id && a.date >= period.from && a.date <= period.to);
-    const absentDays = periodAtt.filter(a => a.status === "Absent").length;
-    const leaveDays = periodAtt.filter(a => a.status === "Leave").length;
-    const periodOT = (overtime || []).filter(o => o.employee_id === employee.id && o.date >= period.from && o.date <= period.to);
+    const periodAtt = rangeAttendance.filter(a => a.employee_id === employee.id && a.date >= period.from && a.date <= period.to);
+    const absentDays = periodAtt.filter(a => a.status === "Absent").length;
+    const leaveDays = periodAtt.filter(a => a.status === "Leave").length;
+    const periodOT = (overtime || []).filter(o => o.employee_id === employee.id && o.date >= period.from && o.date <= period.to);
     
     // Calculate the actual financial impact of attendance
     const attendanceDeduction = (absentDays + leaveDays) * dailyWorkingRate;
@@ -143,7 +143,7 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
         // Find the salary set for this specific job
         const jobSalary = Number(otPost.contract_salary) || Number(otPost.base_salary) || 0;
         if (jobSalary > 0) {
-          appliedHourlyRate = (jobSalary / 26) / 12; // Calculate hourly rate based on that specific job's pay
+          appliedHourlyRate = Math.round((((jobSalary * 12) / 365) / 12) * 2) / 2;
         }
       }
       
