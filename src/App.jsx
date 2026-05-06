@@ -1277,7 +1277,47 @@ function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
     const fin = calcFinances(emp, posts, rangeAttendance, ledger, start, end, postHistory, overtime);
     return { name: emp.name, post: emp.post, hours: fin.totalOTHours };
   }).filter(e => e.hours > 0).sort((a, b) => b.hours - a.hours).slice(0, 5);
+const printRoster = () => {
+    import("jspdf").then(({ jsPDF }) => {
+      import("jspdf-autotable").then(({ default: autoTable }) => {
+        const doc = new jsPDF();
+        doc.setFontSize(18);
+        doc.text("PRFM Daily Shift Roster", 14, 20);
+        doc.setFontSize(11);
+        doc.setTextColor(100);
+        doc.text(`Date: ${fDate(tomorrowStr)}`, 14, 28);
+        doc.text(`Generated: ${fDate(todayStr)}`, 14, 34);
 
+        // Morning Shift Table
+        doc.setFontSize(14);
+        doc.setTextColor(0);
+        doc.text(`Morning Shift (${morningStaff.length} Staff)`, 14, 45);
+        autoTable(doc, {
+          startY: 50,
+          head: [["Name", "Post", "Staff Type"]],
+          body: morningStaff.map(e => [e.name, e.post, e.staff_type === "company" ? "Company" : "Contract"]),
+          theme: "grid",
+          headStyles: { fillColor: [30, 111, 219] },
+          styles: { fontSize: 10 }
+        });
+
+        // Night Shift Table
+        const finalY = doc.lastAutoTable.finalY || 50;
+        doc.setFontSize(14);
+        doc.text(`Night Shift (${nightStaff.length} Staff)`, 14, finalY + 15);
+        autoTable(doc, {
+          startY: finalY + 20,
+          head: [["Name", "Post", "Staff Type"]],
+          body: nightStaff.map(e => [e.name, e.post, e.staff_type === "company" ? "Company" : "Contract"]),
+          theme: "grid",
+          headStyles: { fillColor: [22, 163, 74] }, // Green header for night shift to distinguish
+          styles: { fontSize: 10 }
+        });
+
+        doc.save(`PRFM_Shift_Roster_${tomorrowStr}.pdf`);
+      });
+    });
+  };
   return (
     <div style={css.page}>
       <div style={{ marginBottom: 20 }}>
@@ -1318,7 +1358,7 @@ function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
                 <div style={{ fontSize: 10, color: C.textDim }}>Expected Staff</div>
               </div>
             </div>
-            <button style={{ ...css.btn(C.blue), width: "100%", marginTop: 14 }} onClick={() => window.print()}>🖨 Print Roster / Page</button>
+            <button style={{ ...css.btn(C.blue), width: "100%", marginTop: 14 }} onClick={printRoster}>🖨 Download Roster PDF</button>
           </div>
 
           <div style={{ background: C.orange + "11", padding: 16, borderRadius: 8, border: `1px solid ${C.orange}33` }}>
