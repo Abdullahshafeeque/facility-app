@@ -572,6 +572,74 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
     await supabase.from("financial_ledger").update({ amount: Number(newAmount) }).eq("id", tx.id);
     setLedger(prev => prev.map(l => l.id === tx.id ? { ...l, amount: Number(newAmount) } : l));
   };
+  const generatePayslip = (emp, finData) => {
+    import("jspdf").then(({ jsPDF }) => {
+      import("jspdf-autotable").then(({ default: autoTable }) => {
+        const doc = new jsPDF();
+        const monthName = new Date().toLocaleString("en-IN", { month: "long", year: "numeric" });
+        
+        doc.setFontSize(22);
+        doc.setTextColor(30, 111, 219);
+        doc.text("PUNATHIL ROLLER FLOUR MILLS", 105, 20, { align: "center" });
+        
+        doc.setFontSize(14);
+        doc.setTextColor(0);
+        doc.text("Salary Slip", 105, 28, { align: "center" });
+        doc.setFontSize(10);
+        doc.text(`For the month of: ${monthName}`, 105, 34, { align: "center" });
+        
+        doc.line(14, 40, 196, 40);
+
+        // Employee Details
+        doc.setFontSize(11);
+        doc.setFont("helvetica", "bold");
+        doc.text("Employee Details", 14, 50);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        doc.text(`Name: ${emp.name}`, 14, 58);
+        doc.text(`Post: ${emp.post}`, 14, 64);
+        doc.text(`Type: ${emp.staff_type === "company" ? "Company Staff" : "Contract Staff"}`, 14, 70);
+        doc.text(`Aadhar: ${emp.aadhar || "N/A"}`, 120, 58);
+        doc.text(`Joining Date: ${fDate(emp.joining_date)}`, 120, 64);
+
+        // Financial Breakdown Table
+        autoTable(doc, {
+          startY: 80,
+          head: [["Earnings", "Amount (Rs)", "Deductions", "Amount (Rs)"]],
+          body: [
+            ["Base Salary (Prorated)", Math.round(finData.proratedSalary).toLocaleString("en-IN"), "Absences & Leave", Math.round(finData.attendanceDeduction).toLocaleString("en-IN")],
+            [`Overtime (${finData.totalOTHours} hrs)`, Math.round(finData.otEarnings).toLocaleString("en-IN"), "Advances & Fines", finData.totalAdvances.toLocaleString("en-IN")],
+            ["Bonus / Allowances", finData.totalBonuses.toLocaleString("en-IN"), "Previous Payouts", finData.totalPaid.toLocaleString("en-IN")],
+          ],
+          theme: "grid",
+          headStyles: { fillColor: [244, 246, 249], textColor: [0, 0, 0], fontStyle: "bold" },
+          styles: { fontSize: 10, cellPadding: 5 },
+          columnStyles: { 1: { halign: "right" }, 3: { halign: "right" } }
+        });
+
+        const finalY = doc.lastAutoTable.finalY || 80;
+        
+        // Final Totals
+        doc.setFillColor(240, 245, 255);
+        doc.rect(14, finalY + 10, 182, 12, 'F');
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(12);
+        doc.text("NET PAYABLE:", 20, finalY + 18);
+        doc.text(`Rs. ${Math.round(finData.netPayable).toLocaleString("en-IN")}`, 180, finalY + 18, { align: "right" });
+
+        // Signature Lines
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        doc.text("Employer Signature", 30, finalY + 60);
+        doc.line(20, finalY + 55, 65, finalY + 55);
+        
+        doc.text("Employee Signature", 140, finalY + 60);
+        doc.line(130, finalY + 55, 185, finalY + 55);
+
+        doc.save(`Payslip_${emp.name.replace(/ /g, "_")}_${monthName.replace(/ /g, "_")}.pdf`);
+      });
+    });
+  };
   const [showForm, setShowForm] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
   const [search, setSearch] = useState("");
@@ -805,7 +873,10 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
 
             {fin && (
               <>
-                <div style={css.sectionTitle}>Lifetime Ledger Summary</div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ ...css.sectionTitle, marginBottom: 0 }}>Lifetime Ledger Summary</div>
+                  <button style={{ ...css.btn(C.blue), padding: "4px 12px", fontSize: 10 }} onClick={() => generatePayslip(viewing, fin)}>📥 Generate Payslip PDF</button>
+                </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10, marginBottom: 16, background: C.bg, padding: 14, borderRadius: 8, textAlign: "center" }}>
                   <div><div style={{ fontSize: 10, color: C.textDim }}>OT EARNINGS</div><strong style={{ color: C.green }}>+₹{Math.round(fin.otEarnings).toLocaleString("en-IN")}</strong></div>
                   <div><div style={{ fontSize: 10, color: C.textDim }}>TOTAL PAID</div><strong style={{ color: C.textDim }}>₹{fin.totalPaid.toLocaleString("en-IN")}</strong></div>
