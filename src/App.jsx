@@ -166,10 +166,15 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
   const totalAdvances = staffLedger.filter(l => l.transaction_type === "Advance" || l.transaction_type === "Fine").reduce((s, l) => s + Number(l.amount), 0);
   const totalPaid = staffLedger.filter(l => l.transaction_type === "Payout").reduce((s, l) => s + Number(l.amount), 0);
   
-  // The Final Logical Output
-  const netPayable = (totalProratedSalary + totalBonuses + totalOTEarnings) - (totalAttendanceDeduction + totalAdvances + totalPaid);
+  // NEW: Dedicated Loan System Tracker
+  const totalLoans = staffLedger.filter(l => l.transaction_type === "Loan Given").reduce((s, l) => s + Number(l.amount), 0);
+  const totalRepayments = staffLedger.filter(l => l.transaction_type === "Loan Repayment").reduce((s, l) => s + Number(l.amount), 0);
+  const pendingLoan = totalLoans - totalRepayments;
 
-  return { periods: periodBreakdown, proratedSalary: totalProratedSalary, attendanceDeduction: totalAttendanceDeduction, otEarnings: totalOTEarnings, absentDays: totalAbsentDays, leaveDays: totalLeaveDays, totalOTHours, totalBonuses, totalAdvances, totalPaid, netPayable, joiningDate: employee.joining_date || start, effectiveStart };
+  // The Final Logical Output (Loans act like advances, Repayments cancel them out)
+  const netPayable = (totalProratedSalary + totalBonuses + totalOTEarnings + totalRepayments) - (totalAttendanceDeduction + totalAdvances + totalPaid + totalLoans);
+
+  return { periods: periodBreakdown, proratedSalary: totalProratedSalary, attendanceDeduction: totalAttendanceDeduction, otEarnings: totalOTEarnings, absentDays: totalAbsentDays, leaveDays: totalLeaveDays, totalOTHours, totalBonuses, totalAdvances, totalPaid, totalLoans, totalRepayments, pendingLoan, netPayable, joiningDate: employee.joining_date || start, effectiveStart };
 }
 
 function StatCard({ label, value, sub, accent }) {
@@ -610,6 +615,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
             ["Base Salary (Prorated)", Math.round(finData.proratedSalary).toLocaleString("en-IN"), "Absences & Leave", Math.round(finData.attendanceDeduction).toLocaleString("en-IN")],
             [`Overtime (${finData.totalOTHours} hrs)`, Math.round(finData.otEarnings).toLocaleString("en-IN"), "Advances & Fines", finData.totalAdvances.toLocaleString("en-IN")],
             ["Bonus / Allowances", finData.totalBonuses.toLocaleString("en-IN"), "Previous Payouts", finData.totalPaid.toLocaleString("en-IN")],
+            ["Loan Repayments", finData.totalRepayments.toLocaleString("en-IN"), "Loans Given", finData.totalLoans.toLocaleString("en-IN")],
           ],
           theme: "grid",
           headStyles: { fillColor: [244, 246, 249], textColor: [0, 0, 0], fontStyle: "bold" },
@@ -883,6 +889,19 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
                   <div><div style={{ fontSize: 10, color: C.textDim }}>ADVANCES/FINES</div><strong style={{ color: C.red }}>-₹{fin.totalAdvances.toLocaleString("en-IN")}</strong></div>
                   <div><div style={{ fontSize: 10, color: C.textDim, fontWeight: 700 }}>NET PAYABLE</div><strong style={{ color: fin.netPayable < 0 ? C.red : C.orange, fontSize: 16 }}>₹{Math.round(fin.netPayable).toLocaleString("en-IN")}</strong></div>
                 </div>
+
+                {fin.pendingLoan !== 0 && (
+                  <div style={{ background: C.orange + "15", border: `1px solid ${C.orange}44`, borderRadius: 6, padding: "12px 16px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: C.orange, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>ACTIVE LOAN TRACKER</div>
+                      <div style={{ fontSize: 11, color: C.textDim }}>Total Borrowed: ₹{fin.totalLoans.toLocaleString("en-IN")} &nbsp;·&nbsp; Total Repaid: ₹{fin.totalRepayments.toLocaleString("en-IN")}</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 10, color: C.textDim }}>PENDING BALANCE</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: C.orange }}>₹{fin.pendingLoan.toLocaleString("en-IN")}</div>
+                    </div>
+                  </div>
+                )}
               </>
             )}
 
@@ -1202,6 +1221,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
                 <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TYPE</div>
                   <select style={{ ...css.input, width: "100%" }} value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
                     <option value="Advance">Advance</option><option value="Bonus">Bonus</option><option value="Fine">Fine</option><option value="Payout">Salary Payout</option>
+                    <option value="Loan Given">Loan Given</option><option value="Loan Repayment">Loan Repayment</option>
                   </select>
                 </div>
                 <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>DATE</div><input type="date" style={{ ...css.input, width: "100%" }} value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
