@@ -126,11 +126,29 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
     const absentDays = periodAtt.filter(a => a.status === "Absent").length;
     const leaveDays = periodAtt.filter(a => a.status === "Leave").length;
     const periodOT = (overtime || []).filter(o => o.employee_id === employee.id && o.date >= period.from && o.date <= period.to);
-    const otHours = periodOT.reduce((s, o) => s + (Number(o.hours) || 0), 0);
-    
-    // Calculate the actual financial impact of attendance
-    const attendanceDeduction = (absentDays + leaveDays) * dailyWorkingRate;
-    const otEarnings = otHours * hourlyRate;
+    
+    // Calculate the actual financial impact of attendance
+    const attendanceDeduction = (absentDays + leaveDays) * dailyWorkingRate;
+    
+    // Dynamic OT Earnings: Pay by the specific post worked, fallback to their personal rate if post pay is 0
+    let otHours = 0;
+    let otEarnings = 0;
+    
+    periodOT.forEach(o => {
+      otHours += Number(o.hours);
+      let appliedHourlyRate = hourlyRate; // Fallback to their normal personal salary rate
+      
+      const otPost = posts.find(p => p.name === o.post);
+      if (otPost) {
+        // Find the salary set for this specific job
+        const jobSalary = Number(otPost.contract_salary) || Number(otPost.base_salary) || 0;
+        if (jobSalary > 0) {
+          appliedHourlyRate = (jobSalary / 26) / 12; // Calculate hourly rate based on that specific job's pay
+        }
+      }
+      
+      otEarnings += Number(o.hours) * appliedHourlyRate;
+    });
     
     totalProratedSalary += proratedSalary;
     totalAttendanceDeduction += attendanceDeduction;
