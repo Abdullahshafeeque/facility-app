@@ -279,9 +279,9 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
           </select>
         </div>
         <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>START DATE</div><input type="date" style={css.input} value={form.startDate} onChange={e => setForm({...form, startDate: e.target.value})} /></div>
-        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>START TIME</div><input type="time" style={css.input} value={form.start} onChange={e => setForm({...form, start: e.target.value})} /></div>
+        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>START TIME</div><input type="time" step="1800" style={css.input} value={form.start} onChange={e => setForm({...form, start: e.target.value})} /></div>
         <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>END DATE</div><input type="date" style={css.input} value={form.endDate} onChange={e => setForm({...form, endDate: e.target.value})} /></div>
-        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>END TIME</div><input type="time" style={css.input} value={form.end} onChange={e => setForm({...form, end: e.target.value})} /></div>
+        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>END TIME</div><input type="time" step="1800" style={css.input} value={form.end} onChange={e => setForm({...form, end: e.target.value})} /></div>
         <button style={css.btn(C.green)} onClick={handleAddOT} disabled={saving}>+ Save OT</button>
       </div>
 
