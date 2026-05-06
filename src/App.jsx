@@ -238,10 +238,10 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
 
     setSaving(true);
     
-    // FIX: Removed 'end_date' from the payload to exactly match your SQL table
     const { data, error } = await supabase.from("overtime_entries").insert({
       employee_id: emp.id, 
       date: form.startDate, 
+      end_date: form.endDate,
       start_time: form.start, 
       end_time: form.end, 
       hours: Number(hours.toFixed(2)), 
@@ -280,18 +280,18 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
         </div>
         <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>START DATE</div><input type="date" style={css.input} value={form.startDate} onChange={e => setForm({...form, startDate: e.target.value})} /></div>
         <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>START TIME</div>
-          <select style={css.input} value={form.start} onChange={e => setForm({...form, start: e.target.value})}>
-            <option value="">-- Time --</option>
-            {Array.from({length: 48}).map((_, i) => { const t = `${String(Math.floor(i/2)).padStart(2,'0')}:${i%2===0?'00':'30'}`; return <option key={t} value={t}>{t}</option>; })}
-          </select>
-        </div>
-        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>END DATE</div><input type="date" style={css.input} value={form.endDate} onChange={e => setForm({...form, endDate: e.target.value})} /></div>
-        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>END TIME</div>
-          <select style={css.input} value={form.end} onChange={e => setForm({...form, end: e.target.value})}>
-            <option value="">-- Time --</option>
-            {Array.from({length: 48}).map((_, i) => { const t = `${String(Math.floor(i/2)).padStart(2,'0')}:${i%2===0?'00':'30'}`; return <option key={t} value={t}>{t}</option>; })}
-          </select>
-        </div>
+          <select style={css.input} value={form.start} onChange={e => setForm({...form, start: e.target.value})}>
+            <option value="">-- Time --</option>
+            {Array.from({length: 48}).map((_, i) => { const h24 = Math.floor(i/2); const m = i%2===0?'00':'30'; const ampm = h24>=12?'PM':'AM'; const h12 = h24===0?12:(h24>12?h24-12:h24); const val = `${String(h24).padStart(2,'0')}:${m}`; const label = `${String(h12).padStart(2,'0')}:${m} ${ampm}`; return <option key={val} value={val}>{label}</option>; })}
+          </select>
+        </div>
+        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>END DATE</div><input type="date" style={css.input} value={form.endDate} onChange={e => setForm({...form, endDate: e.target.value})} /></div>
+        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>END TIME</div>
+          <select style={css.input} value={form.end} onChange={e => setForm({...form, end: e.target.value})}>
+            <option value="">-- Time --</option>
+            {Array.from({length: 48}).map((_, i) => { const h24 = Math.floor(i/2); const m = i%2===0?'00':'30'; const ampm = h24>=12?'PM':'AM'; const h12 = h24===0?12:(h24>12?h24-12:h24); const val = `${String(h24).padStart(2,'0')}:${m}`; const label = `${String(h12).padStart(2,'0')}:${m} ${ampm}`; return <option key={val} value={val}>{label}</option>; })}
+          </select>
+        </div>
         <button style={css.btn(C.green)} onClick={handleAddOT} disabled={saving}>+ Save OT</button>
       </div>
 
@@ -521,7 +521,7 @@ function AttendanceView({ employees }) {
 }
 
 // ─── STAFF ────────────────────────────────────────────────────────────────────
-function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHistory, setPostHistory }) {
+function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHistory, setPostHistory, overtime }) {
   const deleteTransaction = async (txId) => {
     if (!window.confirm("Delete this transaction? This will instantly adjust their Net Payable.")) return;
     await supabase.from("financial_ledger").delete().eq("id", txId);
