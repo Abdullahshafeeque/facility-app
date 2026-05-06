@@ -1223,7 +1223,68 @@ function SettingsView({ posts, setPosts, employees, setEmployees }) {
     </div>
   );
 }
+// ─── REPORTS & DATA EXTRACTION ────────────────────────────────────────────────
+function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+  const [start, setStart] = useState(monthStart);
+  const [end, setEnd] = useState(todayStr);
+  const [rangeAttendance, setRangeAttendance] = useState([]);
+  const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    const fetchAtt = async () => {
+      setLoading(true);
+      const { data } = await supabase.from("attendance").select("*").gte("date", start).lte("date", end);
+      if (data) setRangeAttendance(data);
+      setLoading(false);
+    };
+    fetchAtt();
+  }, [start, end]);
+
+  const downloadCSV = () => {
+    const active = employees.filter(e => e.status === "active");
+    const rows = active.map(emp => {
+      const fin = calcFinances(emp, posts, rangeAttendance, ledger, start, end, postHistory, overtime);
+      return [
+        `"${emp.name}"`, `"${emp.post}"`, emp.staff_type,
+        Math.round(fin.proratedSalary), fin.absentDays, fin.leaveDays,
+        fin.totalOTHours, Math.round(fin.otEarnings), fin.totalBonuses,
+        fin.totalAdvances, fin.totalPaid, Math.round(fin.netPayable)
+      ].join(",");
+    });
+
+    const header = "Name,Post,Type,Prorated Base (Rs),Absent Days,Leave Days,OT Hours,OT Earnings (Rs),Bonuses (Rs),Advances/Fines (Rs),Paid (Rs),Net Payable (Rs)\n";
+    const csvContent = "data:text/csv;charset=utf-8," + header + rows.join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `PRFM_Payroll_Data_${start}_to_${end}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  return (
+    <div style={css.page}>
+      <div style={{ marginBottom: 20 }}>
+        <div style={css.sectionTitle}>Data Extraction</div>
+        <div style={{ fontSize: 22, fontWeight: 700 }}>Reports & Exports</div>
+      </div>
+
+      <div style={{ ...css.card, marginBottom: 20, borderLeft: `3px solid ${C.green}` }}>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>1. Monthly Payroll Summary (CSV)</div>
+        <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>Export raw financial data into a spreadsheet for accountants to easily import into Excel, Tally, or QuickBooks.</div>
+        
+        <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={css.input} value={start} onChange={e => setStart(e.target.value)} /></div>
+          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={css.input} value={end} onChange={e => setEnd(e.target.value)} /></div>
+          <button style={css.btn(C.green)} onClick={downloadCSV} disabled={loading}>{loading ? "Fetching Data..." : "📥 Download CSV Spreadsheet"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [user, setUser] = useState(null);
@@ -1275,6 +1336,7 @@ export default function App() {
     { id: "overtime", label: "Overtime" },
     { id: "staff", label: "Staff" },
     { id: "payroll", label: "Payroll" },
+    { id: "reports", label: "📊 Reports" },
     { id: "settings", label: "⚙ Settings" },
   ];
 
@@ -1311,6 +1373,7 @@ export default function App() {
           {tab === "overtime" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} />}
           {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} />}
           {tab === "payroll" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setTab={setTab} overtime={overtime} />}
+          {tab === "reports" && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} />}
           {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} />}
         </>
       )}
