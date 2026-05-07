@@ -11,12 +11,12 @@ const C = {
 
 const css = {
   app: { minHeight: "100vh", background: C.bg, fontFamily: "'DM Mono', 'Courier New', monospace", color: C.text, paddingBottom: 40 },
-  header: { background: C.panel, borderBottom: `1px solid ${C.border}`, padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 60, position: "sticky", top: 0, zIndex: 100 },
+  header: { background: C.panel, borderBottom: 1px solid ${C.border}, padding: "0 12px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "nowrap", gap: 6, height: 56, position: "sticky", top: 0, zIndex: 100 },
   logo: { fontSize: 13, fontWeight: 700, letterSpacing: 3, color: C.accent, textTransform: "uppercase" },
   badge: (color) => ({ background: color + "22", color: color, border: `1px solid ${color}55`, borderRadius: 4, padding: "2px 10px", fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }),
-  nav: { display: "flex", flexWrap: "wrap", gap: 6, padding: "12px 24px", borderBottom: `1px solid ${C.border}`, background: C.panel },
-  navBtn: (active) => ({ background: active ? C.accentDim : "transparent", color: active ? C.accent : C.textDim, border: `1px solid ${active ? C.accent + "55" : "transparent"}`, borderRadius: 4, padding: "6px 16px", fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap", transition: "all 0.15s" }),
-  page: { padding: "24px 24px 0" },
+  nav: { display: "flex", flexWrap: "wrap", gap: 4, padding: "8px 12px", borderBottom: 1px solid ${C.border}, background: C.panel },
+  navBtn: (active) => ({ background: active ? C.accentDim : "transparent", color: active ? C.accent : C.textDim, border: 1px solid ${active ? C.accent + "55" : "transparent"}, borderRadius: 4, padding: "5px 10px", fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap", transition: "all 0.15s" }),
+  page: { padding: "16px 12px 0" },
   grid2: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 },
   grid4: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 },
   card: { background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20 },
@@ -275,9 +275,9 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
   return (
     <div style={css.page}>
       <div style={css.sectionTitle}>Log Overtime</div>
-      <div style={{ ...css.card, marginBottom: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, alignItems: "end" }}>
+      <div style={{ ...css.card, marginBottom: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, alignItems: "flex-end" }}>
         <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>EMPLOYEE</div>
-          <select style={{...css.input, width: 160}} value={form.empId} onChange={e => setForm({...form, empId: e.target.value})}>
+          <select style={{...css.input, width: 100%}} value={form.empId} onChange={e => setForm({...form, empId: e.target.value})}>
             <option value="">-- Select --</option>
             {active.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
@@ -302,7 +302,7 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
             {Array.from({length: 48}).map((_, i) => { const h24 = Math.floor(i/2); const m = i%2===0?'00':'30'; const ampm = h24>=12?'PM':'AM'; const h12 = h24===0?12:(h24>12?h24-12:h24); const val = `${String(h24).padStart(2,'0')}:${m}`; const label = `${String(h12).padStart(2,'0')}:${m} ${ampm}`; return <option key={val} value={val}>{label}</option>; })}
           </select>
         </div>
-        <button style={css.btn(C.green)} onClick={handleAddOT} disabled={saving}>+ Save OT</button>
+        <button style={{ ...css.btn(C.green), width: "100%", padding: "10px" }} onClick={handleAddOT} disabled={saving}>+ Save OT</button>
       </div>
 
       <div style={css.sectionTitle}>Recent OT Entries</div>
@@ -539,7 +539,7 @@ function AttendanceView({ employees }) {
                       <td style={css.td}>
                         <div style={{ display: "flex", gap: 4 }}>
                           {["Present", "Absent", "Leave"].map(s => (
-                            <button key={s} disabled={isHoliday} style={{ ...css.btn(statusColor(s)), opacity: rec.status === s ? 1 : 0.25, padding: "4px 8px", fontSize: 10 }} onClick={() => toggle(emp.id, "status", s)}>{s}</button>
+  <button key={s} disabled={isHoliday} style={{ ...css.btn(statusColor(s)), opacity: rec.status === s ? 1 : 0.25, padding: "6px 8px", fontSize: 11, minWidth: 60 }} onClick={() => toggle(emp.id, "status", s)}>{s[0]}</button>
                           ))}
                         </div>
                       </td>
@@ -1009,7 +1009,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
 }
 
 // ─── PAYROLL ──────────────────────────────────────────────────────────────────
-function PayrollView({ employees, posts, ledger, setLedger, postHistory, overtime }) {
+function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab, overtime }) {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
   const [start, setStart] = useState(monthStart);
@@ -1105,7 +1105,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, overtim
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
-            <thead><tr style={{ background: C.bg }}>{["Name / Post", "Prorated Base", "Absent", "Leave", "OT", "Bonus", "Adv/Fine", "Paid", "Period Net", "Actual Payable", ""].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+            <thead><tr style={{ background: C.bg }}>{["Name / Post", "Prorated Base", "Absent", "Leave", "OT", "Bonus", "Adv/Fine", "Paid", "Period Net", "Actual Payable", ""].map(h => <th key={h} style={{ ...css.th, whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
             <tbody>
               {rows.length === 0 && <tr><td colSpan={11} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No staff.</td></tr>}
               {rows.map(({ emp, fin, finLifetime }) => (
@@ -1202,7 +1202,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, overtim
         <button style={css.btn(C.blue)} onClick={() => setShowModal(true)}>+ Register Transaction</button>
       </div>
       <div style={{ ...css.card, marginBottom: 20, background: "#f8fafc" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, alignItems: "flex-end" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, alignItems: "flex-end" }}>
           <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={{ ...css.input, width: "100%" }} value={start} onChange={e => setStart(e.target.value)} /></div>
           <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={{ ...css.input, width: "100%" }} value={end} onChange={e => setEnd(e.target.value)} /></div>
           <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>SEARCH</div><input placeholder="Name..." style={{ ...css.input, width: "100%" }} value={search} onChange={e => setSearch(e.target.value)} /></div>
@@ -1468,10 +1468,10 @@ const printRoster = () => {
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>1. Monthly Payroll Summary (CSV)</div>
         <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>Export raw financial data into a spreadsheet for accountants to easily import into Excel, Tally, or QuickBooks.</div>
         
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, alignItems: "end" }}>
-          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={start} onChange={e => setStart(e.target.value)} /></div>
-          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={end} onChange={e => setEnd(e.target.value)} /></div>
-          <button style={{ ...css.btn(C.green), width: "100%", padding: "10px 0" }} onClick={downloadCSV} disabled={loading}>{loading ? "Fetching Data..." : "📥 Download CSV Spreadsheet"}</button>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, alignItems: "flex-end" }}>
+          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={css.input} value={start} onChange={e => setStart(e.target.value)} /></div>
+          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={css.input} value={end} onChange={e => setEnd(e.target.value)} /></div>
+          <button style={css.btn(C.green)} onClick={downloadCSV} disabled={loading}>{loading ? "Fetching Data..." : "📥 Download CSV Spreadsheet"}</button>
         </div>
       </div>
 
@@ -1484,8 +1484,8 @@ const printRoster = () => {
           
           <div style={{ background: C.bg, padding: 16, borderRadius: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, marginBottom: 10, letterSpacing: 1 }}>TOMORROW'S ROSTER ({fDate(tomorrowStr)})</div>
-            <div style={{ display: "flex", gap: 10 }}>
-              <div style={{ flex: 1, borderRight: `1px solid ${C.border}`, paddingRight: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+  <div style={{ borderRight: 1px solid ${C.border}, paddingRight: 10 }}>
                 <div style={{ color: C.accent, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Morning Shift</div>
                 <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>{morningStaff.length}</div>
                 <div style={{ fontSize: 10, color: C.textDim }}>Expected Staff</div>
@@ -1587,15 +1587,31 @@ export default function App() {
         body { background-color: #f4f6f9 !important; color: #0f172a !important; margin: 0; }
         
         @media (max-width: 768px) {
-          /* 1. Fix Header Overlap cleanly */
-          header { flex-direction: column !important; gap: 12px !important; height: auto !important; padding: 16px !important; }
-          header > div:last-child { justify-content: center !important; }
+          /* 1. Header & Alerts: Stack logo, alerts, and buttons cleanly */
+          #root > div > div:first-child { flex-direction: column !important; gap: 12px !important; align-items: center !important; text-align: center; height: auto !important; padding: 16px 10px !important; }
+          #root > div > div:first-child > div:last-child { display: flex !important; flex-wrap: wrap !important; justify-content: center !important; gap: 8px !important; }
           
-          /* 2. Fix tables */
+          /* 2. Payroll/Ledger: Search Box vs Register Button (Adds safe spacing and stacks them) */
+          div[style*="justify-content: space-between"] { flex-direction: column !important; align-items: stretch !important; gap: 16px !important; text-align: left !important; }
+          
+          /* 3. General Date Entry Fix */
+          div[style*="display: flex"][style*="gap: 10"] { flex-wrap: wrap !important; gap: 12px !important; }
+          div[style*="display: flex"] > div[style*="flex: 1"] { min-width: 100% !important; }
+          input[type="date"] { width: 100% !important; box-sizing: border-box !important; }
+          
+          /* 4. Overtime, Payroll & Reports: Forces ALL date grids to convert to stacked flex columns */
+          div[style*="align-items: flex-end"] { display: flex !important; flex-direction: column !important; align-items: stretch !important; gap: 12px !important; }
+          div[style*="align-items: flex-end"] > div { width: 100% !important; }
+          div[style*="align-items: flex-end"] input, div[style*="align-items: flex-end"] select, div[style*="align-items: flex-end"] button { width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
+          
+          /* 5. Watchlist & Grids: Perfect single-column alignment */
+          div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+          
+          /* 6. Ensure tables remain safe to swipe */
           table { display: block !important; overflow-x: auto !important; white-space: nowrap !important; width: 100% !important; }
           
-          /* 3. Fix Inputs & Dropdowns */
-          input, select { width: 100% !important; box-sizing: border-box !important; }
+          /* Make all inputs, selects, and buttons safe */
+          input, select, button { max-width: 100% !important; box-sizing: border-box !important; }
         }
       `}</style>
       <style>{`
@@ -1609,8 +1625,8 @@ export default function App() {
       `}</style>
       <header style={css.header}>
         <div style={css.logo}>⚙ PRFM HR Portal</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 11, color: C.textDim }}>{user.email}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", flexShrink: 0 }}>
+          <span style={{ fontSize: 11, color: C.textDim, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</span>
           {alerts.length > 0 && <span style={{ ...css.badge(C.red), cursor: "pointer" }} onClick={() => setTab("dashboard")}>⚠ {alerts.length} Alert{alerts.length > 1 ? "s" : ""}</span>}
           {pendingSettlements > 0 && <span style={{ ...css.badge(C.orange), cursor: "pointer" }} onClick={() => setTab("payroll")}>⚖ {pendingSettlements} Pending</span>}
           <span style={css.badge(C.green)}>LIVE</span>
@@ -1625,10 +1641,10 @@ export default function App() {
       ) : (
         <>
           {tab === "dashboard" && <DashboardView employees={employees} attendance={attendance} posts={posts} />}
-          {tab === "attendance" && <AttendanceView employees={employees} />}
+          {tab === "attendance" && <AttendanceView employees={employees} user={user} />}
           {tab === "overtime" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} />}
           {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} />}
-          {tab === "payroll" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} overtime={overtime} />}
+          {tab === "payroll" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setTab={setTab} overtime={overtime} />}
           {tab === "reports" && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} />}
           {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} />}
         </>
