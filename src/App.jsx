@@ -1612,6 +1612,10 @@ export default function App() {
           
           /* Make all inputs, selects, and buttons safe */
           input, select, button { max-width: 100% !important; box-sizing: border-box !important; }
+
+          /* 4. Fix Squished Date Boxes */
+          div[style*="align-items: flex-end"] { grid-template-columns: 1fr !important; }
+          input[type="date"], input[type="time"] { min-height: 38px !important; }
         }
       `}</style>
       <style>{`
