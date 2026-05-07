@@ -1190,6 +1190,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
 
         const poolForRound = Math.min(remainingPool, totalOwed);
         let roundRemaining = poolForRound;
+        let distributedThisRound = 0; // Failsafe tracker
 
         for (let i = 0; i < activeContract.length; i++) {
           if (roundRemaining <= 0) break;
@@ -1205,10 +1206,15 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
             r.fin.netPayable -= amountToGive;
             roundRemaining -= amountToGive;
             remainingPool -= amountToGive;
+            distributedThisRound += amountToGive;
           }
         }
-        // Filter out anyone fully paid off for the next sweep
-        activeContract = activeContract.filter(r => r.fin.netPayable > 0);
+        
+        // Failsafe: If decimals cause 0 money to move, kill the loop so the browser doesn't freeze
+        if (distributedThisRound === 0) break; 
+
+        // Filter out anyone fully paid off (ignoring sub-rupee decimals)
+        activeContract = activeContract.filter(r => r.fin.netPayable >= 1);
       }
 
       const newEntries = Object.entries(distMap).map(([empId, amount]) => ({
