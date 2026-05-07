@@ -1582,23 +1582,27 @@ export default function App() {
   return (
     <div style={css.page}>
       <style>{`
-        /* 1. Force Light Theme Globally to override Apple/Android dark mode */
+        /* Force Light Theme */
         :root { color-scheme: light !important; }
         body { background-color: #f4f6f9 !important; color: #0f172a !important; margin: 0; }
         
         @media (max-width: 768px) {
-          /* 2. Fix Top Header Squishing (Forces logo and buttons to stack neatly) */
-          #root > div > div:first-child { flex-direction: column !important; gap: 12px !important; align-items: center !important; text-align: center; height: auto !important; padding: 16px 10px !important; }
+          /* 1. Fix Top Header & Summaries: Forces horizontal elements to stack vertically on phones */
+          div[style*="justify-content: space-between"] { flex-direction: column !important; align-items: stretch !important; gap: 15px !important; text-align: center !important; }
           
-          /* 3. Fix Top Right Buttons (Alerts, Live, Sign Out) wrapping */
-          #root > div > div:first-child > div:last-child { display: flex !important; flex-wrap: wrap !important; justify-content: center !important; gap: 8px !important; }
+          /* 2. Fix All Grids (Operations Roster, Ledger Summaries) to perfectly stack into a single column */
+          div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
           
-          /* 4. Fix Tabs spacing so they don't touch the edges */
-          nav { justify-content: center !important; padding: 10px !important; gap: 8px !important; }
-
-          /* 5. Keep tables and inputs safe */
+          /* 3. Fix Reports View Inputs (FROM/TO dates & Download Buttons) to stretch fully */
+          div[style*="align-items: flex-end"] { flex-direction: column !important; align-items: stretch !important; gap: 12px !important; }
+          div[style*="align-items: flex-end"] > div { width: 100% !important; }
+          div[style*="align-items: flex-end"] input { width: 100% !important; box-sizing: border-box !important; }
+          
+          /* 4. Fix Buttons so text never overflows out of the sides */
+          button { white-space: normal !important; height: auto !important; padding: 10px !important; }
+          
+          /* 5. Ensure tables remain safe to swipe */
           table { display: block !important; overflow-x: auto !important; white-space: nowrap !important; width: 100% !important; }
-          input, select { max-width: 100% !important; box-sizing: border-box !important; }
         }
       `}</style>
       <style>{`
