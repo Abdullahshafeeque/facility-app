@@ -1110,7 +1110,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
         if (remainingPayout <= 0) break;
         const fin = calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || "2020-01-01", todayStr, postHistory, overtime);
         if (fin.netPayable > 0) {
-          const clearAmt = Math.min(fin.netPayable, remainingPayout);
+          const clearAmt = Math.floor(Math.min(fin.netPayable, remainingPayout));
           autoClearEntries.push({ employee_id: emp.id, date: form.date, transaction_type: "Contractor Distribution", amount: clearAmt, notes: "Auto-cleared from contractor payout" });
           remainingPayout -= clearAmt;
         }
@@ -1169,6 +1169,10 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
     const totalNet = rows.reduce((s, r) => s + r.fin.netPayable, 0);
     const totalActual = rows.reduce((s, r) => s + r.finLifetime.netPayable, 0);
 
+    // Create a "Gross" calculation to fix the double-subtraction bug in the UI
+    const totalPeriodGross = totalNet + (isContract ? rows.reduce((s, r) => s + r.fin.totalContractorDist, 0) : 0);
+    const totalActualGross = totalActual + (isContract ? rows.reduce((s, r) => s + r.finLifetime.totalContractorDist, 0) : 0);
+
     const periodContractorPaid = isContract ? ledger.filter(l => l.transaction_type === "Contractor Payout" && l.date >= start && l.date <= end).reduce((s, l) => s + Number(l.amount), 0) : 0;
     const lifetimeContractorPaid = isContract ? ledger.filter(l => l.transaction_type === "Contractor Payout" && l.date <= end).reduce((s, l) => s + Number(l.amount), 0) : 0;
     const lifetimeContractorDistributed = isContract ? ledger.filter(l => l.transaction_type === "Contractor Distribution" && l.date <= end).reduce((s, l) => s + Number(l.amount), 0) : 0;
@@ -1187,7 +1191,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
 
       for (const { emp, fin } of activeContract) {
         if (remaining <= 0) break;
-        const amount = Math.min(fin.netPayable, share, remaining);
+        const amount = Math.floor(Math.min(fin.netPayable, share, remaining));
         if (amount > 0) {
           newEntries.push({ employee_id: emp.id, date: todayStr, transaction_type: "Contractor Distribution", amount, notes: "Distributed from lump sum" });
           remaining -= amount;
@@ -1222,7 +1226,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
                     <td style={{ ...css.td, color: C.green }}>{fin.totalOTHours}h<br /><small>+₹{Math.round(fin.otEarnings).toLocaleString()}</small></td>
                     <td style={{ ...css.td, color: C.green }}>+₹{fin.totalBonuses.toLocaleString()}</td>
                     <td style={{ ...css.td, color: C.red }}>-₹{fin.totalAdvances.toLocaleString()}</td>
-                    <td style={{ ...css.td, color: C.textDim }}>₹{isContract ? fin.totalContractorDist.toLocaleString() : fin.totalPaid.toLocaleString()}</td>
+                    <td style={{ ...css.td, color: C.textDim }}>₹{isContract ? Math.round(fin.totalContractorDist).toLocaleString("en-IN") : fin.totalPaid.toLocaleString("en-IN")}</td>
                     <td style={{ ...css.td, background: color + "11" }}><strong style={{ color: fin.netPayable < 0 ? C.red : (isContract ? C.textDim : color), fontSize: 14 }}>₹{Math.round(fin.netPayable).toLocaleString("en-IN")}</strong>{isContract && <><br /><small style={{ fontSize: 9, color: C.textDim }}>adds to contractor</small></>}</td>
                     <td style={{ ...css.td, background: C.orange + "15", borderLeft: `2px solid ${C.orange}44` }}><strong style={{ color: finLifetime.netPayable < 0 ? C.red : (isContract ? C.textDim : C.orange), fontSize: 15 }}>₹{Math.round(finLifetime.netPayable).toLocaleString("en-IN")}</strong>{isContract && <><br /><small style={{ fontSize: 9, color: C.textDim }}>adds to contractor</small></>}</td>
                     <td style={css.td}>{fin.periods.length > 1 && <button style={{ ...css.btn(C.accent), padding: "3px 8px", fontSize: 10 }} onClick={() => setExpandedRow(expandedRow === emp.id ? null : emp.id)}>{expandedRow === emp.id ? "▲" : "▼"}</button>}</td>
@@ -1241,11 +1245,11 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
               ))}
             </tbody>
             <tfoot>
-              <tr style={{ borderTop: `2px solid ${C.border}` }}><td colSpan={8} style={{ ...css.td, textAlign: "right", fontWeight: 700 }}>TOTAL STAFF PAYABLE</td><td style={css.td}><strong style={{ color, fontSize: 16 }}>₹{Math.round(totalNet).toLocaleString("en-IN")}</strong></td><td style={{...css.td, borderLeft: `2px solid ${C.orange}44`}}><strong style={{ color: C.orange, fontSize: 16 }}>₹{Math.round(totalActual).toLocaleString("en-IN")}</strong></td><td style={css.td}></td></tr>
+              <tr style={{ borderTop: `2px solid ${C.border}` }}><td colSpan={8} style={{ ...css.td, textAlign: "right", fontWeight: 700 }}>TOTAL STAFF VALUE (GROSS)</td><td style={css.td}><strong style={{ color, fontSize: 16 }}>₹{Math.round(isContract ? totalPeriodGross : totalNet).toLocaleString("en-IN")}</strong></td><td style={{...css.td, borderLeft: `2px solid ${C.orange}44`}}><strong style={{ color: C.orange, fontSize: 16 }}>₹{Math.round(isContract ? totalActualGross : totalActual).toLocaleString("en-IN")}</strong></td><td style={css.td}></td></tr>
               {isContract && (
                 <>
-                  <tr><td colSpan={8} style={{ ...css.td, textAlign: "right", color: C.red, fontSize: 12 }}>(-) LUMP SUM CONTRACTOR PAYOUTS</td><td style={{ ...css.td, color: C.red }}>-₹{periodContractorPaid.toLocaleString("en-IN")}</td><td style={{...css.td, color: C.red, borderLeft: `2px solid ${C.orange}44`}}>-₹{lifetimeContractorPaid.toLocaleString("en-IN")}</td><td style={css.td}></td></tr>
-                  <tr style={{ background: C.orange + "15" }}><td colSpan={8} style={{ ...css.td, textAlign: "right", fontWeight: 700, color: C.orange }}>NET BALANCE OWED TO CONTRACTOR</td><td style={css.td}><strong style={{ color: C.orange, fontSize: 18 }}>₹{Math.round(totalNet - periodContractorPaid).toLocaleString("en-IN")}</strong></td><td style={{...css.td, borderLeft: `2px solid ${C.orange}44`}}><strong style={{ color: C.orange, fontSize: 18 }}>₹{Math.round(totalActual - lifetimeContractorPaid).toLocaleString("en-IN")}</strong></td><td style={css.td}></td></tr>
+                  <tr><td colSpan={8} style={{ ...css.td, textAlign: "right", color: C.red, fontSize: 12 }}>(-) LUMP SUM CONTRACTOR PAYOUTS</td><td style={{ ...css.td, color: C.red }}>-₹{Math.round(periodContractorPaid).toLocaleString("en-IN")}</td><td style={{...css.td, color: C.red, borderLeft: `2px solid ${C.orange}44`}}>-₹{Math.round(lifetimeContractorPaid).toLocaleString("en-IN")}</td><td style={css.td}></td></tr>
+                  <tr style={{ background: C.orange + "15" }}><td colSpan={8} style={{ ...css.td, textAlign: "right", fontWeight: 700, color: C.orange }}>NET BALANCE OWED TO CONTRACTOR</td><td style={css.td}><strong style={{ color: C.orange, fontSize: 18 }}>₹{Math.round(totalPeriodGross - periodContractorPaid).toLocaleString("en-IN")}</strong></td><td style={{...css.td, borderLeft: `2px solid ${C.orange}44`}}><strong style={{ color: C.orange, fontSize: 18 }}>₹{Math.round(totalActualGross - lifetimeContractorPaid).toLocaleString("en-IN")}</strong></td><td style={css.td}></td></tr>
                 </>
               )}
             </tfoot>
