@@ -11,11 +11,11 @@ const C = {
 
 const css = {
   app: { minHeight: "100vh", background: C.bg, fontFamily: "'DM Mono', 'Courier New', monospace", color: C.text, paddingBottom: 40 },
-  header: { background: C.panel, borderBottom: 1px solid ${C.border}, padding: "0 12px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "nowrap", gap: 6, height: 56, position: "sticky", top: 0, zIndex: 100 },
+  header: { background: C.panel, borderBottom: `1px solid ${C.border}`, padding: "0 12px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "nowrap", gap: 6, height: 56, position: "sticky", top: 0, zIndex: 100 },
   logo: { fontSize: 13, fontWeight: 700, letterSpacing: 3, color: C.accent, textTransform: "uppercase" },
   badge: (color) => ({ background: color + "22", color: color, border: `1px solid ${color}55`, borderRadius: 4, padding: "2px 10px", fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }),
-  nav: { display: "flex", flexWrap: "wrap", gap: 4, padding: "8px 12px", borderBottom: 1px solid ${C.border}, background: C.panel },
-  navBtn: (active) => ({ background: active ? C.accentDim : "transparent", color: active ? C.accent : C.textDim, border: 1px solid ${active ? C.accent + "55" : "transparent"}, borderRadius: 4, padding: "5px 10px", fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap", transition: "all 0.15s" }),
+  nav: { display: "flex", flexWrap: "wrap", gap: 4, padding: "8px 12px", borderBottom: `1px solid ${C.border}`, background: C.panel },
+  navBtn: (active) => ({ background: active ? C.accentDim : "transparent", color: active ? C.accent : C.textDim, border: `1px solid ${active ? C.accent + "55" : "transparent"}`, borderRadius: 4, padding: "5px 10px", fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap", transition: "all 0.15s" }),
   page: { padding: "16px 12px 0" },
   grid2: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 },
   grid4: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 },
@@ -277,7 +277,7 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
       <div style={css.sectionTitle}>Log Overtime</div>
       <div style={{ ...css.card, marginBottom: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, alignItems: "flex-end" }}>
         <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>EMPLOYEE</div>
-          <select style={{...css.input, width: 100%}} value={form.empId} onChange={e => setForm({...form, empId: e.target.value})}>
+          <select style={{...css.input, width: "100%"}} value={form.empId} onChange={e => setForm({...form, empId: e.target.value})}>
             <option value="">-- Select --</option>
             {active.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
@@ -1485,7 +1485,7 @@ const printRoster = () => {
           <div style={{ background: C.bg, padding: 16, borderRadius: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, marginBottom: 10, letterSpacing: 1 }}>TOMORROW'S ROSTER ({fDate(tomorrowStr)})</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-  <div style={{ borderRight: 1px solid ${C.border}, paddingRight: 10 }}>
+  <div style={{ borderRight: `1px solid ${C.border}`, paddingRight: 10 }}>
                 <div style={{ color: C.accent, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Morning Shift</div>
                 <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>{morningStaff.length}</div>
                 <div style={{ fontSize: 10, color: C.textDim }}>Expected Staff</div>
