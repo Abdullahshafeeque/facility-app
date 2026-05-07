@@ -339,13 +339,28 @@ function DashboardView({ employees, attendance, posts, trackingStartDate }) {
 
   useEffect(() => {
     const checkMissingAttendance = async () => {
-      const { data } = await supabase.from("attendance").select("date").gte("date", trackingStartDate).lte("date", todayStr);
-      const submitted = new Set((data || []).map(d => d.date));
-      const missing = [];
+      const { data } = await supabase.from("attendance").select("date, employee_id").gte("date", trackingStartDate).lte("date", todayStr);
       
+      const empShiftMap = {};
+      employees.forEach(e => empShiftMap[e.id] = e.shift);
+
+      const dateShifts = {};
+      (data || []).forEach(d => {
+        const shift = empShiftMap[d.employee_id];
+        if (shift) {
+          if (!dateShifts[d.date]) dateShifts[d.date] = new Set();
+          dateShifts[d.date].add(shift);
+        }
+      });
+
+      const missing = [];
       let currStr = trackingStartDate;
       while (currStr <= todayStr) {
-        if (!submitted.has(currStr)) missing.push(currStr);
+        const shifts = dateShifts[currStr];
+        // Flag as missing if NO data, or if either Morning or Night is missing
+        if (!shifts || !shifts.has("Morning") || !shifts.has("Night")) {
+          missing.push(currStr);
+        }
         const [y, m, d] = currStr.split("-").map(Number);
         const nextDt = new Date(y, m - 1, d + 1);
         currStr = [nextDt.getFullYear(), String(nextDt.getMonth() + 1).padStart(2, "0"), String(nextDt.getDate()).padStart(2, "0")].join("-");
@@ -353,7 +368,7 @@ function DashboardView({ employees, attendance, posts, trackingStartDate }) {
       setMissingDates(missing.sort().reverse());
     };
     checkMissingAttendance();
-  }, [trackingStartDate]);
+  }, [trackingStartDate, employees]);
   const active = employees.filter(e => e.status === "active");
   const present = active.filter(e => attendance[e.id]?.status === "Present").length;
   const absent = active.filter(e => attendance[e.id]?.status === "Absent").length;
