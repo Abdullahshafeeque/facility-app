@@ -1468,10 +1468,10 @@ const printRoster = () => {
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>1. Monthly Payroll Summary (CSV)</div>
         <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>Export raw financial data into a spreadsheet for accountants to easily import into Excel, Tally, or QuickBooks.</div>
         
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, alignItems: "flex-end" }}>
-          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={css.input} value={start} onChange={e => setStart(e.target.value)} /></div>
-          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={css.input} value={end} onChange={e => setEnd(e.target.value)} /></div>
-          <button style={css.btn(C.green)} onClick={downloadCSV} disabled={loading}>{loading ? "Fetching Data..." : "📥 Download CSV Spreadsheet"}</button>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, alignItems: "end" }}>
+          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={start} onChange={e => setStart(e.target.value)} /></div>
+          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={end} onChange={e => setEnd(e.target.value)} /></div>
+          <button style={{ ...css.btn(C.green), width: "100%", padding: "10px 0" }} onClick={downloadCSV} disabled={loading}>{loading ? "Fetching Data..." : "📥 Download CSV Spreadsheet"}</button>
         </div>
       </div>
 
@@ -1600,10 +1600,6 @@ export default function App() {
           /* 5. PERFECT FORM ALIGNMENT: Make all dates, dropdowns, and inputs uniformly full-width */
           input, select, textarea { width: 100% !important; box-sizing: border-box !important; text-align: left !important; }
           
-          /* 6. Stack form groups cleanly instead of jagged wrapping */
-          div[style*="align-items: flex-end"] { flex-direction: column !important; align-items: stretch !important; gap: 12px !important; }
-          div[style*="align-items: flex-end"] > div { width: 100% !important; }
-          div[style*="align-items: flex-end"] > button { width: 100% !important; margin-top: 6px !important; }
         }
       `}</style>
       <style>{`
