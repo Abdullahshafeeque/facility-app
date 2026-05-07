@@ -695,7 +695,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
   const [viewing, setViewing] = useState(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({ name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company", joining_date: todayStr });
+  const [form, setForm] = useState({ emp_code: "", name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company", joining_date: todayStr });
   const [viewingAtt, setViewingAtt] = useState([]);
   const [datePromptOpts, setDatePromptOpts] = useState(null);
   const askForDate = (msg) => new Promise(resolve => setDatePromptOpts({ msg, date: todayStr, resolve }));
@@ -712,13 +712,14 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
   const active = employees.filter(e => e.status === "active");
   const inactive = employees.filter(e => e.status === "inactive");
   let filtered = filterPost === "All" ? active : active.filter(e => e.post === filterPost);
-  if (search.trim()) filtered = filtered.filter(e => e.name.toLowerCase().includes(search.toLowerCase()) || (e.aadhar || "").includes(search));
+  if (search.trim()) filtered = filtered.filter(e => e.name.toLowerCase().includes(search.toLowerCase()) || (e.aadhar || "").includes(search) || (e.emp_code || "").toLowerCase().includes(search.toLowerCase()));
 
   const getContractSalary = (postName) => posts.find(p => p.name === postName)?.contract_salary || 0;
   const handlePostChange = (postName) => setForm(f => ({ ...f, post: postName, base_salary: f.staff_type === "contract" ? getContractSalary(postName) : f.base_salary }));
   const handleTypeChange = (type) => setForm(f => ({ ...f, staff_type: type, base_salary: type === "contract" ? getContractSalary(f.post) : "" }));
 
   const addEmp = async () => {
+    if (!form.emp_code.trim()) return alert("Employee Code is required.");
     if (!form.name.trim()) return alert("Name is required.");
     if (!form.aadhar.trim() || form.aadhar.length !== 12) return alert("Valid 12-digit Aadhar is required.");
     if (!form.post) return alert("Please select a post.");
@@ -727,12 +728,12 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
     setLoading(true);
     const salary = form.staff_type === "contract" ? getContractSalary(form.post) : +form.base_salary;
     const { data, error } = await supabase.from("employees").insert({
-      name: form.name, aadhar: form.aadhar, post: form.post, shift: form.shift,
+      emp_code: form.emp_code, name: form.name, aadhar: form.aadhar, post: form.post, shift: form.shift,
       base_salary: salary, staff_type: form.staff_type, status: "active", joining_date: form.joining_date
     }).select().single();
     if (!error && data) {
       setEmployees(prev => [...prev, data]);
-      setForm({ name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company", joining_date: todayStr });
+      setForm({ emp_code: "", name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company", joining_date: todayStr });
       setShowForm(false);
     } else alert("Error: " + (error?.message || "Unknown"));
     setLoading(false);
@@ -844,6 +845,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
         <div style={{ ...css.card, marginBottom: 20, borderColor: C.green + "44" }}>
           <div style={css.sectionTitle}>Register New Employee</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>
+            <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>EMP CODE *</div><input style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.emp_code} onChange={e => setForm(f => ({ ...f, emp_code: e.target.value.toUpperCase() }))} placeholder="e.g. EMP-001" /></div>
             <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FULL NAME *</div><input style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Full name" /></div>
             <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>AADHAR NO. * (12 digits)</div><input maxLength={12} style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.aadhar} onChange={e => setForm(f => ({ ...f, aadhar: e.target.value.replace(/\D/g, "").slice(0, 12) }))} placeholder="123456789012" /></div>
             <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>JOINING DATE *</div><input type="date" max={todayStr} style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form.joining_date} onChange={e => setForm(f => ({ ...f, joining_date: e.target.value }))} /></div>
@@ -887,6 +889,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16, background: C.bg, padding: 14, borderRadius: 8 }}>
+              <div><div style={{ fontSize: 10, color: C.textDim }}>EMP CODE</div><strong>{viewing.emp_code || "—"}</strong></div>
               <div><div style={{ fontSize: 10, color: C.textDim }}>AADHAR</div><strong>{viewing.aadhar || "—"}</strong></div>
               <div><div style={{ fontSize: 10, color: C.textDim }}>CURRENT SALARY</div><strong style={{ color: C.green }}>₹{Number(viewing.base_salary).toLocaleString("en-IN")}</strong></div>
               <div><div style={{ fontSize: 10, color: C.textDim }}>JOINED</div><strong>{fDate(viewing.joining_date)}</strong></div>
@@ -988,11 +991,12 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
       <div style={css.sectionTitle}>Active Staff ({filtered.length})</div>
       <div style={{ overflowX: "auto", marginBottom: 24 }}>
         <table style={css.table}>
-          <thead><tr>{["Name", "Post", "Type", "Shift", "Joined", "Salary", ""].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+          <thead><tr>{["Code", "Name", "Post", "Type", "Shift", "Joined", "Salary", ""].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
           <tbody>
             {filtered.length === 0 && <tr><td colSpan={7} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No employees found.</td></tr>}
             {filtered.map(emp => (
               <tr key={emp.id} style={{ cursor: "pointer" }} onClick={() => { setViewing(emp); setConfirmLeave(false); }}>
+                <td style={{ ...css.td, fontSize: 12 }}><strong>{emp.emp_code || "—"}</strong></td>
                 <td style={css.td}><span style={{ color: C.accent, fontWeight: 700, textDecoration: "underline" }}>{emp.name}</span></td>
                 <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
                 <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
@@ -1153,7 +1157,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
               {rows.map(({ emp, fin, finLifetime }) => (
                 <React.Fragment key={emp.id}>
                   <tr style={{ background: expandedRow === emp.id ? color + "08" : "transparent" }}>
-                    <td style={css.td}><strong>{emp.name}</strong><br /><small style={{ color: C.textDim }}>{emp.post}</small>{fin.periods.length > 1 && <div style={{ ...css.badge(C.orange), display: "inline-block", marginTop: 4, fontSize: 9 }}>SPLIT</div>}</td>
+                    <td style={css.td}><strong>[{emp.emp_code || "—"}] {emp.name}</strong><br /><small style={{ color: C.textDim }}>{emp.post}</small>{fin.periods.length > 1 && <div style={{ ...css.badge(C.orange), display: "inline-block", marginTop: 4, fontSize: 9 }}>SPLIT</div>}</td>
                     <td style={css.td}>₹{Math.round(fin.proratedSalary).toLocaleString("en-IN")}<br /><small style={{ color: C.textDim }}>joined {fDate(fin.joiningDate)}</small></td>
                     <td style={{ ...css.td, color: fin.absentDays > 0 ? C.red : C.textDim }}>{fin.absentDays}d<br /><small>-₹{Math.round(fin.attendanceDeduction).toLocaleString()}</small></td>
                     <td style={{ ...css.td, color: fin.leaveDays > 0 ? C.accent : C.textDim }}>{fin.leaveDays}d</td>
@@ -1270,8 +1274,8 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
               <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>STAFF MEMBER</div>
                 <select style={{ ...css.input, width: "100%" }} value={form.empId} onChange={e => setForm({ ...form, empId: e.target.value })}>
                   <option value="">-- Select Person --</option>
-                  <optgroup label="Active Staff">{active.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</optgroup>
-                  <optgroup label="Former Staff">{inactive.map(e => <option key={e.id} value={e.id}>{e.name} (left)</option>)}</optgroup>
+                  <optgroup label="Active Staff">{active.map(e => <option key={e.id} value={e.id}>[{e.emp_code || "—"}] {e.name}</option>)}</optgroup>
+                  <optgroup label="Former Staff">{inactive.map(e => <option key={e.id} value={e.id}>[{e.emp_code || "—"}] {e.name} (left)</option>)}</optgroup>
                 </select>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
