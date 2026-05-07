@@ -1594,15 +1594,15 @@ export default function App() {
           /* 2. Payroll/Ledger: Search Box vs Register Button (Adds safe spacing and stacks them) */
           div[style*="justify-content: space-between"] { flex-direction: column !important; align-items: stretch !important; gap: 16px !important; text-align: left !important; }
           
-          /* 3. Overtime & Payroll: Date Entry Boxes (Forces Start/End dates to stack instead of squishing) */
+          /* 3. General Date Entry Fix */
           div[style*="display: flex"][style*="gap: 10"] { flex-wrap: wrap !important; gap: 12px !important; }
           div[style*="display: flex"] > div[style*="flex: 1"] { min-width: 100% !important; }
           input[type="date"] { width: 100% !important; box-sizing: border-box !important; }
           
-          /* 4. Reports Page: FROM/TO date boxes and Download Buttons */
-          div[style*="align-items: flex-end"] { flex-direction: column !important; align-items: stretch !important; gap: 12px !important; }
+          /* 4. Overtime, Payroll & Reports: Forces ALL date grids to convert to stacked flex columns */
+          div[style*="align-items: flex-end"] { display: flex !important; flex-direction: column !important; align-items: stretch !important; gap: 12px !important; }
           div[style*="align-items: flex-end"] > div { width: 100% !important; }
-          div[style*="align-items: flex-end"] button { width: 100% !important; margin-top: 8px !important; }
+          div[style*="align-items: flex-end"] input, div[style*="align-items: flex-end"] select, div[style*="align-items: flex-end"] button { width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
           
           /* 5. Watchlist & Grids: Perfect single-column alignment */
           div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
