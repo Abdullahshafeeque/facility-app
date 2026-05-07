@@ -275,7 +275,7 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
   return (
     <div style={css.page}>
       <div style={css.sectionTitle}>Log Overtime</div>
-      <div style={{ ...css.card, marginBottom: 20, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
+      <div style={{ ...css.card, marginBottom: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, alignItems: "end" }}>
         <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>EMPLOYEE</div>
           <select style={{...css.input, width: 160}} value={form.empId} onChange={e => setForm({...form, empId: e.target.value})}>
             <option value="">-- Select --</option>
@@ -1009,7 +1009,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
 }
 
 // ─── PAYROLL ──────────────────────────────────────────────────────────────────
-function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab, overtime }) {
+function PayrollView({ employees, posts, ledger, setLedger, postHistory, overtime }) {
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
   const [start, setStart] = useState(monthStart);
@@ -1468,10 +1468,10 @@ const printRoster = () => {
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>1. Monthly Payroll Summary (CSV)</div>
         <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>Export raw financial data into a spreadsheet for accountants to easily import into Excel, Tally, or QuickBooks.</div>
         
-        <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
-          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={css.input} value={start} onChange={e => setStart(e.target.value)} /></div>
-          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={css.input} value={end} onChange={e => setEnd(e.target.value)} /></div>
-          <button style={css.btn(C.green)} onClick={downloadCSV} disabled={loading}>{loading ? "Fetching Data..." : "📥 Download CSV Spreadsheet"}</button>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, alignItems: "end" }}>
+          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={start} onChange={e => setStart(e.target.value)} /></div>
+          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={end} onChange={e => setEnd(e.target.value)} /></div>
+          <button style={{ ...css.btn(C.green), width: "100%", padding: "10px 0" }} onClick={downloadCSV} disabled={loading}>{loading ? "Fetching Data..." : "📥 Download CSV Spreadsheet"}</button>
         </div>
       </div>
 
@@ -1587,31 +1587,15 @@ export default function App() {
         body { background-color: #f4f6f9 !important; color: #0f172a !important; margin: 0; }
         
         @media (max-width: 768px) {
-          /* 1. Header & Alerts: Stack logo, alerts, and buttons cleanly */
-          #root > div > div:first-child { flex-direction: column !important; gap: 12px !important; align-items: center !important; text-align: center; height: auto !important; padding: 16px 10px !important; }
-          #root > div > div:first-child > div:last-child { display: flex !important; flex-wrap: wrap !important; justify-content: center !important; gap: 8px !important; }
+          /* 1. Fix Header Overlap cleanly */
+          header { flex-direction: column !important; gap: 12px !important; height: auto !important; padding: 16px !important; }
+          header > div:last-child { justify-content: center !important; }
           
-          /* 2. Payroll/Ledger: Search Box vs Register Button (Adds safe spacing and stacks them) */
-          div[style*="justify-content: space-between"] { flex-direction: column !important; align-items: stretch !important; gap: 16px !important; text-align: left !important; }
-          
-          /* 3. Overtime & Payroll: Date Entry Boxes (Forces Start/End dates to stack instead of squishing) */
-          div[style*="display: flex"][style*="gap: 10"] { flex-wrap: wrap !important; gap: 12px !important; }
-          div[style*="display: flex"] > div[style*="flex: 1"] { min-width: 100% !important; }
-          input[type="date"] { width: 100% !important; box-sizing: border-box !important; }
-          
-          /* 4. Reports Page: FROM/TO date boxes and Download Buttons */
-          div[style*="align-items: flex-end"] { flex-direction: column !important; align-items: stretch !important; gap: 12px !important; }
-          div[style*="align-items: flex-end"] > div { width: 100% !important; }
-          div[style*="align-items: flex-end"] button { width: 100% !important; margin-top: 8px !important; }
-          
-          /* 5. Watchlist & Grids: Perfect single-column alignment */
-          div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
-          
-          /* 6. Ensure tables remain safe to swipe */
+          /* 2. Fix tables */
           table { display: block !important; overflow-x: auto !important; white-space: nowrap !important; width: 100% !important; }
           
-          /* Make all inputs, selects, and buttons safe */
-          input, select, button { max-width: 100% !important; box-sizing: border-box !important; }
+          /* 3. Fix Inputs & Dropdowns */
+          input, select { width: 100% !important; box-sizing: border-box !important; }
         }
       `}</style>
       <style>{`
@@ -1641,10 +1625,10 @@ export default function App() {
       ) : (
         <>
           {tab === "dashboard" && <DashboardView employees={employees} attendance={attendance} posts={posts} />}
-          {tab === "attendance" && <AttendanceView employees={employees} user={user} />}
+          {tab === "attendance" && <AttendanceView employees={employees} />}
           {tab === "overtime" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} />}
           {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} />}
-          {tab === "payroll" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setTab={setTab} overtime={overtime} />}
+          {tab === "payroll" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} overtime={overtime} />}
           {tab === "reports" && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} />}
           {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} />}
         </>
