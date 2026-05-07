@@ -11,12 +11,12 @@ const C = {
 
 const css = {
   app: { minHeight: "100vh", background: C.bg, fontFamily: "'DM Mono', 'Courier New', monospace", color: C.text, paddingBottom: 40 },
-  header: { background: C.panel, borderBottom: 1px solid ${C.border}, padding: "0 12px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "nowrap", gap: 6, height: 56, position: "sticky", top: 0, zIndex: 100 },
+  header: { background: C.panel, borderBottom: `1px solid ${C.border}`, padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 60, position: "sticky", top: 0, zIndex: 100 },
   logo: { fontSize: 13, fontWeight: 700, letterSpacing: 3, color: C.accent, textTransform: "uppercase" },
   badge: (color) => ({ background: color + "22", color: color, border: `1px solid ${color}55`, borderRadius: 4, padding: "2px 10px", fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }),
-  nav: { display: "flex", flexWrap: "wrap", gap: 4, padding: "8px 12px", borderBottom: 1px solid ${C.border}, background: C.panel },
-  navBtn: (active) => ({ background: active ? C.accentDim : "transparent", color: active ? C.accent : C.textDim, border: 1px solid ${active ? C.accent + "55" : "transparent"}, borderRadius: 4, padding: "5px 10px", fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap", transition: "all 0.15s" }),
-  page: { padding: "16px 12px 0" },
+  nav: { display: "flex", flexWrap: "wrap", gap: 6, padding: "12px 24px", borderBottom: `1px solid ${C.border}`, background: C.panel },
+  navBtn: (active) => ({ background: active ? C.accentDim : "transparent", color: active ? C.accent : C.textDim, border: `1px solid ${active ? C.accent + "55" : "transparent"}`, borderRadius: 4, padding: "6px 16px", fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap", transition: "all 0.15s" }),
+  page: { padding: "24px 24px 0" },
   grid2: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 },
   grid4: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 },
   card: { background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20 },
@@ -28,7 +28,7 @@ const css = {
   td: { padding: "10px 12px", borderBottom: `1px solid ${C.border}`, verticalAlign: "middle" },
   input: { background: C.bg, border: `1px solid ${C.border}`, borderRadius: 4, color: C.text, padding: "6px 10px", fontSize: 12, fontFamily: "inherit", outline: "none" },
   btn: (color = C.accent) => ({ background: color + "22", color: color, border: `1px solid ${color}55`, borderRadius: 4, padding: "7px 16px", fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", fontFamily: "inherit" }),
-  modal: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "12px 8px", overflowY: "auto" },
+  modal: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 },
 };
 
 const statusColor = (s) => s === "Present" ? C.green : s === "Absent" ? C.red : C.accent;
@@ -119,36 +119,36 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
     }
     
     // FIXED MATH 2: Absences use 26-day rate, but OT uses the annualized 365-day formula rounded to nearest 0.50
-    const dailyWorkingRate = period.salary / 26; 
-    const hourlyRate = Math.round((((period.salary * 12) / 365) / 12) * 2) / 2;
+    const dailyWorkingRate = period.salary / 26; 
+    const hourlyRate = Math.round((((period.salary * 12) / 365) / 12) * 2) / 2;
 
-    const periodAtt = rangeAttendance.filter(a => a.employee_id === employee.id && a.date >= period.from && a.date <= period.to);
-    const absentDays = periodAtt.filter(a => a.status === "Absent").length;
-    const leaveDays = periodAtt.filter(a => a.status === "Leave").length;
-    const periodOT = (overtime || []).filter(o => o.employee_id === employee.id && o.date >= period.from && o.date <= period.to);
-    
-    // Calculate the actual financial impact of attendance
-    const attendanceDeduction = (absentDays + leaveDays) * dailyWorkingRate;
-    
-    // Dynamic OT Earnings: Pay by the specific post worked, fallback to their personal rate if post pay is 0
-    let otHours = 0;
-    let otEarnings = 0;
-    
-    periodOT.forEach(o => {
-      otHours += Number(o.hours);
-      let appliedHourlyRate = hourlyRate; // Fallback to their normal personal salary rate
-      
-      const otPost = posts.find(p => p.name === o.post);
-      if (otPost) {
-        // Find the salary set for this specific job
-        const jobSalary = Number(otPost.contract_salary) || Number(otPost.base_salary) || 0;
-        if (jobSalary > 0) {
-          appliedHourlyRate = Math.round((((jobSalary * 12) / 365) / 12) * 2) / 2;
-        }
-      }
-      
-      otEarnings += Number(o.hours) * appliedHourlyRate;
-    });
+    const periodAtt = rangeAttendance.filter(a => a.employee_id === employee.id && a.date >= period.from && a.date <= period.to);
+    const absentDays = periodAtt.filter(a => a.status === "Absent").length;
+    const leaveDays = periodAtt.filter(a => a.status === "Leave").length;
+    const periodOT = (overtime || []).filter(o => o.employee_id === employee.id && o.date >= period.from && o.date <= period.to);
+    
+    // Calculate the actual financial impact of attendance
+    const attendanceDeduction = (absentDays + leaveDays) * dailyWorkingRate;
+    
+    // Dynamic OT Earnings: Pay by the specific post worked, fallback to their personal rate if post pay is 0
+    let otHours = 0;
+    let otEarnings = 0;
+    
+    periodOT.forEach(o => {
+      otHours += Number(o.hours);
+      let appliedHourlyRate = hourlyRate; // Fallback to their normal personal salary rate
+      
+      const otPost = posts.find(p => p.name === o.post);
+      if (otPost) {
+        // Find the salary set for this specific job
+        const jobSalary = Number(otPost.contract_salary) || Number(otPost.base_salary) || 0;
+        if (jobSalary > 0) {
+          appliedHourlyRate = Math.round((((jobSalary * 12) / 365) / 12) * 2) / 2;
+        }
+      }
+      
+      otEarnings += Number(o.hours) * appliedHourlyRate;
+    });
     
     totalProratedSalary += proratedSalary;
     totalAttendanceDeduction += attendanceDeduction;
@@ -275,9 +275,9 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
   return (
     <div style={css.page}>
       <div style={css.sectionTitle}>Log Overtime</div>
-      <div style={{ ...css.card, marginBottom: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, alignItems: "flex-end" }}>
+      <div style={{ ...css.card, marginBottom: 20, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
         <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>EMPLOYEE</div>
-          <select style={{...css.input, width: 100%}} value={form.empId} onChange={e => setForm({...form, empId: e.target.value})}>
+          <select style={{...css.input, width: 160}} value={form.empId} onChange={e => setForm({...form, empId: e.target.value})}>
             <option value="">-- Select --</option>
             {active.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
@@ -302,7 +302,7 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
             {Array.from({length: 48}).map((_, i) => { const h24 = Math.floor(i/2); const m = i%2===0?'00':'30'; const ampm = h24>=12?'PM':'AM'; const h12 = h24===0?12:(h24>12?h24-12:h24); const val = `${String(h24).padStart(2,'0')}:${m}`; const label = `${String(h12).padStart(2,'0')}:${m} ${ampm}`; return <option key={val} value={val}>{label}</option>; })}
           </select>
         </div>
-        <button style={{ ...css.btn(C.green), width: "100%", padding: "10px" }} onClick={handleAddOT} disabled={saving}>+ Save OT</button>
+        <button style={css.btn(C.green)} onClick={handleAddOT} disabled={saving}>+ Save OT</button>
       </div>
 
       <div style={css.sectionTitle}>Recent OT Entries</div>
@@ -539,8 +539,8 @@ function AttendanceView({ employees }) {
                       <td style={css.td}>
                         <div style={{ display: "flex", gap: 4 }}>
                           {["Present", "Absent", "Leave"].map(s => (
-  <button key={s} disabled={isHoliday} style={{ ...css.btn(statusColor(s)), opacity: rec.status === s ? 1 : 0.25, padding: "6px 8px", fontSize: 11, minWidth: 60 }} onClick={() => toggle(emp.id, "status", s)}>{s[0]}</button>
-))}
+                            <button key={s} disabled={isHoliday} style={{ ...css.btn(statusColor(s)), opacity: rec.status === s ? 1 : 0.25, padding: "4px 8px", fontSize: 10 }} onClick={() => toggle(emp.id, "status", s)}>{s}</button>
+                          ))}
                         </div>
                       </td>
                     </tr>
@@ -1088,11 +1088,11 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
     if (search.trim()) filteredList = filteredList.filter(e => e.name.toLowerCase().includes(search.toLowerCase()));
     
     // Calculate both Period Net and Lifetime Actual Net
-    const rows = filteredList.map(emp => ({ 
-      emp, 
-      fin: calcFinances(emp, posts, rangeAttendance, ledger, start, end, postHistory, overtime),
-      finLifetime: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || "2020-01-01", end, postHistory, overtime)
-    }));
+    const rows = filteredList.map(emp => ({ 
+      emp, 
+      fin: calcFinances(emp, posts, rangeAttendance, ledger, start, end, postHistory, overtime),
+      finLifetime: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || "2020-01-01", end, postHistory, overtime)
+    }));
     
     const totalNet = rows.reduce((s, r) => s + r.fin.netPayable, 0);
     const totalActual = rows.reduce((s, r) => s + r.finLifetime.netPayable, 0);
@@ -1105,7 +1105,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
-            <thead><tr style={{ background: C.bg }}>{["Name / Post", "Prorated Base", "Absent", "Leave", "OT", "Bonus", "Adv/Fine", "Paid", "Period Net", "Actual Payable", ""].map(h => <th key={h} style={{ ...css.th, whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
+            <thead><tr style={{ background: C.bg }}>{["Name / Post", "Prorated Base", "Absent", "Leave", "OT", "Bonus", "Adv/Fine", "Paid", "Period Net", "Actual Payable", ""].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
             <tbody>
               {rows.length === 0 && <tr><td colSpan={11} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No staff.</td></tr>}
               {rows.map(({ emp, fin, finLifetime }) => (
@@ -1145,7 +1145,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
 
   const SettlementView = () => {
     const unsettled = inactive.filter(e => !e.settlement_done);
-    const rows = unsettled.map(emp => ({ emp, fin: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || start, emp.left_date || end, postHistory, overtime) }));
+    const rows = unsettled.map(emp => ({ emp, fin: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || start, emp.left_date || end, postHistory, overtime) }));
 
     const markSettled = async (emp) => {
       await supabase.from("employees").update({ settlement_done: true }).eq("id", emp.id);
@@ -1202,7 +1202,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
         <button style={css.btn(C.blue)} onClick={() => setShowModal(true)}>+ Register Transaction</button>
       </div>
       <div style={{ ...css.card, marginBottom: 20, background: "#f8fafc" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, alignItems: "flex-end" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, alignItems: "flex-end" }}>
           <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={{ ...css.input, width: "100%" }} value={start} onChange={e => setStart(e.target.value)} /></div>
           <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={{ ...css.input, width: "100%" }} value={end} onChange={e => setEnd(e.target.value)} /></div>
           <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>SEARCH</div><input placeholder="Name..." style={{ ...css.input, width: "100%" }} value={search} onChange={e => setSearch(e.target.value)} /></div>
@@ -1468,10 +1468,10 @@ const printRoster = () => {
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>1. Monthly Payroll Summary (CSV)</div>
         <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>Export raw financial data into a spreadsheet for accountants to easily import into Excel, Tally, or QuickBooks.</div>
         
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, alignItems: "end" }}>
-          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={start} onChange={e => setStart(e.target.value)} /></div>
-          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={end} onChange={e => setEnd(e.target.value)} /></div>
-          <button style={{ ...css.btn(C.green), width: "100%", padding: "10px 0" }} onClick={downloadCSV} disabled={loading}>{loading ? "Fetching Data..." : "📥 Download CSV Spreadsheet"}</button>
+        <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={css.input} value={start} onChange={e => setStart(e.target.value)} /></div>
+          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={css.input} value={end} onChange={e => setEnd(e.target.value)} /></div>
+          <button style={css.btn(C.green)} onClick={downloadCSV} disabled={loading}>{loading ? "Fetching Data..." : "📥 Download CSV Spreadsheet"}</button>
         </div>
       </div>
 
@@ -1484,8 +1484,8 @@ const printRoster = () => {
           
           <div style={{ background: C.bg, padding: 16, borderRadius: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, marginBottom: 10, letterSpacing: 1 }}>TOMORROW'S ROSTER ({fDate(tomorrowStr)})</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-  <div style={{ borderRight: 1px solid ${C.border}, paddingRight: 10 }}>
+            <div style={{ display: "flex", gap: 10 }}>
+              <div style={{ flex: 1, borderRight: `1px solid ${C.border}`, paddingRight: 10 }}>
                 <div style={{ color: C.accent, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Morning Shift</div>
                 <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>{morningStaff.length}</div>
                 <div style={{ fontSize: 10, color: C.textDim }}>Expected Staff</div>
@@ -1582,24 +1582,36 @@ export default function App() {
   return (
     <div style={css.page}>
       <style>{`
-        /* 1. Force Light Theme Globally */
+        /* Force Light Theme */
         :root { color-scheme: light !important; }
         body { background-color: #f4f6f9 !important; color: #0f172a !important; margin: 0; }
         
         @media (max-width: 768px) {
-          /* 2. Fix Header Overlap */
-          #root > div > div:first-of-type { flex-direction: column !important; gap: 12px !important; align-items: center !important; text-align: center; height: auto !important; padding: 16px 10px !important; }
-          #root > div > div:first-of-type > div:last-child { display: flex !important; flex-wrap: wrap !important; justify-content: center !important; gap: 8px !important; margin-top: 4px; }
+          /* 1. Header & Alerts: Stack logo, alerts, and buttons cleanly */
+          #root > div > div:first-child { flex-direction: column !important; gap: 12px !important; align-items: center !important; text-align: center; height: auto !important; padding: 16px 10px !important; }
+          #root > div > div:first-child > div:last-child { display: flex !important; flex-wrap: wrap !important; justify-content: center !important; gap: 8px !important; }
           
-          /* 3. Fix Tabs */
-          nav { justify-content: center !important; padding: 10px !important; gap: 8px !important; }
-
-          /* 4. Keep tables safe */
+          /* 2. Payroll/Ledger: Search Box vs Register Button (Adds safe spacing and stacks them) */
+          div[style*="justify-content: space-between"] { flex-direction: column !important; align-items: stretch !important; gap: 16px !important; text-align: left !important; }
+          
+          /* 3. Overtime & Payroll: Date Entry Boxes (Forces Start/End dates to stack instead of squishing) */
+          div[style*="display: flex"][style*="gap: 10"] { flex-wrap: wrap !important; gap: 12px !important; }
+          div[style*="display: flex"] > div[style*="flex: 1"] { min-width: 100% !important; }
+          input[type="date"] { width: 100% !important; box-sizing: border-box !important; }
+          
+          /* 4. Reports Page: FROM/TO date boxes and Download Buttons */
+          div[style*="align-items: flex-end"] { flex-direction: column !important; align-items: stretch !important; gap: 12px !important; }
+          div[style*="align-items: flex-end"] > div { width: 100% !important; }
+          div[style*="align-items: flex-end"] button { width: 100% !important; margin-top: 8px !important; }
+          
+          /* 5. Watchlist & Grids: Perfect single-column alignment */
+          div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+          
+          /* 6. Ensure tables remain safe to swipe */
           table { display: block !important; overflow-x: auto !important; white-space: nowrap !important; width: 100% !important; }
           
-          /* 5. PERFECT FORM ALIGNMENT: Make all dates, dropdowns, and inputs uniformly full-width */
-          input, select, textarea { width: 100% !important; box-sizing: border-box !important; text-align: left !important; }
-          
+          /* Make all inputs, selects, and buttons safe */
+          input, select, button { max-width: 100% !important; box-sizing: border-box !important; }
         }
       `}</style>
       <style>{`
@@ -1613,8 +1625,8 @@ export default function App() {
       `}</style>
       <header style={css.header}>
         <div style={css.logo}>⚙ PRFM HR Portal</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", flexShrink: 0 }}>
-          <span style={{ fontSize: 11, color: C.textDim, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, color: C.textDim }}>{user.email}</span>
           {alerts.length > 0 && <span style={{ ...css.badge(C.red), cursor: "pointer" }} onClick={() => setTab("dashboard")}>⚠ {alerts.length} Alert{alerts.length > 1 ? "s" : ""}</span>}
           {pendingSettlements > 0 && <span style={{ ...css.badge(C.orange), cursor: "pointer" }} onClick={() => setTab("payroll")}>⚖ {pendingSettlements} Pending</span>}
           <span style={css.badge(C.green)}>LIVE</span>
