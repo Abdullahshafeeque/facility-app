@@ -1313,7 +1313,9 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
                   </td>
                   <td style={css.td}>
                     <div style={{ display: "flex", gap: 8 }}>
-                      <button style={css.btn(C.blue)} onClick={() => { setForm(f => ({ ...f, empId: emp.id, type: "Payout", amount: Math.round(Math.abs(fin.netPayable)) })); setShowModal(true); }}>Record Payout</button>
+                      {emp.staff_type === "company" && (
+                        <button style={css.btn(C.blue)} onClick={() => { setForm(f => ({ ...f, empId: emp.id, type: "Payout", amount: Math.round(Math.abs(fin.netPayable)) })); setShowModal(true); }}>Record Payout</button>
+                      )}
                       <button style={css.btn(C.green)} onClick={() => markSettled(emp)}>✓ Settled</button>
                     </div>
                   </td>
@@ -1367,9 +1369,14 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TYPE</div>
                   <select disabled={form.empId === "CONTRACTOR"} style={{ ...css.input, width: "100%", opacity: form.empId === "CONTRACTOR" ? 0.5 : 1 }} value={form.empId === "CONTRACTOR" ? "Contractor Payout" : form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
-                    <option value="Advance">Advance</option><option value="Bonus">Bonus</option><option value="Fine">Fine</option><option value="Payout">Salary Payout</option>
-                    <option value="Loan Given">Loan Given</option><option value="Loan Repayment">Loan Repayment</option>
-                    <option value="Contractor Payout">Contractor Payout</option>
+                    {form.empId === "CONTRACTOR" ? (
+                      <option value="Contractor Payout">Contractor Payout</option>
+                    ) : (
+                      <>
+                        <option value="Advance">Advance</option><option value="Bonus">Bonus</option><option value="Fine">Fine</option><option value="Payout">Salary Payout</option>
+                        <option value="Loan Given">Loan Given</option><option value="Loan Repayment">Loan Repayment</option>
+                      </>
+                    )}
                   </select>
                 </div>
                 <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>DATE</div><input type="date" style={{ ...css.input, width: "100%" }} value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
