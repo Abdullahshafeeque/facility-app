@@ -334,7 +334,26 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-function DashboardView({ employees, attendance, posts }) {
+function DashboardView({ employees, attendance, posts, trackingStartDate }) {
+  const [missingDates, setMissingDates] = useState([]);
+
+  useEffect(() => {
+    const checkMissingAttendance = async () => {
+      const { data } = await supabase.from("attendance").select("date").gte("date", trackingStartDate).lte("date", todayStr);
+      const submitted = new Set((data || []).map(d => d.date));
+      const missing = [];
+      
+      let currStr = trackingStartDate;
+      while (currStr <= todayStr) {
+        if (!submitted.has(currStr)) missing.push(currStr);
+        const [y, m, d] = currStr.split("-").map(Number);
+        const nextDt = new Date(y, m - 1, d + 1);
+        currStr = [nextDt.getFullYear(), String(nextDt.getMonth() + 1).padStart(2, "0"), String(nextDt.getDate()).padStart(2, "0")].join("-");
+      }
+      setMissingDates(missing.sort().reverse());
+    };
+    checkMissingAttendance();
+  }, [trackingStartDate]);
   const active = employees.filter(e => e.status === "active");
   const present = active.filter(e => attendance[e.id]?.status === "Present").length;
   const absent = active.filter(e => attendance[e.id]?.status === "Absent").length;
@@ -358,6 +377,14 @@ function DashboardView({ employees, attendance, posts }) {
       <div style={{ marginBottom: 20 }}>
         <div style={css.sectionTitle}>Coverage Alerts</div>
         <AlertBanner alerts={alerts} />
+        {missingDates.length > 0 && (
+          <div style={{ ...css.alert, background: C.orange + "15", border: `1px solid ${C.orange}44`, marginTop: 8, alignItems: "flex-start" }}>
+            <span style={{ color: C.orange, fontSize: 16 }}>⚠</span>
+            <span style={{ color: C.orange }}>
+              <strong>Pending Attendance:</strong> {missingDates.map(fDate).join(", ")}
+            </span>
+          </div>
+        )}
       </div>
       {posts.length > 0 && (
         <div style={{ marginBottom: 20 }}>
@@ -1256,7 +1283,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
 }
 
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
-function SettingsView({ posts, setPosts, employees, setEmployees }) {
+function SettingsView({ posts, setPosts, employees, setEmployees, trackingStartDate, setTrackingStartDate }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", required_morning: 1, required_night: 1, contract_salary: 0, morning_start: "06:00", night_start: "18:00" });
   const [loading, setLoading] = useState(false);
@@ -1286,9 +1313,13 @@ function SettingsView({ posts, setPosts, employees, setEmployees }) {
 
   return (
     <div style={css.page}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
-        <div><div style={{ fontSize: 10, color: C.textDim, letterSpacing: 2, textTransform: "uppercase", marginBottom: 2 }}>CONFIGURATION</div><div style={{ fontSize: 22, fontWeight: 700 }}>Settings</div></div>
-        <button style={css.btn(C.green)} onClick={() => setShowForm(v => !v)}>+ Add Post</button>
+      <div style={{ ...css.card, marginBottom: 20 }}>
+        <div style={css.sectionTitle}>General Settings</div>
+        <div>
+          <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>ATTENDANCE TRACKING START DATE</div>
+          <input type="date" style={{ ...css.input, maxWidth: 200 }} value={trackingStartDate} onChange={e => { setTrackingStartDate(e.target.value); localStorage.setItem("trackingStartDate", e.target.value); }} />
+          <div style={{ fontSize: 10, color: C.textDim, marginTop: 4 }}>Dashboard will flag missing attendance from this date onwards.</div>
+        </div>
       </div>
       {showForm && (
         <div style={{ ...css.card, marginBottom: 20, borderColor: C.green + "44" }}>
@@ -1535,6 +1566,8 @@ export default function App() {
   const [postHistory, setPostHistory] = useState([]);
   const [overtime, setOvertime] = useState([]);
   const [loading, setLoading] = useState(true);
+  const defaultStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0];
+  const [trackingStartDate, setTrackingStartDate] = useState(localStorage.getItem("trackingStartDate") || defaultStart);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setUser(session?.user ?? null));
@@ -1644,13 +1677,13 @@ export default function App() {
         <div style={{ textAlign: "center", padding: 60, color: C.textDim }}>Loading data...</div>
       ) : (
         <>
-          {tab === "dashboard" && <DashboardView employees={employees} attendance={attendance} posts={posts} />}
+          {tab === "dashboard" && <DashboardView employees={employees} attendance={attendance} posts={posts} trackingStartDate={trackingStartDate} />}
           {tab === "attendance" && <AttendanceView employees={employees} user={user} />}
           {tab === "overtime" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} />}
           {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} />}
           {tab === "payroll" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setTab={setTab} overtime={overtime} />}
           {tab === "reports" && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} />}
-          {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} />}
+          {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} />}
         </>
       )}
     </div>
