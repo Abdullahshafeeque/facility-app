@@ -1180,20 +1180,28 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
 
     const handleDistribute = async () => {
       if (availableToDistribute <= 0) return alert("No undistributed contractor funds available.");
-      if (!window.confirm(`Distribute ₹${availableToDistribute.toLocaleString("en-IN")} among active contract staff?`)) return;
+      if (!window.confirm(`Distribute ₹${availableToDistribute.toLocaleString("en-IN")} proportionally among active contract staff?`)) return;
       
       const activeContract = staffList.map(emp => ({ emp, fin: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || "2020-01-01", todayStr, postHistory, overtime) })).filter(r => r.fin.netPayable > 0);
       if (activeContract.length === 0) return alert("No active contract staff have pending dues.");
 
-      let remaining = availableToDistribute;
-      const share = Math.floor(remaining / activeContract.length);
+      const totalOwed = activeContract.reduce((sum, r) => sum + r.fin.netPayable, 0);
+      const distributeAmount = Math.min(availableToDistribute, totalOwed);
+      
+      let remaining = distributeAmount;
       const newEntries = [];
 
-      for (const { emp, fin } of activeContract) {
+      for (let i = 0; i < activeContract.length; i++) {
         if (remaining <= 0) break;
-        const amount = Math.floor(Math.min(fin.netPayable, share, remaining));
+        const { emp, fin } = activeContract[i];
+        
+        let amount = Math.floor(distributeAmount * (fin.netPayable / totalOwed));
+        if (i === activeContract.length - 1) amount = remaining; // Give last person the exact remainder to prevent rounding loss
+        
+        amount = Math.floor(Math.min(amount, fin.netPayable, remaining));
+        
         if (amount > 0) {
-          newEntries.push({ employee_id: emp.id, date: todayStr, transaction_type: "Contractor Distribution", amount, notes: "Distributed from lump sum" });
+          newEntries.push({ employee_id: emp.id, date: todayStr, transaction_type: "Contractor Distribution", amount, notes: "Distributed proportionally" });
           remaining -= amount;
         }
       }
@@ -1227,8 +1235,8 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
                     <td style={{ ...css.td, color: C.green }}>+₹{fin.totalBonuses.toLocaleString()}</td>
                     <td style={{ ...css.td, color: C.red }}>-₹{fin.totalAdvances.toLocaleString()}</td>
                     <td style={{ ...css.td, color: C.textDim }}>₹{isContract ? Math.round(fin.totalContractorDist).toLocaleString("en-IN") : fin.totalPaid.toLocaleString("en-IN")}</td>
-                    <td style={{ ...css.td, background: color + "11" }}><strong style={{ color: fin.netPayable < 0 ? C.red : (isContract ? C.textDim : color), fontSize: 14 }}>₹{Math.round(fin.netPayable).toLocaleString("en-IN")}</strong>{isContract && <><br /><small style={{ fontSize: 9, color: C.textDim }}>adds to contractor</small></>}</td>
-                    <td style={{ ...css.td, background: C.orange + "15", borderLeft: `2px solid ${C.orange}44` }}><strong style={{ color: finLifetime.netPayable < 0 ? C.red : (isContract ? C.textDim : C.orange), fontSize: 15 }}>₹{Math.round(finLifetime.netPayable).toLocaleString("en-IN")}</strong>{isContract && <><br /><small style={{ fontSize: 9, color: C.textDim }}>adds to contractor</small></>}</td>
+                    <td style={{ ...css.td, background: color + "11" }}><strong style={{ color: (isContract ? fin.netPayable + fin.totalContractorDist : fin.netPayable) < 0 ? C.red : (isContract ? C.textDim : color), fontSize: 14 }}>₹{Math.round(isContract ? fin.netPayable + fin.totalContractorDist : fin.netPayable).toLocaleString("en-IN")}</strong>{isContract && <><br /><small style={{ fontSize: 9, color: C.textDim }}>adds to contractor</small></>}</td>
+                    <td style={{ ...css.td, background: C.orange + "15", borderLeft: `2px solid ${C.orange}44` }}><strong style={{ color: (isContract ? finLifetime.netPayable + finLifetime.totalContractorDist : finLifetime.netPayable) < 0 ? C.red : (isContract ? C.textDim : C.orange), fontSize: 15 }}>₹{Math.round(isContract ? finLifetime.netPayable + finLifetime.totalContractorDist : finLifetime.netPayable).toLocaleString("en-IN")}</strong>{isContract && <><br /><small style={{ fontSize: 9, color: C.textDim }}>adds to contractor</small></>}</td>
                     <td style={css.td}>{fin.periods.length > 1 && <button style={{ ...css.btn(C.accent), padding: "3px 8px", fontSize: 10 }} onClick={() => setExpandedRow(expandedRow === emp.id ? null : emp.id)}>{expandedRow === emp.id ? "▲" : "▼"}</button>}</td>
                   </tr>
                   {expandedRow === emp.id && fin.periods.map((p, i) => (
