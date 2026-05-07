@@ -1587,22 +1587,31 @@ export default function App() {
         body { background-color: #f4f6f9 !important; color: #0f172a !important; margin: 0; }
         
         @media (max-width: 768px) {
-          /* 1. Fix Top Header & Summaries: Forces horizontal elements to stack vertically on phones */
-          div[style*="justify-content: space-between"] { flex-direction: column !important; align-items: stretch !important; gap: 15px !important; text-align: center !important; }
+          /* 1. Header & Alerts: Stack logo, alerts, and buttons cleanly */
+          #root > div > div:first-child { flex-direction: column !important; gap: 12px !important; align-items: center !important; text-align: center; height: auto !important; padding: 16px 10px !important; }
+          #root > div > div:first-child > div:last-child { display: flex !important; flex-wrap: wrap !important; justify-content: center !important; gap: 8px !important; }
           
-          /* 2. Fix All Grids (Operations Roster, Ledger Summaries) to perfectly stack into a single column */
-          div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+          /* 2. Payroll/Ledger: Search Box vs Register Button (Adds safe spacing and stacks them) */
+          div[style*="justify-content: space-between"] { flex-direction: column !important; align-items: stretch !important; gap: 16px !important; text-align: left !important; }
           
-          /* 3. Fix Reports View Inputs (FROM/TO dates & Download Buttons) to stretch fully */
+          /* 3. Overtime & Payroll: Date Entry Boxes (Forces Start/End dates to stack instead of squishing) */
+          div[style*="display: flex"][style*="gap: 10"] { flex-wrap: wrap !important; gap: 12px !important; }
+          div[style*="display: flex"] > div[style*="flex: 1"] { min-width: 100% !important; }
+          input[type="date"] { width: 100% !important; box-sizing: border-box !important; }
+          
+          /* 4. Reports Page: FROM/TO date boxes and Download Buttons */
           div[style*="align-items: flex-end"] { flex-direction: column !important; align-items: stretch !important; gap: 12px !important; }
           div[style*="align-items: flex-end"] > div { width: 100% !important; }
-          div[style*="align-items: flex-end"] input { width: 100% !important; box-sizing: border-box !important; }
+          div[style*="align-items: flex-end"] button { width: 100% !important; margin-top: 8px !important; }
           
-          /* 4. Fix Buttons so text never overflows out of the sides */
-          button { white-space: normal !important; height: auto !important; padding: 10px !important; }
+          /* 5. Watchlist & Grids: Perfect single-column alignment */
+          div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
           
-          /* 5. Ensure tables remain safe to swipe */
+          /* 6. Ensure tables remain safe to swipe */
           table { display: block !important; overflow-x: auto !important; white-space: nowrap !important; width: 100% !important; }
+          
+          /* Make all inputs, selects, and buttons safe */
+          input, select, button { max-width: 100% !important; box-sizing: border-box !important; }
         }
       `}</style>
       <style>{`
