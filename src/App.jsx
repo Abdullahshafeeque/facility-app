@@ -28,7 +28,7 @@ const css = {
   td: { padding: "10px 12px", borderBottom: `1px solid ${C.border}`, verticalAlign: "middle" },
   input: { background: C.bg, border: `1px solid ${C.border}`, borderRadius: 4, color: C.text, padding: "6px 10px", fontSize: 12, fontFamily: "inherit", outline: "none" },
   btn: (color = C.accent) => ({ background: color + "22", color: color, border: `1px solid ${color}55`, borderRadius: 4, padding: "7px 16px", fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", fontFamily: "inherit" }),
-  modal: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 },
+  modal: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "12px 8px", overflowY: "auto" },
 };
 
 const statusColor = (s) => s === "Present" ? C.green : s === "Absent" ? C.red : C.accent;
@@ -1587,9 +1587,9 @@ export default function App() {
         body { background-color: #f4f6f9 !important; color: #0f172a !important; margin: 0; }
         
         @media (max-width: 768px) {
-          /* 1. Header & Alerts: Stack logo, alerts, and buttons cleanly */
-          #root > div > div:first-child { flex-direction: column !important; gap: 12px !important; align-items: center !important; text-align: center; height: auto !important; padding: 16px 10px !important; }
-          #root > div > div:first-child > div:last-child { display: flex !important; flex-wrap: wrap !important; justify-content: center !important; gap: 8px !important; }
+          /* 1. Header & Alerts: Stack cleanly and allow scrolling away on mobile */
+          header { position: static !important; flex-direction: column !important; gap: 12px !important; align-items: center !important; text-align: center; height: auto !important; padding: 16px 10px !important; }
+          header > div:last-child { display: flex !important; flex-wrap: wrap !important; justify-content: center !important; gap: 8px !important; }
           
           /* 2. Payroll/Ledger: Search Box vs Register Button (Adds safe spacing and stacks them) */
           div[style*="justify-content: space-between"] { flex-direction: column !important; align-items: stretch !important; gap: 16px !important; text-align: left !important; }
