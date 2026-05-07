@@ -11,12 +11,12 @@ const C = {
 
 const css = {
   app: { minHeight: "100vh", background: C.bg, fontFamily: "'DM Mono', 'Courier New', monospace", color: C.text, paddingBottom: 40 },
-  header: { background: C.panel, borderBottom: `1px solid ${C.border}`, padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 60, position: "sticky", top: 0, zIndex: 100 },
+  header: { background: C.panel, borderBottom: `1px solid ${C.border}`, padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, minHeight: 60, position: "sticky", top: 0, zIndex: 100 },
   logo: { fontSize: 13, fontWeight: 700, letterSpacing: 3, color: C.accent, textTransform: "uppercase" },
   badge: (color) => ({ background: color + "22", color: color, border: `1px solid ${color}55`, borderRadius: 4, padding: "2px 10px", fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }),
   nav: { display: "flex", flexWrap: "wrap", gap: 6, padding: "12px 24px", borderBottom: `1px solid ${C.border}`, background: C.panel },
   navBtn: (active) => ({ background: active ? C.accentDim : "transparent", color: active ? C.accent : C.textDim, border: `1px solid ${active ? C.accent + "55" : "transparent"}`, borderRadius: 4, padding: "6px 16px", fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap", transition: "all 0.15s" }),
-  page: { padding: "24px 24px 0" },
+  page: { padding: "16px 12px 0" },
   grid2: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 },
   grid4: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 },
   card: { background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20 },
@@ -28,7 +28,7 @@ const css = {
   td: { padding: "10px 12px", borderBottom: `1px solid ${C.border}`, verticalAlign: "middle" },
   input: { background: C.bg, border: `1px solid ${C.border}`, borderRadius: 4, color: C.text, padding: "6px 10px", fontSize: 12, fontFamily: "inherit", outline: "none" },
   btn: (color = C.accent) => ({ background: color + "22", color: color, border: `1px solid ${color}55`, borderRadius: 4, padding: "7px 16px", fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", fontFamily: "inherit" }),
-  modal: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 },
+  modal: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "12px 8px", overflowY: "auto" },
 };
 
 const statusColor = (s) => s === "Present" ? C.green : s === "Absent" ? C.red : C.accent;
@@ -275,7 +275,7 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
   return (
     <div style={css.page}>
       <div style={css.sectionTitle}>Log Overtime</div>
-      <div style={{ ...css.card, marginBottom: 20, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
+      <div style={{ ...css.card, marginBottom: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, alignItems: "flex-end" }}>
         <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>EMPLOYEE</div>
           <select style={{...css.input, width: 160}} value={form.empId} onChange={e => setForm({...form, empId: e.target.value})}>
             <option value="">-- Select --</option>
@@ -539,8 +539,8 @@ function AttendanceView({ employees }) {
                       <td style={css.td}>
                         <div style={{ display: "flex", gap: 4 }}>
                           {["Present", "Absent", "Leave"].map(s => (
-                            <button key={s} disabled={isHoliday} style={{ ...css.btn(statusColor(s)), opacity: rec.status === s ? 1 : 0.25, padding: "4px 8px", fontSize: 10 }} onClick={() => toggle(emp.id, "status", s)}>{s}</button>
-                          ))}
+  <button key={s} disabled={isHoliday} style={{ ...css.btn(statusColor(s)), opacity: rec.status === s ? 1 : 0.25, padding: "6px 8px", fontSize: 11, minWidth: 60 }} onClick={() => toggle(emp.id, "status", s)}>{s[0]}</button>
+))}
                         </div>
                       </td>
                     </tr>
@@ -1105,7 +1105,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
-            <thead><tr style={{ background: C.bg }}>{["Name / Post", "Prorated Base", "Absent", "Leave", "OT", "Bonus", "Adv/Fine", "Paid", "Period Net", "Actual Payable", ""].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+            <thead><tr style={{ background: C.bg }}>{["Name / Post", "Prorated Base", "Absent", "Leave", "OT", "Bonus", "Adv/Fine", "Paid", "Period Net", "Actual Payable", ""].map(h => <th key={h} style={{ ...css.th, whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
             <tbody>
               {rows.length === 0 && <tr><td colSpan={11} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No staff.</td></tr>}
               {rows.map(({ emp, fin, finLifetime }) => (
@@ -1468,7 +1468,7 @@ const printRoster = () => {
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>1. Monthly Payroll Summary (CSV)</div>
         <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>Export raw financial data into a spreadsheet for accountants to easily import into Excel, Tally, or QuickBooks.</div>
         
-        <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, alignItems: "flex-end" }}>
           <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={css.input} value={start} onChange={e => setStart(e.target.value)} /></div>
           <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={css.input} value={end} onChange={e => setEnd(e.target.value)} /></div>
           <button style={css.btn(C.green)} onClick={downloadCSV} disabled={loading}>{loading ? "Fetching Data..." : "📥 Download CSV Spreadsheet"}</button>
