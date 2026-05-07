@@ -1083,13 +1083,15 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
   }, []);
 
   const handleTransaction = async () => {
-    if (!form.empId || !form.amount || Number(form.amount) <= 0) return alert("Select staff and enter a valid amount.");
+    if (!form.empId || !form.amount || Number(form.amount) <= 0) return alert("Select staff/contractor and enter a valid amount.");
     setSaving(true);
     
+    const isContractor = form.empId === "CONTRACTOR";
+    
     const { data, error } = await supabase.from("financial_ledger").insert({ 
-      employee_id: form.empId, 
+      employee_id: isContractor ? null : form.empId, 
       date: form.date, 
-      transaction_type: form.type, 
+      transaction_type: isContractor ? "Contractor Payout" : form.type, 
       amount: Number(form.amount), 
       notes: form.notes 
     }).select().single();
@@ -1129,7 +1131,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
     });
   };
 
-  const PayrollTable = ({ staffList, label, color }) => {
+  const PayrollTable = ({ staffList, label, color, isContract }) => {
     let filteredList = staffList;
     if (search.trim()) filteredList = filteredList.filter(e => e.name.toLowerCase().includes(search.toLowerCase()));
     
@@ -1142,6 +1144,9 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
     
     const totalNet = rows.reduce((s, r) => s + r.fin.netPayable, 0);
     const totalActual = rows.reduce((s, r) => s + r.finLifetime.netPayable, 0);
+
+    const periodContractorPaid = isContract ? ledger.filter(l => l.transaction_type === "Contractor Payout" && l.date >= start && l.date <= end).reduce((s, l) => s + Number(l.amount), 0) : 0;
+    const lifetimeContractorPaid = isContract ? ledger.filter(l => l.transaction_type === "Contractor Payout" && l.date <= end).reduce((s, l) => s + Number(l.amount), 0) : 0;
 
     return (
       <div style={{ marginBottom: 30 }}>
@@ -1182,9 +1187,30 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
                 </React.Fragment>
               ))}
             </tbody>
-            <tfoot><tr style={{ borderTop: `2px solid ${C.border}` }}><td colSpan={8} style={{ ...css.td, textAlign: "right", fontWeight: 700 }}>TOTAL PAYABLE</td><td style={css.td}><strong style={{ color, fontSize: 16 }}>₹{Math.round(totalNet).toLocaleString("en-IN")}</strong></td><td style={{...css.td, borderLeft: `2px solid ${C.orange}44`}}><strong style={{ color: C.orange, fontSize: 16 }}>₹{Math.round(totalActual).toLocaleString("en-IN")}</strong></td><td style={css.td}></td></tr></tfoot>
+            <tfoot>
+              <tr style={{ borderTop: `2px solid ${C.border}` }}><td colSpan={8} style={{ ...css.td, textAlign: "right", fontWeight: 700 }}>TOTAL STAFF PAYABLE</td><td style={css.td}><strong style={{ color, fontSize: 16 }}>₹{Math.round(totalNet).toLocaleString("en-IN")}</strong></td><td style={{...css.td, borderLeft: `2px solid ${C.orange}44`}}><strong style={{ color: C.orange, fontSize: 16 }}>₹{Math.round(totalActual).toLocaleString("en-IN")}</strong></td><td style={css.td}></td></tr>
+              {isContract && (
+                <>
+                  <tr><td colSpan={8} style={{ ...css.td, textAlign: "right", color: C.red, fontSize: 12 }}>(-) LUMP SUM CONTRACTOR PAYOUTS</td><td style={{ ...css.td, color: C.red }}>-₹{periodContractorPaid.toLocaleString("en-IN")}</td><td style={{...css.td, color: C.red, borderLeft: `2px solid ${C.orange}44`}}>-₹{lifetimeContractorPaid.toLocaleString("en-IN")}</td><td style={css.td}></td></tr>
+                  <tr style={{ background: C.orange + "15" }}><td colSpan={8} style={{ ...css.td, textAlign: "right", fontWeight: 700, color: C.orange }}>NET BALANCE OWED TO CONTRACTOR</td><td style={css.td}><strong style={{ color: C.orange, fontSize: 18 }}>₹{Math.round(totalNet - periodContractorPaid).toLocaleString("en-IN")}</strong></td><td style={{...css.td, borderLeft: `2px solid ${C.orange}44`}}><strong style={{ color: C.orange, fontSize: 18 }}>₹{Math.round(totalActual - lifetimeContractorPaid).toLocaleString("en-IN")}</strong></td><td style={css.td}></td></tr>
+                </>
+              )}
+            </tfoot>
           </table>
         </div>
+        {isContract && ledger.filter(l => l.transaction_type === "Contractor Payout").length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <div style={css.sectionTitle}>Recent Lump Sum Payouts Log</div>
+            <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 8 }}>
+              {ledger.filter(l => l.transaction_type === "Contractor Payout").slice(0, 8).map(l => (
+                <div key={l.id} style={{ ...css.badge(C.orange), display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+                  {fDate(l.date)}: ₹{l.amount.toLocaleString("en-IN")}
+                  <button style={{ background: "transparent", border: "none", color: C.red, cursor: "pointer", marginLeft: 4 }} onClick={async () => { if(!window.confirm("Delete this contractor payout?")) return; await supabase.from("financial_ledger").delete().eq("id", l.id); setLedger(prev => prev.filter(x => x.id !== l.id)); }}>✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -1259,8 +1285,8 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
           <button key={id} style={{ ...css.navBtn(activeTab === id), color: activeTab === id ? color : C.textDim, borderColor: activeTab === id ? color + "55" : "transparent", background: activeTab === id ? color + "15" : "transparent" }} onClick={() => setActiveTab(id)}>{label}</button>
         ))}
       </div>
-      {activeTab === "company" && <PayrollTable staffList={companyStaff} label="Company Staff Payroll" color={C.blue} />}
-      {activeTab === "contract" && <PayrollTable staffList={contractStaff} label="Contract Staff Payroll" color={C.green} />}
+      {activeTab === "company" && <PayrollTable staffList={companyStaff} label="Company Staff Payroll" color={C.blue} isContract={false} />}
+      {activeTab === "contract" && <PayrollTable staffList={contractStaff} label="Contract Staff Payroll" color={C.green} isContract={true} />}
       {activeTab === "settlement" && <SettlementView />}
 
       {showModal && (
@@ -1271,18 +1297,20 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
               <button onClick={() => setShowModal(false)} style={{ background: C.red, color: "white", border: "none", borderRadius: 4, padding: "4px 12px", cursor: "pointer", fontWeight: 700 }}>✕</button>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>STAFF MEMBER</div>
+              <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>STAFF MEMBER / PAYEE</div>
                 <select style={{ ...css.input, width: "100%" }} value={form.empId} onChange={e => setForm({ ...form, empId: e.target.value })}>
                   <option value="">-- Select Person --</option>
+                  <option value="CONTRACTOR">🏢 Contractor (Lump Sum Payout)</option>
                   <optgroup label="Active Staff">{active.map(e => <option key={e.id} value={e.id}>[{e.emp_code || "—"}] {e.name}</option>)}</optgroup>
                   <optgroup label="Former Staff">{inactive.map(e => <option key={e.id} value={e.id}>[{e.emp_code || "—"}] {e.name} (left)</option>)}</optgroup>
                 </select>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TYPE</div>
-                  <select style={{ ...css.input, width: "100%" }} value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
+                  <select disabled={form.empId === "CONTRACTOR"} style={{ ...css.input, width: "100%", opacity: form.empId === "CONTRACTOR" ? 0.5 : 1 }} value={form.empId === "CONTRACTOR" ? "Contractor Payout" : form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
                     <option value="Advance">Advance</option><option value="Bonus">Bonus</option><option value="Fine">Fine</option><option value="Payout">Salary Payout</option>
                     <option value="Loan Given">Loan Given</option><option value="Loan Repayment">Loan Repayment</option>
+                    <option value="Contractor Payout">Contractor Payout</option>
                   </select>
                 </div>
                 <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>DATE</div><input type="date" style={{ ...css.input, width: "100%" }} value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
