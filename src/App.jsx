@@ -165,6 +165,7 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
   const totalBonuses = staffLedger.filter(l => l.transaction_type === "Bonus").reduce((s, l) => s + Number(l.amount), 0);
   const totalAdvances = staffLedger.filter(l => l.transaction_type === "Advance" || l.transaction_type === "Fine").reduce((s, l) => s + Number(l.amount), 0);
   const totalPaid = staffLedger.filter(l => l.transaction_type === "Payout").reduce((s, l) => s + Number(l.amount), 0);
+  const totalContractorDist = staffLedger.filter(l => l.transaction_type === "Contractor Distribution").reduce((s, l) => s + Number(l.amount), 0);
   
   // NEW: Dedicated Loan System Tracker
   const totalLoans = staffLedger.filter(l => l.transaction_type === "Loan Given").reduce((s, l) => s + Number(l.amount), 0);
@@ -172,9 +173,9 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
   const pendingLoan = totalLoans - totalRepayments;
 
   // The Final Logical Output (Loans act like advances, Repayments cancel them out)
-  const netPayable = (totalProratedSalary + totalBonuses + totalOTEarnings + totalRepayments) - (totalAttendanceDeduction + totalAdvances + totalPaid + totalLoans);
+  const netPayable = (totalProratedSalary + totalBonuses + totalOTEarnings + totalRepayments) - (totalAttendanceDeduction + totalAdvances + totalPaid + totalLoans + totalContractorDist);
 
-  return { periods: periodBreakdown, proratedSalary: totalProratedSalary, attendanceDeduction: totalAttendanceDeduction, otEarnings: totalOTEarnings, absentDays: totalAbsentDays, leaveDays: totalLeaveDays, totalOTHours, totalBonuses, totalAdvances, totalPaid, totalLoans, totalRepayments, pendingLoan, netPayable, joiningDate: employee.joining_date || start, effectiveStart };
+  return { periods: periodBreakdown, proratedSalary: totalProratedSalary, attendanceDeduction: totalAttendanceDeduction, otEarnings: totalOTEarnings, absentDays: totalAbsentDays, leaveDays: totalLeaveDays, totalOTHours, totalBonuses, totalAdvances, totalPaid, totalContractorDist, totalLoans, totalRepayments, pendingLoan, netPayable, joiningDate: employee.joining_date || start, effectiveStart };
 }
 
 function StatCard({ label, value, sub, accent }) {
@@ -1087,21 +1088,44 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
     setSaving(true);
     
     const isContractor = form.empId === "CONTRACTOR";
+    const payoutAmt = Number(form.amount);
     
     const { data, error } = await supabase.from("financial_ledger").insert({ 
       employee_id: isContractor ? null : form.empId, 
       date: form.date, 
       transaction_type: isContractor ? "Contractor Payout" : form.type, 
-      amount: Number(form.amount), 
+      amount: payoutAmt, 
       notes: form.notes 
     }).select().single();
+
+    let newEntries = data ? [data] : [];
+
+    // Auto-clear inactive contract staff dues immediately
+    if (isContractor && !error) {
+      let remainingPayout = payoutAmt;
+      const leftContractStaff = inactive.filter(e => e.staff_type === "contract" && !e.settlement_done);
+      const autoClearEntries = [];
+      
+      for (const emp of leftContractStaff) {
+        if (remainingPayout <= 0) break;
+        const fin = calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || "2020-01-01", todayStr, postHistory, overtime);
+        if (fin.netPayable > 0) {
+          const clearAmt = Math.min(fin.netPayable, remainingPayout);
+          autoClearEntries.push({ employee_id: emp.id, date: form.date, transaction_type: "Contractor Distribution", amount: clearAmt, notes: "Auto-cleared from contractor payout" });
+          remainingPayout -= clearAmt;
+        }
+      }
+
+      if (autoClearEntries.length > 0) {
+        const { data: clearedData } = await supabase.from("financial_ledger").insert(autoClearEntries).select();
+        if (clearedData) newEntries = [...clearedData, ...newEntries];
+      }
+    }
     
     setSaving(false);
-
-    if (error) {
-      alert("Database Error: " + error.message);
-    } else if (data) { 
-      setLedger(prev => [data, ...prev]); 
+    if (error) { alert("Database Error: " + error.message); } 
+    else { 
+      setLedger(prev => [...newEntries, ...prev]); 
       setShowModal(false); 
       setForm({ type: "Advance", amount: "", notes: "", date: todayStr, empId: "" }); 
     }
@@ -1147,6 +1171,35 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
 
     const periodContractorPaid = isContract ? ledger.filter(l => l.transaction_type === "Contractor Payout" && l.date >= start && l.date <= end).reduce((s, l) => s + Number(l.amount), 0) : 0;
     const lifetimeContractorPaid = isContract ? ledger.filter(l => l.transaction_type === "Contractor Payout" && l.date <= end).reduce((s, l) => s + Number(l.amount), 0) : 0;
+    const lifetimeContractorDistributed = isContract ? ledger.filter(l => l.transaction_type === "Contractor Distribution" && l.date <= end).reduce((s, l) => s + Number(l.amount), 0) : 0;
+    const availableToDistribute = lifetimeContractorPaid - lifetimeContractorDistributed;
+
+    const handleDistribute = async () => {
+      if (availableToDistribute <= 0) return alert("No undistributed contractor funds available.");
+      if (!window.confirm(`Distribute ₹${availableToDistribute.toLocaleString("en-IN")} among active contract staff?`)) return;
+      
+      const activeContract = staffList.map(emp => ({ emp, fin: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || "2020-01-01", todayStr, postHistory, overtime) })).filter(r => r.fin.netPayable > 0);
+      if (activeContract.length === 0) return alert("No active contract staff have pending dues.");
+
+      let remaining = availableToDistribute;
+      const share = Math.floor(remaining / activeContract.length);
+      const newEntries = [];
+
+      for (const { emp, fin } of activeContract) {
+        if (remaining <= 0) break;
+        const amount = Math.min(fin.netPayable, share, remaining);
+        if (amount > 0) {
+          newEntries.push({ employee_id: emp.id, date: todayStr, transaction_type: "Contractor Distribution", amount, notes: "Distributed from lump sum" });
+          remaining -= amount;
+        }
+      }
+
+      if (newEntries.length > 0) {
+        const { data } = await supabase.from("financial_ledger").insert(newEntries).select();
+        if (data) setLedger(prev => [...data, ...prev]);
+        alert("Funds distributed successfully! If there are still undistributed funds left due to individual balances being maxed out, you can click Distribute again.");
+      }
+    };
 
     return (
       <div style={{ marginBottom: 30 }}>
@@ -1156,7 +1209,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
-            <thead><tr style={{ background: C.bg }}>{["Name / Post", "Prorated Base", "Absent", "Leave", "OT", "Bonus", "Adv/Fine", "Paid", "Period Net", "Actual Payable", ""].map(h => <th key={h} style={{ ...css.th, whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
+            <thead><tr style={{ background: C.bg }}>{["Name / Post", "Prorated Base", "Absent", "Leave", "OT", "Bonus", "Adv/Fine", isContract ? "Paid by Contr." : "Paid", isContract ? "Period Value" : "Period Net", isContract ? "Total Value" : "Actual Payable", ""].map(h => <th key={h} style={{ ...css.th, whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
             <tbody>
               {rows.length === 0 && <tr><td colSpan={11} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No staff.</td></tr>}
               {rows.map(({ emp, fin, finLifetime }) => (
@@ -1169,9 +1222,9 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
                     <td style={{ ...css.td, color: C.green }}>{fin.totalOTHours}h<br /><small>+₹{Math.round(fin.otEarnings).toLocaleString()}</small></td>
                     <td style={{ ...css.td, color: C.green }}>+₹{fin.totalBonuses.toLocaleString()}</td>
                     <td style={{ ...css.td, color: C.red }}>-₹{fin.totalAdvances.toLocaleString()}</td>
-                    <td style={{ ...css.td, color: C.textDim }}>₹{fin.totalPaid.toLocaleString()}</td>
-                    <td style={{ ...css.td, background: color + "11" }}><strong style={{ color: fin.netPayable < 0 ? C.red : color, fontSize: 14 }}>₹{Math.round(fin.netPayable).toLocaleString("en-IN")}</strong></td>
-                    <td style={{ ...css.td, background: C.orange + "15", borderLeft: `2px solid ${C.orange}44` }}><strong style={{ color: finLifetime.netPayable < 0 ? C.red : C.orange, fontSize: 15 }}>₹{Math.round(finLifetime.netPayable).toLocaleString("en-IN")}</strong></td>
+                    <td style={{ ...css.td, color: C.textDim }}>₹{isContract ? fin.totalContractorDist.toLocaleString() : fin.totalPaid.toLocaleString()}</td>
+                    <td style={{ ...css.td, background: color + "11" }}><strong style={{ color: fin.netPayable < 0 ? C.red : (isContract ? C.textDim : color), fontSize: 14 }}>₹{Math.round(fin.netPayable).toLocaleString("en-IN")}</strong>{isContract && <><br /><small style={{ fontSize: 9, color: C.textDim }}>adds to contractor</small></>}</td>
+                    <td style={{ ...css.td, background: C.orange + "15", borderLeft: `2px solid ${C.orange}44` }}><strong style={{ color: finLifetime.netPayable < 0 ? C.red : (isContract ? C.textDim : C.orange), fontSize: 15 }}>₹{Math.round(finLifetime.netPayable).toLocaleString("en-IN")}</strong>{isContract && <><br /><small style={{ fontSize: 9, color: C.textDim }}>adds to contractor</small></>}</td>
                     <td style={css.td}>{fin.periods.length > 1 && <button style={{ ...css.btn(C.accent), padding: "3px 8px", fontSize: 10 }} onClick={() => setExpandedRow(expandedRow === emp.id ? null : emp.id)}>{expandedRow === emp.id ? "▲" : "▼"}</button>}</td>
                   </tr>
                   {expandedRow === emp.id && fin.periods.map((p, i) => (
@@ -1200,7 +1253,13 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
         </div>
         {isContract && ledger.filter(l => l.transaction_type === "Contractor Payout").length > 0 && (
           <div style={{ marginTop: 16 }}>
-            <div style={css.sectionTitle}>Recent Lump Sum Payouts Log</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
+              <div style={{ ...css.sectionTitle, marginBottom: 0 }}>Recent Lump Sum Payouts Log</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 12, color: C.textDim }}>Undistributed: <strong style={{ color: C.orange }}>₹{Math.round(availableToDistribute).toLocaleString("en-IN")}</strong></span>
+                <button style={{ ...css.btn(C.orange), padding: "4px 12px", fontSize: 10 }} onClick={handleDistribute}>➗ Distribute to Staff</button>
+              </div>
+            </div>
             <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 8 }}>
               {ledger.filter(l => l.transaction_type === "Contractor Payout").slice(0, 8).map(l => (
                 <div key={l.id} style={{ ...css.badge(C.orange), display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
