@@ -14,7 +14,7 @@ const css = {
   header: { background: C.panel, borderBottom: `1px solid ${C.border}`, padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 60, position: "sticky", top: 0, zIndex: 100 },
   logo: { fontSize: 13, fontWeight: 700, letterSpacing: 3, color: C.accent, textTransform: "uppercase" },
   badge: (color) => ({ background: color + "22", color: color, border: `1px solid ${color}55`, borderRadius: 4, padding: "2px 10px", fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }),
-  nav: { display: "flex", gap: 4, padding: "12px 24px", borderBottom: `1px solid ${C.border}`, background: C.panel, overflowX: "auto" },
+  nav: { display: "flex", flexWrap: "wrap", gap: 6, padding: "12px 24px", borderBottom: `1px solid ${C.border}`, background: C.panel },
   navBtn: (active) => ({ background: active ? C.accentDim : "transparent", color: active ? C.accent : C.textDim, border: `1px solid ${active ? C.accent + "55" : "transparent"}`, borderRadius: 4, padding: "6px 16px", fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", cursor: "pointer", whiteSpace: "nowrap", transition: "all 0.15s" }),
   page: { padding: "24px 24px 0" },
   grid2: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 },
@@ -883,7 +883,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
                   <div style={{ ...css.sectionTitle, marginBottom: 0 }}>Lifetime Ledger Summary</div>
                   <button style={{ ...css.btn(C.blue), padding: "4px 12px", fontSize: 10 }} onClick={() => generatePayslip(viewing, fin)}>📥 Generate Payslip PDF</button>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10, marginBottom: 16, background: C.bg, padding: 14, borderRadius: 8, textAlign: "center" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 16, background: C.bg, padding: 14, borderRadius: 8, textAlign: "center" }}>
                   <div><div style={{ fontSize: 10, color: C.textDim }}>OT EARNINGS</div><strong style={{ color: C.green }}>+₹{Math.round(fin.otEarnings).toLocaleString("en-IN")}</strong></div>
                   <div><div style={{ fontSize: 10, color: C.textDim }}>TOTAL PAID</div><strong style={{ color: C.textDim }}>₹{fin.totalPaid.toLocaleString("en-IN")}</strong></div>
                   <div><div style={{ fontSize: 10, color: C.textDim }}>ADVANCES/FINES</div><strong style={{ color: C.red }}>-₹{fin.totalAdvances.toLocaleString("en-IN")}</strong></div>
@@ -1580,7 +1580,15 @@ export default function App() {
   ];
 
   return (
-    <div style={css.app}>
+    <div style={css.page}>
+      <style>{`
+        @media (max-width: 768px) {
+          /* Force all tables to scroll sideways instead of breaking the screen */
+          table { display: block !important; overflow-x: auto !important; white-space: nowrap !important; width: 100% !important; }
+          /* Make inputs responsive */
+          input, select { max-width: 100% !important; box-sizing: border-box !important; }
+        }
+      `}</style>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500;700&display=swap');
         * { box-sizing: border-box; }
