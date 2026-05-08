@@ -727,15 +727,15 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
       const beforeStartStr = [beforeDt.getFullYear(), String(beforeDt.getMonth() + 1).padStart(2, "0"), String(beforeDt.getDate()).padStart(2, "0")].join("-");
       
       // 1. Opening Balance (Lifetime up to day before Start Date)
-      const priorFin = calcFinances(emp, posts, attendance, ledger, emp.joining_date || "2020-01-01", beforeStartStr, postHistory, overtime);
+      const priorFin = calcFinances(emp, posts, [YOUR_SECRET_WORD], ledger, emp.joining_date || "2020-01-01", beforeStartStr, postHistory, overtime);
       const openingBalance = Math.round(priorFin.netPayable);
 
       // 2. Period Earnings & Deductions
-      const finPeriod = calcFinances(emp, posts, attendance, ledger, startDate, endDate, postHistory, overtime);
+      const finPeriod = calcFinances(emp, posts, [YOUR_SECRET_WORD], ledger, startDate, endDate, postHistory, overtime);
       const periodEarned = finPeriod.proratedSalary - finPeriod.attendanceDeduction + finPeriod.otEarnings + finPeriod.totalBonuses + (finPeriod.foodAllowance || 0);
 
       // 3. Closing Balance (Lifetime up to End Date)
-      const closingFin = calcFinances(emp, posts, attendance, ledger, emp.joining_date || "2020-01-01", endDate, postHistory, overtime);
+      const closingFin = calcFinances(emp, posts, [YOUR_SECRET_WORD], ledger, emp.joining_date || "2020-01-01", endDate, postHistory, overtime);
       const closingBalance = Math.round(closingFin.netPayable);
 
       // --- EXTENDED HR METRICS CALCULATIONS ---
