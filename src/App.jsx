@@ -709,6 +709,90 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
       });
     });
   };
+  const generateFullReport = (emp, finData) => {
+    import("jspdf").then(({ jsPDF }) => {
+      import("jspdf-autotable").then(({ default: autoTable }) => {
+        const doc = new jsPDF();
+        const today = new Date().toLocaleDateString("en-IN");
+
+        // 1. Header
+        doc.setFontSize(20);
+        doc.setTextColor(30, 111, 219);
+        doc.text("PUNATHIL ROLLER FLOUR MILLS", 14, 20);
+        doc.setFontSize(14);
+        doc.setTextColor(0);
+        doc.text(`Comprehensive Staff Report: ${emp.name}`, 14, 28);
+        doc.setFontSize(10);
+        doc.text(`Generated on: ${today} | Aadhar: ${emp.aadhar || "N/A"}`, 14, 34);
+
+        // 2. Lifetime Summary Table
+        autoTable(doc, {
+          startY: 40,
+          head: [["Lifetime Summary", "Days / Hours", "Financial Impact"]],
+          body: [
+            ["Total Overtime", `${finData.totalOTHours} hrs`, `+ Rs. ${Math.round(finData.otEarnings).toLocaleString("en-IN")}`],
+            ["Total Absences", `${finData.absentDays} days`, `- Rs. ${Math.round(finData.attendanceDeduction).toLocaleString("en-IN")}`],
+            ["Total Leaves Taken", `${finData.leaveDays} days`, "0"],
+            ["Total Bonuses & Food Allow.", "-", `+ Rs. ${Math.round(finData.totalBonuses + (finData.foodAllowance || 0)).toLocaleString("en-IN")}`],
+            ["Total Advances/Fines", "-", `- Rs. ${finData.totalAdvances.toLocaleString("en-IN")}`],
+            ["Total Payments Made", "-", `Rs. ${finData.totalPaid.toLocaleString("en-IN")}`],
+            ["Pending Loan Balance", "-", `Rs. ${finData.pendingLoan.toLocaleString("en-IN")}`],
+            ["CURRENT NET PAYABLE", "-", `Rs. ${Math.round(finData.netPayable).toLocaleString("en-IN")}`]
+          ],
+          theme: "grid",
+          headStyles: { fillColor: [244, 246, 249], textColor: [0, 0, 0] },
+          styles: { fontSize: 10 }
+        });
+
+        let finalY = doc.lastAutoTable.finalY + 10;
+
+        // 3. Overtime Log Table (Calculates exact earnings per OT row)
+        const empOT = (overtime || []).filter(o => o.employee_id === emp.id).sort((a, b) => new Date(b.date) - new Date(a.date));
+        if (empOT.length > 0) {
+          const fallbackHourly = Math.round((((Number(emp.base_salary) * 12) / 365) / 12) * 2) / 2;
+          
+          autoTable(doc, {
+            startY: finalY,
+            head: [["Date", "Overtime Post", "Time", "Hours", "Amount Earned"]],
+            body: empOT.map(o => {
+              let hrRate = fallbackHourly;
+              const p = posts.find(x => x.name === o.post);
+              if (p) {
+                const pSal = Number(p.contract_salary) || Number(p.base_salary) || 0;
+                if (pSal > 0) hrRate = Math.round((((pSal * 12) / 365) / 12) * 2) / 2;
+              }
+              const earned = Math.round(Number(o.hours) * hrRate);
+              return [fDate(o.date), o.post, `${o.start_time} - ${o.end_time}`, `${o.hours}h`, `Rs. ${earned.toLocaleString("en-IN")}`];
+            }),
+            theme: "grid",
+            headStyles: { fillColor: [22, 163, 74] }, // Green theme for OT
+            styles: { fontSize: 9 }
+          });
+          finalY = doc.lastAutoTable.finalY + 10;
+        }
+
+        // 4. Ledger Transaction History Table
+        const empLedger = (ledger || []).filter(l => l.employee_id === emp.id).sort((a, b) => new Date(b.date) - new Date(a.date));
+        if (empLedger.length > 0) {
+          autoTable(doc, {
+            startY: finalY,
+            head: [["Date", "Transaction Type", "Amount", "Remarks"]],
+            body: empLedger.map(l => [
+              fDate(l.date), 
+              l.transaction_type, 
+              `Rs. ${l.amount.toLocaleString("en-IN")}`, 
+              l.notes || ""
+            ]),
+            theme: "grid",
+            headStyles: { fillColor: [234, 88, 12] }, // Orange theme for ledger
+            styles: { fontSize: 9 }
+          });
+        }
+
+        doc.save(`Full_Report_${emp.name.replace(/ /g, "_")}.pdf`);
+      });
+    });
+  };
   const [showForm, setShowForm] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
   const [search, setSearch] = useState("");
@@ -1057,9 +1141,12 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
 
             {fin && (
               <>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
                   <div style={{ ...css.sectionTitle, marginBottom: 0 }}>Lifetime Ledger Summary</div>
-                  <button style={{ ...css.btn(C.blue), padding: "4px 12px", fontSize: 10 }} onClick={() => generatePayslip(viewing, fin)}>📥 Generate Payslip PDF</button>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button style={{ ...css.btn(C.blue), padding: "4px 12px", fontSize: 10 }} onClick={() => generatePayslip(viewing, fin)}>📥 Monthly Payslip</button>
+                    <button style={{ ...css.btn(C.green), padding: "4px 12px", fontSize: 10 }} onClick={() => generateFullReport(viewing, fin)}>📊 Full Report PDF</button>
+                  </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 16, background: C.bg, padding: 14, borderRadius: 8, textAlign: "center" }}>
                   <div><div style={{ fontSize: 10, color: C.textDim }}>OT EARNINGS</div><strong style={{ color: C.green }}>+₹{Math.round(fin.otEarnings).toLocaleString("en-IN")}</strong></div>
