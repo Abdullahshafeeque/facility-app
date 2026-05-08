@@ -709,33 +709,23 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
       });
     });
   };
-  const generateFullReport = (emp) => {
+  const generateFullReport = (emp, startDate, endDate) => {
     try {
-      const todayLocal = [new Date().getFullYear(), String(new Date().getMonth() + 1).padStart(2, "0"), String(new Date().getDate()).padStart(2, "0")].join("-");
-      
-      const startDate = window.prompt(`Select START DATE for ${emp.name}'s report:\n(Format STRICTLY as YYYY-MM-DD)`, emp.joining_date || "2020-01-01");
-      if (!startDate) return;
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return alert("❌ ERROR: Invalid Start Date Format. Must be YYYY-MM-DD.");
-
-      const endDate = window.prompt(`Select END DATE for ${emp.name}'s report:\n(Format STRICTLY as YYYY-MM-DD)`, todayLocal);
-      if (!endDate) return;
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) return alert("❌ ERROR: Invalid End Date Format. Must be YYYY-MM-DD.");
-
       // Calculate Prior Balance (Carried Forward)
       const [y, m, d] = startDate.split("-").map(Number);
       const beforeDt = new Date(y, m - 1, d - 1);
       const beforeStartStr = [beforeDt.getFullYear(), String(beforeDt.getMonth() + 1).padStart(2, "0"), String(beforeDt.getDate()).padStart(2, "0")].join("-");
       
       // 1. Opening Balance (Lifetime up to day before Start Date)
-      const priorFin = calcFinances(emp, posts, [YOUR_SECRET_WORD], ledger, emp.joining_date || "2020-01-01", beforeStartStr, postHistory, overtime);
+      const priorFin = calcFinances(emp, posts, viewingAtt, ledger, emp.joining_date || "2020-01-01", beforeStartStr, postHistory, overtime);
       const openingBalance = Math.round(priorFin.netPayable);
 
       // 2. Period Earnings & Deductions
-      const finPeriod = calcFinances(emp, posts, [YOUR_SECRET_WORD], ledger, startDate, endDate, postHistory, overtime);
+      const finPeriod = calcFinances(emp, posts, viewingAtt, ledger, startDate, endDate, postHistory, overtime);
       const periodEarned = finPeriod.proratedSalary - finPeriod.attendanceDeduction + finPeriod.otEarnings + finPeriod.totalBonuses + (finPeriod.foodAllowance || 0);
 
       // 3. Closing Balance (Lifetime up to End Date)
-      const closingFin = calcFinances(emp, posts, [YOUR_SECRET_WORD], ledger, emp.joining_date || "2020-01-01", endDate, postHistory, overtime);
+      const closingFin = calcFinances(emp, posts, viewingAtt, ledger, emp.joining_date || "2020-01-01", endDate, postHistory, overtime);
       const closingBalance = Math.round(closingFin.netPayable);
 
       // --- EXTENDED HR METRICS CALCULATIONS ---
@@ -827,15 +817,11 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
             }
 
             doc.save(`Statement_${emp.name.replace(/ /g, "_")}_${startDate}_to_${endDate}.pdf`);
-          } catch (pdfErr) {
-            alert("PDF Generation Error:\n" + pdfErr.message);
-          }
-        }).catch(err => alert("AutoTable Import Error:\n" + err.message));
-      }).catch(err => alert("jsPDF Import Error:\n" + err.message));
+          } catch (pdfErr) { alert("PDF Error: " + pdfErr.message); }
+        }).catch(err => alert("AutoTable Error: " + err.message));
+      }).catch(err => alert("jsPDF Error: " + err.message));
 
-    } catch (mainErr) {
-      alert("Main Logic Error:\n" + mainErr.message);
-    }
+    } catch (mainErr) { alert("Logic Error: " + mainErr.message); }
   };
   const [showForm, setShowForm] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
@@ -848,6 +834,8 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
   const [viewingAtt, setViewingAtt] = useState([]);
   const [datePromptOpts, setDatePromptOpts] = useState(null);
   const askForDate = (msg) => new Promise(resolve => setDatePromptOpts({ msg, date: todayStr, resolve }));
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportDates, setReportDates] = useState({ start: "", end: "" });
 
   // Fetch this specific person's historical attendance when their profile opens
   useEffect(() => {
@@ -1189,7 +1177,11 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
                   <div style={{ ...css.sectionTitle, marginBottom: 0 }}>Lifetime Ledger Summary</div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <button style={{ ...css.btn(C.blue), padding: "4px 12px", fontSize: 10 }} onClick={() => generatePayslip(viewing, fin)}>📥 Monthly Payslip</button>
-                    <button style={{ ...css.btn(C.green), padding: "4px 12px", fontSize: 10 }} onClick={() => generateFullReport(viewing)}>📊 Account Statement</button>
+                    <button style={{ ...css.btn(C.green), padding: "4px 12px", fontSize: 10 }} onClick={() => {
+                      const todayStr = [new Date().getFullYear(), String(new Date().getMonth() + 1).padStart(2, "0"), String(new Date().getDate()).padStart(2, "0")].join("-");
+                      setReportDates({ start: viewing.joining_date || "2020-01-01", end: todayStr });
+                      setShowReportModal(true);
+                    }}>📊 Account Statement</button>
                   </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 16, background: C.bg, padding: 14, borderRadius: 8, textAlign: "center" }}>
@@ -1320,6 +1312,33 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
             <div style={{ display: "flex", gap: 10 }}>
               <button style={{ ...css.btn(C.green), flex: 1 }} onClick={() => { datePromptOpts.resolve(datePromptOpts.date); setDatePromptOpts(null); }}>Confirm Date</button>
               <button style={{ ...css.btn(C.red), flex: 1 }} onClick={() => { datePromptOpts.resolve(null); setDatePromptOpts(null); }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- REPORT CALENDAR MODAL --- */}
+      {showReportModal && (
+        <div style={css.modal}>
+          <div style={{ ...css.card, maxWidth: 320, width: "100%", border: `2px solid ${C.green}` }}>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: C.accent }}>Select Report Period</div>
+            
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 10, color: C.textDim, fontWeight: 700, marginBottom: 4 }}>START DATE</label>
+              <input type="date" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={reportDates.start} onChange={e => setReportDates(p => ({ ...p, start: e.target.value }))} />
+            </div>
+            
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: "block", fontSize: 10, color: C.textDim, fontWeight: 700, marginBottom: 4 }}>END DATE</label>
+              <input type="date" style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={reportDates.end} onChange={e => setReportDates(p => ({ ...p, end: e.target.value }))} />
+            </div>
+            
+            <div style={{ display: "flex", gap: 10 }}>
+              <button style={{ ...css.btn(C.green), flex: 1 }} onClick={() => {
+                setShowReportModal(false);
+                generateFullReport(viewing, reportDates.start, reportDates.end);
+              }}>⬇ Download PDF</button>
+              <button style={{ ...css.btn(C.red), flex: 1, background: "transparent" }} onClick={() => setShowReportModal(false)}>Cancel</button>
             </div>
           </div>
         </div>
