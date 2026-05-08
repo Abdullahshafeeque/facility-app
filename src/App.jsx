@@ -939,17 +939,27 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
               <div><div style={{ fontSize: 10, color: C.textDim }}>CURRENT POST</div><strong>{viewing.post}</strong></div>
             </div>
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 6, fontWeight: 700 }}>CHANGE POST / SHIFT</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <select style={{ ...css.input, flex: 1 }} value={viewing.post} onChange={e => updateEmployeePost(viewing, e.target.value)}>
-                  {posts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-                </select>
-                <select style={{ ...css.input, flex: 1 }} value={viewing.shift} onChange={e => updateEmployeeShift(viewing.id, e.target.value)}>
-                  <option>Morning</option><option>Night</option>
-                </select>
+                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 6, fontWeight: 700 }}>CHANGE POST / SHIFT</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <select style={{ ...css.input, flex: 1 }} value={viewing.post} onChange={e => updateEmployeePost(viewing, e.target.value)}>
+                    {posts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                  </select>
+                  <select style={{ ...css.input, flex: 1 }} value={viewing.shift} onChange={e => updateEmployeeShift(viewing.id, e.target.value)}>
+                    <option>Morning</option><option>Night</option>
+                  </select>
+                </div>
+                {viewing.staff_type === "contract" && <div style={{ fontSize: 10, color: C.orange, marginTop: 4 }}>⚠ Changing post updates salary to that post's contract rate from today onwards only.</div>}
               </div>
-              {viewing.staff_type === "contract" && <div style={{ fontSize: 10, color: C.orange, marginTop: 4 }}>⚠ Changing post updates salary to that post's contract rate from today onwards only.</div>}
-            </div>
+
+              {viewing.staff_type === "company" && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, color: C.textDim, marginBottom: 6, fontWeight: 700 }}>CHANGE BASE SALARY (COMPANY STAFF)</div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <div style={{ ...css.input, flex: 1, display: "flex", alignItems: "center", background: C.bg, color: C.textDim }}>Current: ₹{Number(viewing.base_salary).toLocaleString("en-IN")}</div>
+                    <button style={{ ...css.btn(C.blue), flex: 1 }} onClick={updateCompanySalary}>✎ Edit Salary & Date</button>
+                  </div>
+                </div>
+              )}
             {empHistory.length > 0 && (
               <>
                 <div style={css.sectionTitle}>Post Change History</div>
@@ -1502,14 +1512,25 @@ function SettingsView({ posts, setPosts, employees, setEmployees, trackingStartD
       const affectedEmps = employees.filter(e => e.post === post.name && e.staff_type === "contract" && e.status === "active");
       if (affectedEmps.length > 0) {
         const empIds = affectedEmps.map(e => e.id);
-        await supabase.from("post_history").update({ valid_to: validToDate }).in("employee_id", empIds).is("valid_to", null);
         
+        // 1. Fetch to see who already has a history tracking record
+        const { data: existingHistories } = await supabase.from("post_history").select("employee_id").in("employee_id", empIds).is("valid_to", null);
+        const empsWithHistory = (existingHistories || []).map(h => h.employee_id);
+
+        // 2. BACKFILL: Lock in the old salary for anyone missing a history record, so the past isn't altered!
+        const backfills = affectedEmps.filter(emp => !empsWithHistory.includes(emp.id))
+          .map(emp => ({ employee_id: emp.id, post: emp.post, staff_type: emp.staff_type, salary: post.contract_salary, valid_from: emp.joining_date || "2024-01-01", valid_to: validToDate }));
+        if (backfills.length > 0) await supabase.from("post_history").insert(backfills);
+
+        // 3. Close open histories and add new ones
+        await supabase.from("post_history").update({ valid_to: validToDate }).in("employee_id", empIds).is("valid_to", null);
         const newHistoryEntries = affectedEmps.map(emp => ({ employee_id: emp.id, post: emp.post, staff_type: emp.staff_type, salary: newVal, valid_from: dateStr, valid_to: null }));
         await supabase.from("post_history").insert(newHistoryEntries);
         
         await supabase.from("employees").update({ base_salary: newVal }).in("id", empIds);
         setEmployees(prev => prev.map(e => empIds.includes(e.id) ? { ...e, base_salary: newVal } : e));
-        alert(`Updated salaries and history for ${affectedEmps.length} contract staff.`);
+        
+        alert(`Updated salaries for ${affectedEmps.length} contract staff. Please refresh the page to see changes perfectly reflected in Payroll.`);
       }
     }
 
