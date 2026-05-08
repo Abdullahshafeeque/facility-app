@@ -69,25 +69,23 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
       const h = empHistory[i];
       
       if (h.valid_from && h.valid_from > cursor && h.valid_from <= effectiveEnd) {
-         const gapEndObj = new Date(h.valid_from);
-         // SAFETY NET: Only format if the date is valid to prevent crashes
-         if (!isNaN(gapEndObj)) {
-           gapEndObj.setDate(gapEndObj.getDate() - 1);
-           const gapEnd = gapEndObj.toISOString().split("T")[0];
-           if (gapEnd >= cursor) {
-              const fallbackSalary = employee.staff_type === "contract" ? (posts.find(p => p.name === employee.post)?.contract_salary || 0) : (employee.base_salary || 0);
-              periods.push({ from: cursor, to: gapEnd, post: employee.post, salary: fallbackSalary });
-           }
-         }
-      }
+             const [gy, gm, gd] = h.valid_from.split('-').map(Number);
+             const gapEndObj = new Date(gy, gm - 1, gd - 1);
+             const gapEnd = [gapEndObj.getFullYear(), String(gapEndObj.getMonth() + 1).padStart(2, "0"), String(gapEndObj.getDate()).padStart(2, "0")].join("-");
+             if (gapEnd >= cursor) {
+                const fallbackSalary = employee.staff_type === "contract" ? (posts.find(p => p.name === employee.post)?.contract_salary || 0) : (employee.base_salary || 0);
+                periods.push({ from: cursor, to: gapEnd, post: employee.post, salary: fallbackSalary });
+             }
+          }
 
-      const periodEnd = h.valid_to ? (h.valid_to < effectiveEnd ? h.valid_to : effectiveEnd) : effectiveEnd;
-      const periodStart = h.valid_from > cursor ? h.valid_from : cursor;
-      if (periodStart <= periodEnd && periodStart <= effectiveEnd) {
-        periods.push({ from: periodStart, to: periodEnd, post: h.post, salary: h.salary });
-        const nextDayObj = new Date(new Date(periodEnd).getTime() + 86400000);
-        cursor = isNaN(nextDayObj) ? periodEnd : nextDayObj.toISOString().split("T")[0];
-      }
+          const periodEnd = h.valid_to ? (h.valid_to < effectiveEnd ? h.valid_to : effectiveEnd) : effectiveEnd;
+          const periodStart = h.valid_from > cursor ? h.valid_from : cursor;
+          if (periodStart <= periodEnd && periodStart <= effectiveEnd) {
+            periods.push({ from: periodStart, to: periodEnd, post: h.post, salary: h.salary });
+            const [py, pm, pd] = periodEnd.split('-').map(Number);
+            const nextDayObj = new Date(py, pm - 1, pd + 1);
+            cursor = [nextDayObj.getFullYear(), String(nextDayObj.getMonth() + 1).padStart(2, "0"), String(nextDayObj.getDate()).padStart(2, "0")].join("-");
+          }
     }
     if (cursor <= effectiveEnd) {
       const currentSalary = employee.staff_type === "contract" ? (posts.find(p => p.name === employee.post)?.contract_salary || 0) : (employee.base_salary || 0);
@@ -756,9 +754,9 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
     if (!effectiveDate) return;
 
     const newSalary = Number(newAmount);
-    const dateObj = new Date(effectiveDate);
-    dateObj.setDate(dateObj.getDate() - 1);
-    const validToDate = dateObj.toISOString().split("T")[0];
+    const [y, m, d] = effectiveDate.split("-").map(Number);
+    const dateObj = new Date(y, m - 1, d - 1);
+    const validToDate = [dateObj.getFullYear(), String(dateObj.getMonth() + 1).padStart(2, "0"), String(dateObj.getDate()).padStart(2, "0")].join("-");
 
     const hasHistory = postHistory.some(h => h.employee_id === viewing.id && !h.valid_to);
     if (!hasHistory) {
@@ -783,9 +781,9 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
     if (!effectiveDate) return;
 
     const newSalary = emp.staff_type === "contract" ? getContractSalary(newPost) : emp.base_salary;
-    const dateObj = new Date(effectiveDate);
-    dateObj.setDate(dateObj.getDate() - 1);
-    const validToDate = dateObj.toISOString().split("T")[0];
+    const [y, m, d] = effectiveDate.split("-").map(Number);
+    const dateObj = new Date(y, m - 1, d - 1);
+    const validToDate = [dateObj.getFullYear(), String(dateObj.getMonth() + 1).padStart(2, "0"), String(dateObj.getDate()).padStart(2, "0")].join("-");
 
     // Check if the employee already has a history tracking record
     const hasHistory = postHistory.some(h => h.employee_id === emp.id && !h.valid_to);
@@ -1505,9 +1503,9 @@ function SettingsView({ posts, setPosts, employees, setEmployees, trackingStartD
       const dateStr = window.prompt(`Changing salary for all active ${post.name} contract staff.\nEnter effective date (YYYY-MM-DD):`, todayLocal);
       if (!dateStr) return; 
 
-      const dateObj = new Date(dateStr);
-      dateObj.setDate(dateObj.getDate() - 1);
-      const validToDate = dateObj.toISOString().split("T")[0];
+      const [y, m, d] = dateStr.split("-").map(Number);
+      const dateObj = new Date(y, m - 1, d - 1);
+      const validToDate = [dateObj.getFullYear(), String(dateObj.getMonth() + 1).padStart(2, "0"), String(dateObj.getDate()).padStart(2, "0")].join("-");
 
       const affectedEmps = employees.filter(e => e.post === post.name && e.staff_type === "contract" && e.status === "active");
       if (affectedEmps.length > 0) {
