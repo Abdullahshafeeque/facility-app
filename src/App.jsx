@@ -474,23 +474,21 @@ function AttendanceView({ employees }) {
       
       const attMap = {};
       let shiftHasData = false;
-      let shiftAllPresent = true;
-      let shiftRecordCount = 0;
-      
-      if (attData) {
-        attData.forEach(a => { 
-          attMap[a.employee_id] = { status: a.status, ot_hours: a.ot_hours }; 
-          const emp = active.find(e => e.id === a.employee_id);
-          if (emp && emp.shift === activeShift) {
-            shiftHasData = true;
-            shiftRecordCount++;
-            if (a.status !== "Present") shiftAllPresent = false;
+          let shiftIsHoliday = false;
+          
+          if (attData) {
+            attData.forEach(a => { 
+              attMap[a.employee_id] = { status: a.status, ot_hours: a.ot_hours }; 
+              const emp = active.find(e => e.id === a.employee_id);
+              if (emp && emp.shift === activeShift) {
+                shiftHasData = true;
+                if (a.status === "Holiday") shiftIsHoliday = true;
+              }
+            });
           }
-        });
-      }
-      
-      setIsSubmitted(shiftHasData);
-      setIsHoliday(shiftHasData && shiftAllPresent && shiftRecordCount > 0);
+          
+          setIsSubmitted(shiftHasData);
+          setIsHoliday(shiftHasData && shiftIsHoliday);
       setDayAttendance(attMap);
       setLoading(false);
     };
@@ -521,7 +519,7 @@ function AttendanceView({ employees }) {
 
   const handleHolidaySubmit = async () => {
     setSaving(true);
-    const insertData = filtered.map(emp => ({ employee_id: emp.id, date: selectedDate, status: "Present", ot_hours: 0 }));
+    const insertData = filtered.map(emp => ({ employee_id: emp.id, date: selectedDate, status: "Holiday", ot_hours: 0 }));
     
     const empIds = filtered.map(e => e.id);
     if (empIds.length > 0) {
@@ -531,7 +529,7 @@ function AttendanceView({ employees }) {
     
     setIsSubmitted(true); setIsHoliday(true);
     const newMap = { ...dayAttendance };
-    filtered.forEach(e => { newMap[e.id] = { status: "Present", ot_hours: 0 }; });
+    filtered.forEach(e => { newMap[e.id] = { status: "Holiday", ot_hours: 0 }; });
     setDayAttendance(newMap);
     setSaving(false);
   };
@@ -546,7 +544,7 @@ function AttendanceView({ employees }) {
     setSaving(false);
   };
 
-  const presentCount = filtered.filter(e => (dayAttendance[e.id]?.status || "Present") === "Present").length;
+  const presentCount = filtered.filter(e => ["Present", "Holiday"].includes(dayAttendance[e.id]?.status || "Present")).length;
   const absentCount = filtered.filter(e => dayAttendance[e.id]?.status === "Absent").length;
   const leaveCount = filtered.filter(e => dayAttendance[e.id]?.status === "Leave").length;
 
@@ -583,12 +581,12 @@ function AttendanceView({ employees }) {
                 {filtered.map(emp => {
                   const rec = dayAttendance[emp.id] || { status: "Present", ot_hours: 0 };
                   return (
-                    <tr key={emp.id} style={{ background: rec.status === "Absent" ? C.red + "08" : rec.status === "Leave" ? C.accent + "08" : "transparent" }}>
+                    <tr key={emp.id} style={{ background: isHoliday ? C.orange + "15" : rec.status === "Absent" ? C.red + "08" : rec.status === "Leave" ? C.accent + "08" : "transparent", borderLeft: isHoliday ? `3px solid ${C.orange}` : "none", transition: "all 0.2s" }}>
                       <td style={css.td}><strong>{emp.name}</strong></td>
                       <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
                       <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
                       <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
-                      <td style={css.td}><span style={css.badge(statusColor(rec.status))}>{rec.status}</span></td>
+                      <td style={css.td}><span style={css.badge(rec.status === "Holiday" ? C.orange : statusColor(rec.status))}>{rec.status === "Holiday" ? "⛱ HOLIDAY" : rec.status}</span></td>
                       <td style={css.td}>
                         <div style={{ display: "flex", gap: 4 }}>
                           {["Present", "Absent", "Leave"].map(s => (
