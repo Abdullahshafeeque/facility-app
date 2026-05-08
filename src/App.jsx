@@ -725,17 +725,24 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
         doc.setFontSize(10);
         doc.text(`Generated on: ${today} | Aadhar: ${emp.aadhar || "N/A"}`, 14, 34);
 
+        const endDateStr = emp.left_date || todayStr;
+        const daysWorked = Math.max(1, Math.round((new Date(endDateStr) - new Date(finData.joiningDate)) / 86400000));
+        const monthsWorked = (daysWorked / 30.44).toFixed(1);
+        const totalEarned = finData.proratedSalary - finData.attendanceDeduction + finData.otEarnings + finData.totalBonuses + (finData.foodAllowance || 0);
+
         // 2. Lifetime Summary Table
         autoTable(doc, {
           startY: 40,
           head: [["Lifetime Summary", "Days / Hours", "Financial Impact"]],
           body: [
+            ["Total Time Worked", `${monthsWorked} months`, "-"],
+            ["Total Lifetime Earnings", "-", `Rs. ${Math.round(totalEarned).toLocaleString("en-IN")}`],
+            ["Total Payments Made", "-", `Rs. ${finData.totalPaid.toLocaleString("en-IN")}`],
             ["Total Overtime", `${finData.totalOTHours} hrs`, `+ Rs. ${Math.round(finData.otEarnings).toLocaleString("en-IN")}`],
             ["Total Absences", `${finData.absentDays} days`, `- Rs. ${Math.round(finData.attendanceDeduction).toLocaleString("en-IN")}`],
             ["Total Leaves Taken", `${finData.leaveDays} days`, "0"],
             ["Total Bonuses & Food Allow.", "-", `+ Rs. ${Math.round(finData.totalBonuses + (finData.foodAllowance || 0)).toLocaleString("en-IN")}`],
             ["Total Advances/Fines", "-", `- Rs. ${finData.totalAdvances.toLocaleString("en-IN")}`],
-            ["Total Payments Made", "-", `Rs. ${finData.totalPaid.toLocaleString("en-IN")}`],
             ["Pending Loan Balance", "-", `Rs. ${finData.pendingLoan.toLocaleString("en-IN")}`],
             ["CURRENT NET PAYABLE", "-", `Rs. ${Math.round(finData.netPayable).toLocaleString("en-IN")}`]
           ],
