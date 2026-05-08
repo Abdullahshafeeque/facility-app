@@ -109,20 +109,30 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
     const daysInPeriod = Math.round((endDt - curr) / 86400000) + 1;
     
     // FIXED MATH 1: Base Salary accounts for the exact number of days in the month.
-    // This guarantees a full 28-day Feb or 31-day March equals exactly 100% of the monthly salary.
-    let proratedSalary = 0;
-    let tempCurr = new Date(curr);
-    while (tempCurr <= endDt) {
-      const daysInThisMonth = new Date(tempCurr.getFullYear(), tempCurr.getMonth() + 1, 0).getDate();
-      proratedSalary += period.salary / daysInThisMonth;
-      tempCurr.setDate(tempCurr.getDate() + 1);
-    }
-    
-    // FIXED MATH 2: Absences use 26-day rate, but OT uses the annualized 365-day formula rounded to nearest 0.50
-    const dailyWorkingRate = period.salary / 26; 
-    const hourlyRate = Math.round((((period.salary * 12) / 365) / 12) * 2) / 2;
+      // This guarantees a full 28-day Feb or 31-day March equals exactly 100% of the monthly salary.
+      const periodAtt = rangeAttendance.filter(a => a.employee_id === employee.id && a.date >= period.from && a.date <= period.to);
+      
+      // Read the global Tracking Start Date to enforce attendance rules safely
+      const now = new Date();
+      const defaultStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+      const trackingStartedStr = localStorage.getItem("trackingStartDate") || defaultStart;
 
-    const periodAtt = rangeAttendance.filter(a => a.employee_id === employee.id && a.date >= period.from && a.date <= period.to);
+      let proratedSalary = 0;
+      let tempCurr = new Date(curr);
+      while (tempCurr <= endDt) {
+        const dateStr = [tempCurr.getFullYear(), String(tempCurr.getMonth() + 1).padStart(2, "0"), String(tempCurr.getDate()).padStart(2, "0")].join("-");
+        
+        // Only credit base pay for historical days OR days where attendance was officially submitted
+        if (dateStr < trackingStartedStr || periodAtt.some(a => a.date === dateStr)) {
+          const daysInThisMonth = new Date(tempCurr.getFullYear(), tempCurr.getMonth() + 1, 0).getDate();
+          proratedSalary += period.salary / daysInThisMonth;
+        }
+        tempCurr.setDate(tempCurr.getDate() + 1);
+      }
+      
+      // FIXED MATH 2: Absences use 26-day rate, but OT uses the annualized 365-day formula rounded to nearest 0.50
+      const dailyWorkingRate = period.salary / 26; 
+      const hourlyRate = Math.round((((period.salary * 12) / 365) / 12) * 2) / 2;
     const absentDays = periodAtt.filter(a => a.status === "Absent").length;
     const leaveDays = periodAtt.filter(a => a.status === "Leave").length;
     const periodOT = (overtime || []).filter(o => o.employee_id === employee.id && o.date >= period.from && o.date <= period.to);
