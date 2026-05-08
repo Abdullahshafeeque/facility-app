@@ -1500,8 +1500,13 @@ function SettingsView({ posts, setPosts, employees, setEmployees, trackingStartD
 
     if (field === "contract_salary" && newVal !== post.contract_salary) {
       const todayLocal = [new Date().getFullYear(), String(new Date().getMonth() + 1).padStart(2, "0"), String(new Date().getDate()).padStart(2, "0")].join("-");
-      const dateStr = window.prompt(`Changing salary for all active ${post.name} contract staff.\nEnter effective date (YYYY-MM-DD):`, todayLocal);
+      const dateStr = window.prompt(`Changing salary for all active ${post.name} contract staff.\nEnter effective date STRICTLY as YYYY-MM-DD:`, todayLocal);
       if (!dateStr) return; 
+
+      // STRICT FORMAT GUARDRAIL
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        return alert("❌ ERROR: Invalid Date Format!\n\nYou must enter the date strictly as YYYY-MM-DD (e.g., 2026-05-08). Changes aborted to prevent database timeline errors.");
+      }
 
       const [y, m, d] = dateStr.split("-").map(Number);
       const dateObj = new Date(y, m - 1, d - 1);
