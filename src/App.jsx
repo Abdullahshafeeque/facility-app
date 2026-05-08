@@ -180,10 +180,23 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
   const totalRepayments = staffLedger.filter(l => l.transaction_type === "Loan Repayment").reduce((s, l) => s + Number(l.amount), 0);
   const pendingLoan = totalLoans - totalRepayments;
 
-  // The Final Logical Output (Loans act like advances, Repayments cancel them out)
-  const netPayable = (totalProratedSalary + totalBonuses + totalOTEarnings + totalRepayments) - (totalAttendanceDeduction + totalAdvances + totalPaid + totalLoans + totalContractorDist);
+  // FOOD ALLOWANCE (60% Minimum Attendance Rule)
+  const totalDaysInRange = Math.round((new Date(end) - new Date(start)) / 86400000) + 1;
+  let foodAllowance = 0;
+  if (employee.has_food_allowance && employee.food_allowance_amount > 0) {
+    const presentDays = totalDaysInRange - totalAbsentDays - totalLeaveDays;
+    const attendancePercent = presentDays / totalDaysInRange;
+    
+    if (attendancePercent >= 0.60) {
+      // Prorate for partial months (e.g. joined mid-month), otherwise give full amount
+      foodAllowance = totalDaysInRange >= 28 ? employee.food_allowance_amount : Math.round((employee.food_allowance_amount / 30) * totalDaysInRange);
+    }
+  }
 
-  return { periods: periodBreakdown, proratedSalary: totalProratedSalary, attendanceDeduction: totalAttendanceDeduction, otEarnings: totalOTEarnings, absentDays: totalAbsentDays, leaveDays: totalLeaveDays, totalOTHours, totalBonuses, totalAdvances, totalPaid, totalContractorDist, totalLoans, totalRepayments, pendingLoan, netPayable, joiningDate: employee.joining_date || start, effectiveStart };
+  // The Final Logical Output
+  const netPayable = (totalProratedSalary + totalBonuses + totalOTEarnings + totalRepayments + foodAllowance) - (totalAttendanceDeduction + totalAdvances + totalPaid + totalLoans + totalContractorDist);
+
+  return { periods: periodBreakdown, proratedSalary: totalProratedSalary, attendanceDeduction: totalAttendanceDeduction, otEarnings: totalOTEarnings, absentDays: totalAbsentDays, leaveDays: totalLeaveDays, totalOTHours, totalBonuses, foodAllowance, totalAdvances, totalPaid, totalContractorDist, totalLoans, totalRepayments, pendingLoan, netPayable, joiningDate: employee.joining_date || start, effectiveStart };
 }
 
 function StatCard({ label, value, sub, accent }) {
@@ -664,7 +677,8 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
             ["Base Salary (Prorated)", Math.round(finData.proratedSalary).toLocaleString("en-IN"), "Absences & Leave", Math.round(finData.attendanceDeduction).toLocaleString("en-IN")],
             [`Overtime (${finData.totalOTHours} hrs)`, Math.round(finData.otEarnings).toLocaleString("en-IN"), "Advances & Fines", finData.totalAdvances.toLocaleString("en-IN")],
             ["Bonus / Allowances", finData.totalBonuses.toLocaleString("en-IN"), "Previous Payouts", finData.totalPaid.toLocaleString("en-IN")],
-            ["Loan Repayments", finData.totalRepayments.toLocaleString("en-IN"), "Loans Given", finData.totalLoans.toLocaleString("en-IN")],
+            ["Food Allowance", finData.foodAllowance.toLocaleString("en-IN"), "Loans Given", finData.totalLoans.toLocaleString("en-IN")],
+            ["Loan Repayments", finData.totalRepayments.toLocaleString("en-IN"), "", ""],
           ],
           theme: "grid",
           headStyles: { fillColor: [244, 246, 249], textColor: [0, 0, 0], fontStyle: "bold" },
@@ -702,7 +716,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
   const [viewing, setViewing] = useState(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({ emp_code: "", name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company", joining_date: todayStr });
+  const [form, setForm] = useState({ emp_code: "", name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company", joining_date: todayStr, has_food_allowance: false, food_allowance_amount: "" });
   const [viewingAtt, setViewingAtt] = useState([]);
   const [datePromptOpts, setDatePromptOpts] = useState(null);
   const askForDate = (msg) => new Promise(resolve => setDatePromptOpts({ msg, date: todayStr, resolve }));
@@ -736,11 +750,12 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
     const salary = form.staff_type === "contract" ? getContractSalary(form.post) : +form.base_salary;
     const { data, error } = await supabase.from("employees").insert({
       emp_code: form.emp_code, name: form.name, aadhar: form.aadhar, post: form.post, shift: form.shift,
-      base_salary: salary, staff_type: form.staff_type, status: "active", joining_date: form.joining_date
+      base_salary: salary, staff_type: form.staff_type, status: "active", joining_date: form.joining_date,
+      has_food_allowance: form.has_food_allowance, food_allowance_amount: Number(form.food_allowance_amount) || 0
     }).select().single();
     if (!error && data) {
       setEmployees(prev => [...prev, data]);
-      setForm({ emp_code: "", name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company", joining_date: todayStr });
+      setForm({ emp_code: "", name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company", joining_date: todayStr, has_food_allowance: false, food_allowance_amount: "" });
       setShowForm(false);
     } else alert("Error: " + (error?.message || "Unknown"));
     setLoading(false);
@@ -771,6 +786,21 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
     if (histData) setPostHistory(prev => [...prev, histData]);
 
     const updateData = { base_salary: newSalary };
+    await supabase.from("employees").update(updateData).eq("id", viewing.id);
+    setEmployees(prev => prev.map(e => e.id === viewing.id ? { ...e, ...updateData } : e));
+    setViewing(prev => ({ ...prev, ...updateData }));
+  };
+
+  const updateFoodAllowance = async () => {
+    const isEnabled = window.confirm(`Is ${viewing.name} eligible for a Food Allowance?\nClick OK for Yes, Cancel to Disable it.`);
+    let amount = 0;
+    if (isEnabled) {
+      const input = window.prompt(`Enter new MONTHLY food allowance for ${viewing.name}:\n(Takes effect for the entire current month)`, viewing.food_allowance_amount || "");
+      if (input === null || isNaN(input) || Number(input) < 0) return;
+      amount = Number(input);
+    }
+    
+    const updateData = { has_food_allowance: isEnabled, food_allowance_amount: amount };
     await supabase.from("employees").update(updateData).eq("id", viewing.id);
     setEmployees(prev => prev.map(e => e.id === viewing.id ? { ...e, ...updateData } : e));
     setViewing(prev => ({ ...prev, ...updateData }));
@@ -921,6 +951,20 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
               <input type="number" readOnly={form.staff_type === "contract"} style={{ ...css.input, width: "100%", boxSizing: "border-box", background: form.staff_type === "contract" ? C.border : C.bg }} value={form.base_salary} onChange={e => form.staff_type === "company" && setForm(f => ({ ...f, base_salary: e.target.value }))} placeholder={form.staff_type === "contract" ? "Auto from post" : "e.g. 20000"} />
               {form.staff_type === "contract" && form.post && <div style={{ fontSize: 10, color: C.textDim, marginTop: 3 }}>₹{getContractSalary(form.post).toLocaleString("en-IN")} from post rate</div>}
             </div>
+            
+            <div style={{ gridColumn: "1 / -1", padding: 10, background: C.border + "44", borderRadius: 6, display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input type="checkbox" id="food_allowance" checked={form.has_food_allowance} onChange={e => setForm(f => ({ ...f, has_food_allowance: e.target.checked }))} style={{ transform: "scale(1.2)" }} />
+                <label htmlFor="food_allowance" style={{ fontSize: 11, fontWeight: 700, color: C.textDim }}>ENABLE FOOD ALLOWANCE?</label>
+              </div>
+              {form.has_food_allowance && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ fontSize: 10, color: C.textDim }}>MONTHLY AMOUNT:</div>
+                  <input type="number" style={{ ...css.input, width: 120 }} value={form.food_allowance_amount} onChange={e => setForm(f => ({ ...f, food_allowance_amount: e.target.value }))} placeholder="₹" />
+                </div>
+              )}
+            </div>
+
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
             <button style={css.btn(C.green)} onClick={addEmp} disabled={loading}>{loading ? "Saving..." : "Save Employee"}</button>
@@ -976,6 +1020,17 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
                 {viewing.staff_type === "contract" && <div style={{ fontSize: 10, color: C.orange, marginTop: 4 }}>⚠ Changing post updates salary to that post's contract rate from today onwards only.</div>}
               </div>
 
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 6, fontWeight: 700 }}>MONTHLY FOOD ALLOWANCE (ALL STAFF)</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <div style={{ ...css.input, flex: 1, display: "flex", alignItems: "center", background: C.bg, color: C.textDim }}>
+                    {viewing.has_food_allowance ? `Enabled: ₹${Number(viewing.food_allowance_amount || 0).toLocaleString("en-IN")} / mo` : "Disabled"}
+                  </div>
+                  <button style={{ ...css.btn(C.orange), flex: 1 }} onClick={updateFoodAllowance}>✎ Edit Allowance</button>
+                </div>
+                <div style={{ fontSize: 10, color: C.textDim, marginTop: 4 }}>ℹ Paid out only if month's attendance is ≥ 60%.</div>
+              </div>
+
               {viewing.staff_type === "company" && (
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ fontSize: 10, color: C.textDim, marginBottom: 6, fontWeight: 700 }}>CHANGE BASE SALARY (COMPANY STAFF)</div>
@@ -1008,7 +1063,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 16, background: C.bg, padding: 14, borderRadius: 8, textAlign: "center" }}>
                   <div><div style={{ fontSize: 10, color: C.textDim }}>OT EARNINGS</div><strong style={{ color: C.green }}>+₹{Math.round(fin.otEarnings).toLocaleString("en-IN")}</strong></div>
-                  <div><div style={{ fontSize: 10, color: C.textDim }}>TOTAL PAID</div><strong style={{ color: C.textDim }}>₹{fin.totalPaid.toLocaleString("en-IN")}</strong></div>
+                  <div><div style={{ fontSize: 10, color: C.textDim }}>FOOD ALLOW.</div><strong style={{ color: C.green }}>+₹{fin.foodAllowance.toLocaleString("en-IN")}</strong></div>
                   <div><div style={{ fontSize: 10, color: C.textDim }}>ADVANCES/FINES</div><strong style={{ color: C.red }}>-₹{fin.totalAdvances.toLocaleString("en-IN")}</strong></div>
                   <div><div style={{ fontSize: 10, color: C.textDim, fontWeight: 700 }}>NET PAYABLE</div><strong style={{ color: fin.netPayable < 0 ? C.red : C.orange, fontSize: 16 }}>₹{Math.round(fin.netPayable).toLocaleString("en-IN")}</strong></div>
                 </div>
@@ -1229,8 +1284,8 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
         doc.text(`Generated: ${fDate(todayStr)}`, 14, 32);
         autoTable(doc, {
           startY: 38,
-          head: [["Name", "Post", "Joined", "Base (Prorated)", "Absent", "Leave", "OT Hrs", "OT Earn", "Bonus", "Adv/Fine", "Paid", "Net Payable"]],
-          body: rows.map(({ emp, fin }) => [emp.name, emp.post, fDate(fin.joiningDate), "Rs." + Math.round(fin.proratedSalary).toLocaleString("en-IN"), fin.absentDays + "d", fin.leaveDays + "d", fin.totalOTHours + "h", "Rs." + Math.round(fin.otEarnings).toLocaleString("en-IN"), "Rs." + fin.totalBonuses.toLocaleString("en-IN"), "Rs." + fin.totalAdvances.toLocaleString("en-IN"), "Rs." + fin.totalPaid.toLocaleString("en-IN"), "Rs." + Math.round(fin.netPayable).toLocaleString("en-IN")]),
+          head: [["Name", "Post", "Joined", "Base (Prorated)", "Absent", "Leave", "OT Hrs", "OT Earn", "Bonus", "Food Allow", "Adv/Fine", "Paid", "Net Payable"]],
+          body: rows.map(({ emp, fin }) => [emp.name, emp.post, fDate(fin.joiningDate), "Rs." + Math.round(fin.proratedSalary).toLocaleString("en-IN"), fin.absentDays + "d", fin.leaveDays + "d", fin.totalOTHours + "h", "Rs." + Math.round(fin.otEarnings).toLocaleString("en-IN"), "Rs." + fin.totalBonuses.toLocaleString("en-IN"), "Rs." + fin.foodAllowance.toLocaleString("en-IN"), "Rs." + fin.totalAdvances.toLocaleString("en-IN"), "Rs." + fin.totalPaid.toLocaleString("en-IN"), "Rs." + Math.round(fin.netPayable).toLocaleString("en-IN")]),
           theme: "grid",
           headStyles: { fillColor: [30, 111, 219], fontSize: 8 },
           bodyStyles: { fontSize: 8 },
@@ -1323,7 +1378,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
-            <thead><tr style={{ background: C.bg }}>{["Name / Post", "Prorated Base", "Absent", "Leave", "OT", "Bonus", "Adv/Fine", isContract ? "Paid by Contr." : "Paid", "Period Net", "Actual Payable", ""].map(h => <th key={h} style={{ ...css.th, whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
+            <thead><tr style={{ background: C.bg }}>{["Name / Post", "Prorated Base", "Absent", "Leave", "OT", "Bonus", "Food", "Adv/Fine", isContract ? "Paid by Contr." : "Paid", "Period Net", "Actual Payable", ""].map(h => <th key={h} style={{ ...css.th, whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
             <tbody>
               {rows.length === 0 && <tr><td colSpan={11} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No staff.</td></tr>}
               {rows.map(({ emp, fin, finLifetime }) => (
@@ -1335,6 +1390,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
                     <td style={{ ...css.td, color: fin.leaveDays > 0 ? C.accent : C.textDim }}>{fin.leaveDays}d</td>
                     <td style={{ ...css.td, color: C.green }}>{fin.totalOTHours}h<br /><small>+₹{Math.round(fin.otEarnings).toLocaleString()}</small></td>
                     <td style={{ ...css.td, color: C.green }}>+₹{fin.totalBonuses.toLocaleString()}</td>
+                    <td style={{ ...css.td, color: C.green }}>+₹{fin.foodAllowance.toLocaleString()}</td>
                     <td style={{ ...css.td, color: C.red }}>-₹{fin.totalAdvances.toLocaleString()}</td>
                     <td style={{ ...css.td, color: C.textDim }}>₹{isContract ? Math.round(fin.totalContractorDist).toLocaleString("en-IN") : fin.totalPaid.toLocaleString("en-IN")}</td>
                     <td style={{ ...css.td, background: color + "11" }}><strong style={{ color: fin.netPayable < 0 ? C.red : color, fontSize: 14 }}>₹{Math.round(fin.netPayable).toLocaleString("en-IN")}</strong></td>
