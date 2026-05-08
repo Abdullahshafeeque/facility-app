@@ -709,11 +709,16 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
       });
     });
   };
-  const generateFullReport = async (emp) => {
-    const startDate = await askForDate(`Select START DATE for ${emp.name}'s report:`);
+  const generateFullReport = (emp) => {
+    const todayLocal = [new Date().getFullYear(), String(new Date().getMonth() + 1).padStart(2, "0"), String(new Date().getDate()).padStart(2, "0")].join("-");
+    
+    const startDate = window.prompt(`Select START DATE for ${emp.name}'s report:\n(Format STRICTLY as YYYY-MM-DD)`, emp.joining_date || "2020-01-01");
     if (!startDate) return;
-    const endDate = await askForDate(`Select END DATE for ${emp.name}'s report:`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return alert("❌ ERROR: Invalid Start Date Format. Must be YYYY-MM-DD.");
+
+    const endDate = window.prompt(`Select END DATE for ${emp.name}'s report:\n(Format STRICTLY as YYYY-MM-DD)`, todayLocal);
     if (!endDate) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) return alert("❌ ERROR: Invalid End Date Format. Must be YYYY-MM-DD.");
 
     // Calculate Prior Balance (Carried Forward)
     const [y, m, d] = startDate.split("-").map(Number);
