@@ -877,6 +877,19 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
     setViewing(null);
   };
 
+  const deleteInactive = async (emp) => {
+    if (!window.confirm(`⚠️ DANGER: Permanently delete ${emp.name} and ALL their historical data? This CANNOT be undone.`)) return;
+    
+    // Wipe them completely from the database
+    await supabase.from("attendance").delete().eq("employee_id", emp.id);
+    await supabase.from("financial_ledger").delete().eq("employee_id", emp.id);
+    await supabase.from("post_history").delete().eq("employee_id", emp.id);
+    await supabase.from("overtime_entries").delete().eq("employee_id", emp.id);
+    await supabase.from("employees").delete().eq("id", emp.id);
+
+    setEmployees(prev => prev.filter(e => e.id !== emp.id));
+  };
+
   const empHistory = viewing ? (postHistory || []).filter(h => h.employee_id === viewing.id).sort((a, b) => (b.valid_from || "").localeCompare(a.valid_from || "")) : [];
 
   return (
@@ -1094,7 +1107,12 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
                     <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
                     <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
                     <td style={css.td}><span style={{ fontSize: 11, color: C.red }}>{fDate(emp.left_date)}</span></td>
-                    <td style={css.td}><button style={{ ...css.btn(C.green), padding: "4px 10px", fontSize: 10 }} onClick={() => reactivate(emp)}>Reactivate</button></td>
+                    <td style={css.td}>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button style={{ ...css.btn(C.green), padding: "4px 10px", fontSize: 10 }} onClick={() => reactivate(emp)}>Reactivate</button>
+                        <button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => deleteInactive(emp)}>Delete</button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
