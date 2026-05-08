@@ -749,6 +749,36 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
     } else alert("Error: " + (error?.message || "Unknown"));
     setLoading(false);
   };
+  const updateCompanySalary = async () => {
+    if (viewing.staff_type === "contract") return alert("Contract salaries are managed via the Posts settings.");
+    const newAmount = window.prompt(`Enter new monthly salary for ${viewing.name}:`, viewing.base_salary);
+    if (!newAmount || isNaN(newAmount) || Number(newAmount) === Number(viewing.base_salary)) return;
+    
+    const effectiveDate = await askForDate(`Select effective date for new salary (₹${newAmount}):`);
+    if (!effectiveDate) return;
+
+    const newSalary = Number(newAmount);
+    const dateObj = new Date(effectiveDate);
+    dateObj.setDate(dateObj.getDate() - 1);
+    const validToDate = dateObj.toISOString().split("T")[0];
+
+    const hasHistory = postHistory.some(h => h.employee_id === viewing.id && !h.valid_to);
+    if (!hasHistory) {
+      const { data: backfill } = await supabase.from("post_history").insert({ employee_id: viewing.id, post: viewing.post, staff_type: viewing.staff_type, salary: viewing.base_salary, valid_from: viewing.joining_date || "2024-01-01", valid_to: validToDate }).select().single();
+      if (backfill) setPostHistory(prev => [...prev, backfill]);
+    } else {
+      await supabase.from("post_history").update({ valid_to: validToDate }).eq("employee_id", viewing.id).is("valid_to", null);
+      setPostHistory(prev => prev.map(h => (h.employee_id === viewing.id && !h.valid_to) ? { ...h, valid_to: validToDate } : h));
+    }
+
+    const { data: histData } = await supabase.from("post_history").insert({ employee_id: viewing.id, post: viewing.post, staff_type: viewing.staff_type, salary: newSalary, valid_from: effectiveDate, valid_to: null }).select().single();
+    if (histData) setPostHistory(prev => [...prev, histData]);
+
+    const updateData = { base_salary: newSalary };
+    await supabase.from("employees").update(updateData).eq("id", viewing.id);
+    setEmployees(prev => prev.map(e => e.id === viewing.id ? { ...e, ...updateData } : e));
+    setViewing(prev => ({ ...prev, ...updateData }));
+  };
 
   const updateEmployeePost = async (emp, newPost) => {
     const effectiveDate = await askForDate(`Select effective date for role change to ${newPost}:`);
@@ -902,7 +932,11 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16, background: C.bg, padding: 14, borderRadius: 8 }}>
               <div><div style={{ fontSize: 10, color: C.textDim }}>EMP CODE</div><strong>{viewing.emp_code || "—"}</strong></div>
               <div><div style={{ fontSize: 10, color: C.textDim }}>AADHAR</div><strong>{viewing.aadhar || "—"}</strong></div>
-              <div><div style={{ fontSize: 10, color: C.textDim }}>CURRENT SALARY</div><strong style={{ color: C.green }}>₹{Number(viewing.base_salary).toLocaleString("en-IN")}</strong></div>
+              <div>
+                <div style={{ fontSize: 10, color: C.textDim }}>CURRENT SALARY</div>
+                <strong style={{ color: C.green }}>₹{Number(viewing.base_salary).toLocaleString("en-IN")}</strong>
+                {viewing.staff_type === "company" && <button style={{ background: "transparent", border: "none", color: C.blue, cursor: "pointer", fontSize: 12, marginLeft: 6, textDecoration: "underline" }} onClick={updateCompanySalary}>Edit</button>}
+              </div>
               <div><div style={{ fontSize: 10, color: C.textDim }}>JOINED</div><strong>{fDate(viewing.joining_date)}</strong></div>
               <div><div style={{ fontSize: 10, color: C.textDim }}>CURRENT POST</div><strong>{viewing.post}</strong></div>
             </div>
@@ -1068,7 +1102,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
 // ─── PAYROLL ──────────────────────────────────────────────────────────────────
 function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab, overtime }) {
   const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+  const monthStart = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), "01"].join("-");
   const [start, setStart] = useState(monthStart);
   const [end, setEnd] = useState(todayStr);
   const [rangeAttendance, setRangeAttendance] = useState([]);
@@ -1457,6 +1491,30 @@ function SettingsView({ posts, setPosts, employees, setEmployees, trackingStartD
       await supabase.from("employees").update({ post: value }).eq("post", post.name);
       setEmployees(prev => prev.map(e => e.post === post.name ? { ...e, post: value } : e));
     }
+
+    if (field === "contract_salary" && newVal !== post.contract_salary) {
+      const todayLocal = [new Date().getFullYear(), String(new Date().getMonth() + 1).padStart(2, "0"), String(new Date().getDate()).padStart(2, "0")].join("-");
+      const dateStr = window.prompt(`Changing salary for all active ${post.name} contract staff.\nEnter effective date (YYYY-MM-DD):`, todayLocal);
+      if (!dateStr) return; 
+
+      const dateObj = new Date(dateStr);
+      dateObj.setDate(dateObj.getDate() - 1);
+      const validToDate = dateObj.toISOString().split("T")[0];
+
+      const affectedEmps = employees.filter(e => e.post === post.name && e.staff_type === "contract" && e.status === "active");
+      if (affectedEmps.length > 0) {
+        const empIds = affectedEmps.map(e => e.id);
+        await supabase.from("post_history").update({ valid_to: validToDate }).in("employee_id", empIds).is("valid_to", null);
+        
+        const newHistoryEntries = affectedEmps.map(emp => ({ employee_id: emp.id, post: emp.post, staff_type: emp.staff_type, salary: newVal, valid_from: dateStr, valid_to: null }));
+        await supabase.from("post_history").insert(newHistoryEntries);
+        
+        await supabase.from("employees").update({ base_salary: newVal }).in("id", empIds);
+        setEmployees(prev => prev.map(e => empIds.includes(e.id) ? { ...e, base_salary: newVal } : e));
+        alert(`Updated salaries and history for ${affectedEmps.length} contract staff.`);
+      }
+    }
+
     await supabase.from("posts").update({ [field]: newVal }).eq("id", post.id);
     setPosts(prev => prev.map(p => p.id === post.id ? { ...p, [field]: newVal } : p));
   };
@@ -1513,7 +1571,7 @@ function SettingsView({ posts, setPosts, employees, setEmployees, trackingStartD
 // ─── REPORTS & DATA EXTRACTION ────────────────────────────────────────────────
 function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
   const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+  const monthStart = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), "01"].join("-");
   const [start, setStart] = useState(monthStart);
   const [end, setEnd] = useState(todayStr);
   const [rangeAttendance, setRangeAttendance] = useState([]);
@@ -1716,7 +1774,8 @@ export default function App() {
   const [postHistory, setPostHistory] = useState([]);
   const [overtime, setOvertime] = useState([]);
   const [loading, setLoading] = useState(true);
-  const defaultStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0];
+  const nowDt = new Date();
+  const defaultStart = [nowDt.getFullYear(), String(nowDt.getMonth() + 1).padStart(2, "0"), "01"].join("-");
   const [trackingStartDate, setTrackingStartDate] = useState(localStorage.getItem("trackingStartDate") || defaultStart);
 
   useEffect(() => {
