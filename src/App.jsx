@@ -732,6 +732,22 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
     const closingFin = calcFinances(emp, posts, viewingAtt, ledger, emp.joining_date || "2020-01-01", endDate, postHistory, overtime);
     const closingBalance = Math.round(closingFin.netPayable);
 
+    // --- EXTENDED HR METRICS CALCULATIONS ---
+    const joinDateObj = new Date(emp.joining_date || "2020-01-01");
+    const endDateObj = new Date(endDate);
+    const startDateObj = new Date(startDate);
+    
+    // Lifetime Metrics
+    const lifetimeDays = Math.max(1, Math.round((endDateObj - joinDateObj) / 86400000) + 1);
+    const lifetimeMonths = (lifetimeDays / 30.44).toFixed(1);
+    const lifetimePresent = Math.max(0, lifetimeDays - closingFin.absentDays - closingFin.leaveDays);
+    const lifetimeAttPct = ((lifetimePresent / lifetimeDays) * 100).toFixed(1);
+
+    // Period Metrics
+    const periodDays = Math.max(1, Math.round((endDateObj - startDateObj) / 86400000) + 1);
+    const periodPresent = Math.max(0, periodDays - finPeriod.absentDays - finPeriod.leaveDays);
+    const periodAttPct = ((periodPresent / periodDays) * 100).toFixed(1);
+
     import("jspdf").then(({ jsPDF }) => {
       import("jspdf-autotable").then(({ default: autoTable }) => {
         const doc = new jsPDF();
@@ -741,20 +757,28 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
         doc.text("PUNATHIL ROLLER FLOUR MILLS", 14, 20);
         doc.setFontSize(14);
         doc.setTextColor(0);
-        doc.text(`Account Statement: ${emp.name}`, 14, 28);
+        doc.text(`Comprehensive Statement: ${emp.name}`, 14, 28);
         doc.setFontSize(10);
         doc.text(`Period: ${fDate(startDate)} to ${fDate(endDate)} | Aadhar: ${emp.aadhar || "N/A"}`, 14, 34);
 
-        // --- ACCOUNTING SUMMARY (WITH CARRIED FORWARD) ---
+        // --- ACCOUNTING & PERFORMANCE SUMMARY ---
         autoTable(doc, {
           startY: 40,
-          head: [["Account Summary", "Details", "Amount"]],
+          head: [["Metric / Account", "Details", "Amount / Stat"]],
           body: [
+            ["--- EMPLOYMENT METRICS ---", "", ""],
+            ["Total Tenure (Up to End Date)", `Joined ${fDate(emp.joining_date || "2020-01-01")}`, `${lifetimeMonths} months`],
+            ["Lifetime Attendance %", `${lifetimePresent} present / ${lifetimeDays} total days`, `${lifetimeAttPct}%`],
+            ["Period Attendance %", `${periodPresent} present / ${periodDays} period days`, `${periodAttPct}%`],
+            ["Period Absences", "Leaves & unpaid absences during period", `${finPeriod.absentDays + finPeriod.leaveDays} days`],
+            ["Period Overtime Logged", "Total OT hours during period", `${finPeriod.totalOTHours} hrs`],
+            ["--- FINANCIAL LEDGER ---", "", ""],
             ["OPENING BALANCE (Brought Forward)", `Net balance as of ${fDate(beforeStartStr)}`, `Rs. ${openingBalance.toLocaleString("en-IN")}`],
-            ["Period Earnings", `Base + OT + Bonus + Food (${finPeriod.totalOTHours} OT hrs)`, `+ Rs. ${Math.round(periodEarned).toLocaleString("en-IN")}`],
+            ["Period Earnings", `Base + OT + Bonus + Food`, `+ Rs. ${Math.round(periodEarned).toLocaleString("en-IN")}`],
             ["Period Advances & Fines", "Deducted during period", `- Rs. ${finPeriod.totalAdvances.toLocaleString("en-IN")}`],
             ["Period Payments", "Payouts transferred", `- Rs. ${finPeriod.totalPaid.toLocaleString("en-IN")}`],
-            ["CLOSING NET BALANCE", `Payable as of ${fDate(endDate)}`, `Rs. ${closingBalance.toLocaleString("en-IN")}`]
+            ["CLOSING NET BALANCE", `Payable as of ${fDate(endDate)}`, `Rs. ${closingBalance.toLocaleString("en-IN")}`],
+            ["Active Loan Balance", `Total unpaid loans as of ${fDate(endDate)}`, `Rs. ${closingFin.pendingLoan.toLocaleString("en-IN")}`]
           ],
           theme: "grid",
           headStyles: { fillColor: [244, 246, 249], textColor: [0, 0, 0] },
