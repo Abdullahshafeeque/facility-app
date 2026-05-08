@@ -863,6 +863,20 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
     setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "active", left_date: null, settlement_done: false } : e));
   };
 
+  const deleteEmployee = async () => {
+    if (!window.confirm(`⚠️ DANGER: Permanently delete ${viewing.name} and ALL their historical data (attendance, payroll, ledger)? This CANNOT be undone.`)) return;
+    
+    // Erase all linked data so the payroll engine doesn't crash on ghost records
+    await supabase.from("attendance").delete().eq("employee_id", viewing.id);
+    await supabase.from("financial_ledger").delete().eq("employee_id", viewing.id);
+    await supabase.from("post_history").delete().eq("employee_id", viewing.id);
+    await supabase.from("overtime_entries").delete().eq("employee_id", viewing.id);
+    await supabase.from("employees").delete().eq("id", viewing.id);
+
+    setEmployees(prev => prev.filter(e => e.id !== viewing.id));
+    setViewing(null);
+  };
+
   const empHistory = viewing ? (postHistory || []).filter(h => h.employee_id === viewing.id).sort((a, b) => (b.valid_from || "").localeCompare(a.valid_from || "")) : [];
 
   return (
@@ -1020,9 +1034,14 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
 
             {/* Inline confirm instead of window.confirm */}
             {!confirmLeave ? (
-              <button style={{ ...css.btn(C.red), width: "100%" }} onClick={() => setConfirmLeave(true)}>
-                ✕ Mark as Left / Inactive
-              </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button style={{ ...css.btn(C.orange), flex: 1 }} onClick={() => setConfirmLeave(true)}>
+                  ⏸ Mark as Left / Inactive
+                </button>
+                <button style={{ ...css.btn(C.red), flex: 1 }} onClick={deleteEmployee}>
+                  🗑 Delete Permanently
+                </button>
+              </div>
             ) : (
               <div style={{ background: C.red + "15", border: `1px solid ${C.red}44`, borderRadius: 6, padding: 14 }}>
                 <div style={{ fontSize: 13, color: C.red, marginBottom: 12, fontWeight: 700 }}>
