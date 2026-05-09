@@ -154,8 +154,9 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
         tempCurr.setDate(tempCurr.getDate() + 1);
       }
       
-      // FIXED MATH 2: Absences use 26-day rate, but OT uses the annualized 365-day formula rounded to nearest 0.50
-      const dailyWorkingRate = period.salary / 26; 
+      // FIXED MATH 2: Deductions use exact days in the month to perfectly cancel out base pay, OT uses annualized 365-day rate
+      const daysInThisMonth = new Date(sYear, sMonth, 0).getDate();
+      const dailyWorkingRate = period.salary / daysInThisMonth; 
       const hourlyRate = Math.round((((period.salary * 12) / 365) / 12) * 2) / 2;
       
       let absentDays = 0;
