@@ -2028,6 +2028,41 @@ const printRoster = () => {
     </div>
   );
 }
+// ─── AUDIT LOGS ───────────────────────────────────────────────────────────────
+function LogsView({ logs, setLogs }) {
+  const undoAction = async (log) => {
+    if (!window.confirm(`Delete this log entry?\n\n(Note: To truly undo "${log.action}", you must also manually revert the actual data in the relevant tab).`)) return;
+    await supabase.from("audit_logs").delete().eq("id", log.id);
+    setLogs(prev => prev.filter(l => l.id !== log.id));
+  };
+
+  return (
+    <div style={css.page}>
+      <div style={css.sectionTitle}>System Audit Logs</div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={css.table}>
+          <thead><tr>{["Date", "Time", "User", "Action", "Details", "Undo"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+          <tbody>
+            {logs.length === 0 && <tr><td colSpan={6} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No actions recorded yet.</td></tr>}
+            {logs.map(l => {
+              const d = new Date(l.created_at);
+              return (
+                <tr key={l.id}>
+                  <td style={css.td}>{d.toLocaleDateString("en-IN")}</td>
+                  <td style={css.td}>{d.toLocaleTimeString("en-IN")}</td>
+                  <td style={css.td}>{l.user_email}</td>
+                  <td style={{ ...css.td, fontWeight: "bold", color: C.accent }}>{l.action}</td>
+                  <td style={css.td}>{l.details}</td>
+                  <td style={css.td}><button style={{ ...css.btn(C.red), padding: "4px 8px", fontSize: 10 }} onClick={() => undoAction(l)}>Undo / Delete</button></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [user, setUser] = useState(null);
@@ -2042,7 +2077,13 @@ export default function App() {
   const nowDt = new Date();
   const defaultStart = [nowDt.getFullYear(), String(nowDt.getMonth() + 1).padStart(2, "0"), "01"].join("-");
   const [trackingStartDate, setTrackingStartDate] = useState(localStorage.getItem("trackingStartDate") || defaultStart);
+const [logs, setLogs] = useState([]);
 
+  // Use this function anywhere to record an action
+  const logAction = async (action, details) => {
+    const { data } = await supabase.from("audit_logs").insert({ user_email: user.email, action, details }).select().single();
+    if (data) setLogs(prev => [data, ...prev]);
+  };
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setUser(session?.user ?? null));
     supabase.auth.onAuthStateChange((_e, session) => setUser(session?.user ?? null));
@@ -2064,6 +2105,8 @@ export default function App() {
       if (histData) setPostHistory(histData);
       const { data: otData } = await supabase.from("overtime_entries").select("*").order("date", { ascending: false });
       if (otData) setOvertime(otData);
+      const { data: logData } = await supabase.from("audit_logs").select("*").order("created_at", { ascending: false });
+      if (logData) setLogs(logData);
       setLoading(false);
     };
     loadData();
@@ -2076,7 +2119,7 @@ export default function App() {
   const alerts = getCoverage(employees.filter(e => e.status === "active"), attendance, posts);
   const pendingSettlements = employees.filter(e => e.status === "inactive" && !e.settlement_done).length;
 
-  const TABS = [
+ const TABS = [
     { id: "dashboard", label: "Dashboard" },
     { id: "attendance", label: "Attendance" },
     { id: "overtime", label: "Overtime" },
@@ -2084,6 +2127,7 @@ export default function App() {
     { id: "payroll", label: "Payroll" },
     { id: "reports", label: "📊 Reports" },
     { id: "settings", label: "⚙ Settings" },
+    { id: "logs", label: "📋 Logs" }, // <-- NEW LOGS TAB
   ];
 
   return (
@@ -2158,6 +2202,7 @@ export default function App() {
           {tab === "payroll" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setTab={setTab} overtime={overtime} />}
           {tab === "reports" && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} />}
           {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} />}
+          {tab === "logs" && <LogsView logs={logs} setLogs={setLogs} />} {/* <-- NEW RENDER LINE */}
         </>
       )}
     </div>
