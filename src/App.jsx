@@ -1421,9 +1421,13 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
       setShowModal(false); 
       setForm({ type: "Advance", amount: "", notes: "", date: todayStr, empId: "" }); 
       
-      if (logAction) {
+      // TRAP: Check if the function actually reached this page
+      if (typeof logAction === "function") {
         const targetName = isContractor ? "Contractor" : (employees.find(e => e.id === form.empId)?.name || "Unknown");
-        logAction(`Registered ${form.type}`, `₹${payoutAmt} for ${targetName}`);
+        const actualType = isContractor ? "Contractor Payout" : form.type;
+        logAction(`Registered ${actualType}`, `₹${payoutAmt} for ${targetName}`);
+      } else {
+        alert("⚠️ Developer Warning: The logAction function is not connected to the PayrollView component! Check your App tab renders.");
       }
     }
   };
@@ -2086,7 +2090,11 @@ const [logs, setLogs] = useState([]);
 
   // Use this function anywhere to record an action
   const logAction = async (action, details) => {
-    const { data } = await supabase.from("audit_logs").insert({ user_email: user.email, action, details }).select().single();
+    const email = user?.email || "System";
+    const { data, error } = await supabase.from("audit_logs").insert({ user_email: email, action, details }).select().single();
+    
+    // TRAP: If Supabase rejects it (missing table, permissions, etc), tell us!
+    if (error) alert("❌ Database Log Error: " + error.message);
     if (data) setLogs(prev => [data, ...prev]);
   };
   useEffect(() => {
