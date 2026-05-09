@@ -626,7 +626,7 @@ function AttendanceView({ employees }) {
 }
 
 // ─── STAFF ────────────────────────────────────────────────────────────────────
-function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHistory, setPostHistory, overtime }) {
+function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHistory, setPostHistory, overtime, logAction }) {
   const deleteTransaction = async (txId) => {
     if (!window.confirm("Delete this transaction? This will instantly adjust their Net Payable.")) return;
     await supabase.from("financial_ledger").delete().eq("id", txId);
@@ -873,6 +873,10 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
       setEmployees(prev => [...prev, data]);
       setForm({ emp_code: "", name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company", joining_date: todayStr, has_food_allowance: false, food_allowance_amount: "" });
       setShowForm(false);
+      
+      if (typeof logAction === "function") {
+        logAction("Added Employee", `Registered ${form.name} as ${form.post}`);
+      }
     } else alert("Error: " + (error?.message || "Unknown"));
     setLoading(false);
   };
@@ -2211,7 +2215,7 @@ const [logs, setLogs] = useState([]);
           {tab === "dashboard" && <DashboardView employees={employees} attendance={attendance} posts={posts} trackingStartDate={trackingStartDate} />}
           {tab === "attendance" && <AttendanceView employees={employees} user={user} />}
           {tab === "overtime" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} />}
-          {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} />}
+          {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} />}
           {tab === "payroll" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setTab={setTab} overtime={overtime} logAction={logAction} />}
           {tab === "reports" && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} />}
           {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} />}
