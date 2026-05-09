@@ -97,6 +97,32 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
   let totalAbsentDays = 0, totalLeaveDays = 0, totalOTHours = 0;
   const periodBreakdown = [];
 
+  // --- SANDWICH LEAVE LOGIC PREP ---
+  const empAttMap = {};
+  (rangeAttendance || []).filter(a => a.employee_id === employee.id).forEach(a => empAttMap[a.date] = a.status);
+  
+  const getEffStatus = (dateStr) => {
+    if (empAttMap[dateStr] !== "Holiday") return empAttMap[dateStr];
+    
+    // It is a holiday, check bounds for Sandwich
+    const [y, m, d] = dateStr.split('-').map(Number);
+    let pDt = new Date(y, m - 1, d), nDt = new Date(y, m - 1, d);
+    let pStat = "Holiday", nStat = "Holiday";
+    
+    // Look backwards past any consecutive holidays
+    while (pStat === "Holiday") {
+      pDt.setDate(pDt.getDate() - 1);
+      pStat = empAttMap[[pDt.getFullYear(), String(pDt.getMonth() + 1).padStart(2, "0"), String(pDt.getDate()).padStart(2, "0")].join("-")] || "Present";
+    }
+    // Look forwards past any consecutive holidays
+    while (nStat === "Holiday") {
+      nDt.setDate(nDt.getDate() + 1);
+      nStat = empAttMap[[nDt.getFullYear(), String(nDt.getMonth() + 1).padStart(2, "0"), String(nDt.getDate()).padStart(2, "0")].join("-")] || "Present";
+    }
+    
+    return (pStat === "Absent" && nStat === "Absent") ? "Absent" : "Holiday";
+  };
+
   for (const period of periods) {
     // Parse dates safely to avoid timezone shifting bugs
     const [sYear, sMonth, sDay] = period.from.split('-').map(Number);
@@ -131,8 +157,15 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
       // FIXED MATH 2: Absences use 26-day rate, but OT uses the annualized 365-day formula rounded to nearest 0.50
       const dailyWorkingRate = period.salary / 26; 
       const hourlyRate = Math.round((((period.salary * 12) / 365) / 12) * 2) / 2;
-    const absentDays = periodAtt.filter(a => a.status === "Absent").length;
-    const leaveDays = periodAtt.filter(a => a.status === "Leave").length;
+      
+      let absentDays = 0;
+      let leaveDays = 0;
+      periodAtt.forEach(a => {
+        const eff = getEffStatus(a.date);
+        if (eff === "Absent") absentDays++;
+        else if (eff === "Leave") leaveDays++;
+      });
+      
     const periodOT = (overtime || []).filter(o => o.employee_id === employee.id && o.date >= period.from && o.date <= period.to);
     
     // Calculate the actual financial impact of attendance
