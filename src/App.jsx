@@ -262,7 +262,7 @@ function AlertBanner({ alerts }) {
 }
 
 // ─── OVERTIME ─────────────────────────────────────────────────────────────────
-function OvertimeView({ employees, posts, overtime, setOvertime }) {
+function OvertimeView({ employees, posts, overtime, setOvertime, logAction }) {
   const [form, setForm] = useState({ empId: "", startDate: todayStr, endDate: todayStr, start: "", end: "", post: "" });
   const [saving, setSaving] = useState(false);
   const active = employees.filter(e => e.status === "active");
@@ -319,12 +319,18 @@ function OvertimeView({ employees, posts, overtime, setOvertime }) {
     
     setOvertime(prev => [data, ...prev]);
     setForm({ ...form, start: "", end: "" });
+    setOvertime(prev => [data, ...prev]);
+    setForm({ ...form, start: "", end: "" });
+    if (logAction) logAction("Overtime Logged", `Added ${Number(hours).toFixed(1)}h for ${emp.name} on ${form.startDate}`);
   };
 
   const deleteOT = async (id) => {
     if (!window.confirm("Delete this Overtime entry?")) return;
     await supabase.from("overtime_entries").delete().eq("id", id);
     setOvertime(prev => prev.filter(o => o.id !== id));
+  await supabase.from("overtime_entries").delete().eq("id", id);
+    setOvertime(prev => prev.filter(o => o.id !== id));
+    if (logAction) logAction("Overtime Deleted", `Removed an OT entry`);
   };
 
   return (
@@ -497,7 +503,7 @@ function DashboardView({ employees, attendance, posts, trackingStartDate }) {
 }
 
 // ─── ATTENDANCE ───────────────────────────────────────────────────────────────
-function AttendanceView({ employees }) {
+function AttendanceView({ employees, logAction }) {
   const [selectedDate, setSelectedDate] = useState(todayStr);
   const [dayAttendance, setDayAttendance] = useState({});
   const [activeShift, setActiveShift] = useState("Morning");
@@ -559,6 +565,8 @@ function AttendanceView({ employees }) {
     }
     
     setIsSubmitted(true); setIsHoliday(false); setSaving(false);
+  setIsSubmitted(true); setIsHoliday(false); setSaving(false);
+    if (logAction) logAction("Attendance Submitted", `Marked ${activeShift} shift for ${selectedDate}`);
   };
 
   const handleHolidaySubmit = async () => {
@@ -576,6 +584,9 @@ function AttendanceView({ employees }) {
     filtered.forEach(e => { newMap[e.id] = { status: "Holiday", ot_hours: 0 }; });
     setDayAttendance(newMap);
     setSaving(false);
+    setDayAttendance(newMap);
+    setSaving(false);
+    if (logAction) logAction("Holiday Declared", `Marked ${selectedDate} as Holiday for ${activeShift} shift`);
   };
 
   const handleUnsubmit = async () => { 
@@ -586,6 +597,9 @@ function AttendanceView({ employees }) {
     }
     setIsSubmitted(false); setIsHoliday(false); 
     setSaving(false);
+    setIsSubmitted(false); setIsHoliday(false); 
+    setSaving(false);
+    if (logAction) logAction("Attendance Unlocked", `Unlocked ${selectedDate} for ${activeShift} shift`);
   };
 
   const presentCount = filtered.filter(e => ["Present", "Holiday"].includes(dayAttendance[e.id]?.status || "Present")).length;
@@ -942,6 +956,8 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
     await supabase.from("employees").update(updateData).eq("id", viewing.id);
     setEmployees(prev => prev.map(e => e.id === viewing.id ? { ...e, ...updateData } : e));
     setViewing(prev => ({ ...prev, ...updateData }));
+  setViewing(prev => ({ ...prev, ...updateData }));
+    if (logAction) logAction("Salary Changed", `Updated ${viewing.name}'s salary to ₹${newSalary}`);
   };
 
   const updateFoodAllowance = async () => {
@@ -957,6 +973,8 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
     await supabase.from("employees").update(updateData).eq("id", viewing.id);
     setEmployees(prev => prev.map(e => e.id === viewing.id ? { ...e, ...updateData } : e));
     setViewing(prev => ({ ...prev, ...updateData }));
+  setViewing(prev => ({ ...prev, ...updateData }));
+    if (logAction) logAction("Allowance Changed", `${isEnabled ? "Enabled" : "Disabled"} food allowance for ${viewing.name}`);
   };
 
   const updateEmployeePost = async (emp, newPost) => {
@@ -988,6 +1006,8 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
     await supabase.from("employees").update(updateData).eq("id", emp.id);
     setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, ...updateData } : e));
     setViewing(prev => ({ ...prev, ...updateData, post: newPost }));
+  setViewing(prev => ({ ...prev, ...updateData, post: newPost }));
+    if (logAction) logAction("Post Changed", `Moved ${emp.name} to ${newPost}`);
   };
 
   const updateEmployeeShift = async (id, newShift) => {
@@ -1011,6 +1031,8 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
     setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "inactive", left_date: leftDate } : e));
     setViewing(null);
     setConfirmLeave(false);
+  setConfirmLeave(false);
+    if (logAction) logAction("Employee Left", `Marked ${emp.name} as left on ${leftDate}`);
   };
 
   const reactivate = async (emp) => {
@@ -1058,6 +1080,8 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
 
     setEmployees(prev => prev.filter(e => e.id !== viewing.id));
     setViewing(null);
+  setViewing(null);
+    if (logAction) logAction("Employee Deleted", `Permanently deleted employee: ${viewing.name}`);
   };
 
   const deleteInactive = async (emp) => {
@@ -1762,7 +1786,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
 }
 
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
-function SettingsView({ posts, setPosts, employees, setEmployees, trackingStartDate, setTrackingStartDate }) {
+function SettingsView({ posts, setPosts, employees, setEmployees, trackingStartDate, setTrackingStartDate, logAction }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", required_morning: 1, required_night: 1, contract_salary: 0, morning_start: "06:00", night_start: "18:00" });
   const [loading, setLoading] = useState(false);
@@ -1773,11 +1797,21 @@ function SettingsView({ posts, setPosts, employees, setEmployees, trackingStartD
     const { data, error } = await supabase.from("posts").insert({ name: form.name, required_morning: +form.required_morning, required_night: +form.required_night, contract_salary: +form.contract_salary, morning_start: form.morning_start, night_start: form.night_start }).select().single();
     if (!error && data) { setPosts(prev => [...prev, data]); setForm({ name: "", required_morning: 1, required_night: 1, contract_salary: 0, morning_start: "06:00", night_start: "18:00" }); setShowForm(false); }
     setLoading(false);
+  if (!error && data) { 
+      setPosts(prev => [...prev, data]); 
+      setForm({ name: "", required_morning: 1, required_night: 1, contract_salary: 0, morning_start: "06:00", night_start: "18:00" }); 
+      setShowForm(false); 
+      if (logAction) logAction("Post Created", `Added new role: ${form.name}`);
+    }
+    setLoading(false);
   };
 
   const deletePost = async (post) => {
     await supabase.from("posts").delete().eq("id", post.id);
     setPosts(prev => prev.filter(p => p.id !== post.id));
+  await supabase.from("posts").delete().eq("id", post.id);
+    setPosts(prev => prev.filter(p => p.id !== post.id));
+    if (logAction) logAction("Post Deleted", `Removed role: ${post.name}`);
   };
 
   const updatePost = async (post, field, value) => {
@@ -2143,6 +2177,7 @@ const [logs, setLogs] = useState([]);
     if (!user) return;
     const loadData = async () => {
       setLoading(true);
+      if (typeof logAction === "function") logAction("User Login", `User accessed the dashboard`);
       const { data: emps } = await supabase.from("employees").select("*").order("name");
       if (emps) setEmployees(emps);
       const { data: postsData } = await supabase.from("posts").select("*").order("name");
@@ -2162,7 +2197,11 @@ const [logs, setLogs] = useState([]);
     loadData();
   }, [user]);
 
-  const handleSignOut = async () => { await supabase.auth.signOut(); setUser(null); };
+  const handleSignOut = async () => { 
+    if (logAction) await logAction("Logged Out", `User signed out of the portal`);
+    await supabase.auth.signOut(); 
+    setUser(null); 
+  };
 
   if (!user) return <Login onLogin={setUser} />;
 
@@ -2246,12 +2285,12 @@ const [logs, setLogs] = useState([]);
       ) : (
         <>
           {tab === "dashboard" && <DashboardView employees={employees} attendance={attendance} posts={posts} trackingStartDate={trackingStartDate} />}
-          {tab === "attendance" && <AttendanceView employees={employees} user={user} />}
-          {tab === "overtime" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} />}
+          {tab === "attendance" && <AttendanceView employees={employees} logAction={logAction} />}
+          {tab === "overtime" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} logAction={logAction} />}
           {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} />}
           {tab === "payroll" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setTab={setTab} overtime={overtime} logAction={logAction} />}
-          {tab === "reports" && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} />}
-          {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} />}
+          {tab === "reports" && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} logAction={logAction} />}
+          {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} logAction={logAction} />}
           {tab === "logs" && <LogsView logs={logs} setLogs={setLogs} />} {/* <-- NEW RENDER LINE */}
         </>
       )}
