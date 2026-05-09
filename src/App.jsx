@@ -181,7 +181,7 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
   const pendingLoan = totalLoans - totalRepayments;
 
   // FOOD ALLOWANCE (60% Minimum Attendance Rule)
-  const totalDaysInRange = Math.round((new Date(end) - new Date(start)) / 86400000) + 1;
+  const totalDaysInRange = Math.max(1, Math.round((new Date(effectiveEnd) - new Date(effectiveStart)) / 86400000) + 1);
   let foodAllowance = 0;
   if (employee.has_food_allowance && employee.food_allowance_amount > 0) {
     const presentDays = totalDaysInRange - totalAbsentDays - totalLeaveDays;
@@ -1348,7 +1348,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
 }
 
 // ─── PAYROLL ──────────────────────────────────────────────────────────────────
-function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab, overtime }) {
+function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab, overtime, logAction }) {
   const now = new Date();
   const monthStart = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), "01"].join("-");
   const [start, setStart] = useState(monthStart);
@@ -1420,6 +1420,11 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
       setLedger(prev => [...newEntries, ...prev]); 
       setShowModal(false); 
       setForm({ type: "Advance", amount: "", notes: "", date: todayStr, empId: "" }); 
+      
+      if (logAction) {
+        const targetName = isContractor ? "Contractor" : (employees.find(e => e.id === form.empId)?.name || "Unknown");
+        logAction(`Registered ${form.type}`, `₹${payoutAmt} for ${targetName}`);
+      }
     }
   };
 
@@ -2199,7 +2204,7 @@ const [logs, setLogs] = useState([]);
           {tab === "attendance" && <AttendanceView employees={employees} user={user} />}
           {tab === "overtime" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} />}
           {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} />}
-          {tab === "payroll" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setTab={setTab} overtime={overtime} />}
+          {tab === "payroll" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setTab={setTab} overtime={overtime} logAction={logAction} />}
           {tab === "reports" && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} />}
           {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} />}
           {tab === "logs" && <LogsView logs={logs} setLogs={setLogs} />} {/* <-- NEW RENDER LINE */}
