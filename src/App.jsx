@@ -1833,6 +1833,21 @@ function SettingsView({ posts, setPosts, employees, setEmployees, trackingStartD
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", required_morning: 1, required_night: 1, contract_salary: 0, morning_start: "06:00", night_start: "18:00" });
   const [loading, setLoading] = useState(false);
+  
+  // NEW: Password Change State
+  const [newPassword, setNewPassword] = useState("");
+  const [passLoading, setPassLoading] = useState(false);
+  const [passMsg, setPassMsg] = useState("");
+
+  const updatePassword = async () => {
+    if (newPassword.length < 6) return setPassMsg("Minimum 6 characters required.");
+    setPassLoading(true);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) setPassMsg("Error: " + error.message);
+    else { setPassMsg("✅ Password updated successfully!"); setNewPassword(""); }
+    setPassLoading(false);
+    if (logAction && !error) logAction("Password Changed", "User updated their personal password");
+  };
 
   const addPost = async () => {
     if (!form.name.trim()) return;
@@ -1909,6 +1924,22 @@ function SettingsView({ posts, setPosts, employees, setEmployees, trackingStartD
 
   return (
     <div style={css.page}>
+      
+      {/* NEW: Account Security Card */}
+      <div style={{ ...css.card, marginBottom: 20, borderLeft: `3px solid ${C.accent}` }}>
+        <div style={css.sectionTitle}>Account Security</div>
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>CHANGE YOUR PASSWORD</div>
+            <input type="password" placeholder="New Password (min 6 chars)" value={newPassword} onChange={e => setNewPassword(e.target.value)} style={{ ...css.input, width: 250 }} />
+          </div>
+          <button style={css.btn(C.blue)} onClick={updatePassword} disabled={passLoading || !newPassword}>
+            {passLoading ? "Updating..." : "Update Password"}
+          </button>
+        </div>
+        {passMsg && <div style={{ fontSize: 11, marginTop: 8, color: passMsg.includes("Error") ? C.red : C.green, fontWeight: 700 }}>{passMsg}</div>}
+      </div>
+
       <div style={{ ...css.card, marginBottom: 20 }}>
         <div style={css.sectionTitle}>General Settings</div>
         <div>
