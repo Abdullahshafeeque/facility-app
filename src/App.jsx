@@ -2474,7 +2474,7 @@ function ViewerDashboardView({ userEmail, appUsers, employees, posts, ledger, po
   }
 
   // Filter data and calculate finances securely using the global function
-  let fin = { absentDays: 0, otEarnings: 0, totalAdvances: 0, totalFines: 0, periodNet: 0, pendingLoan: 0, proratedSalary: 0, totalBonuses: 0, foodAllowance: 0 };
+  let fin = { absentDays: 0, otEarnings: 0, totalAdvances: 0, totalFines: 0, netPayable: 0, pendingLoan: 0, proratedSalary: 0, totalBonuses: 0, foodAllowance: 0 };
   try { fin = calcFinances(myEmp, posts, rangeAttendance, ledger, start, end, postHistory, overtime); } catch (err) {}
 
   const myLedger = ledger.filter(l => String(l.employee_id) === String(myEmp.id) && l.date >= start && l.date <= end).sort((a,b) => new Date(b.date) - new Date(a.date));
@@ -2499,7 +2499,7 @@ function ViewerDashboardView({ userEmail, appUsers, employees, posts, ledger, po
           [{ content: "--- FINANCIAL SUMMARY ---", colSpan: 3, styles: { fillColor: [240, 245, 255], textColor: [30, 111, 219], fontStyle: "bold" } }],
           ["Period Earnings", "Base + OT + Bonus + Food", `+ Rs. ${Math.round(fin.proratedSalary + fin.otEarnings + fin.totalBonuses + (fin.foodAllowance || 0)).toLocaleString("en-IN")}`],
           ["Period Deductions", "Advances & Fines Deducted", `- Rs. ${Math.round(fin.totalAdvances + fin.totalFines).toLocaleString("en-IN")}`],
-          ["CLOSING NET PAYABLE", `Total earned in this period`, `Rs. ${Math.round(fin.periodNet).toLocaleString("en-IN")}`],
+          ["CLOSING NET PAYABLE", `Total earned in this period`, `Rs. ${Math.round(fin.netPayable).toLocaleString("en-IN")}`],
           ["Active Loan Balance", `Total unpaid company loans`, `Rs. ${Math.round(fin.pendingLoan).toLocaleString("en-IN")}`]
         ];
 
@@ -2546,7 +2546,7 @@ function ViewerDashboardView({ userEmail, appUsers, employees, posts, ledger, po
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 24 }}>
         <div style={{ padding: 16, background: C.panel, borderRadius: 6, border: `1px solid ${C.border}`, boxShadow: "0 1px 2px rgba(0,0,0,0.05)" }}>
           <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700 }}>PERIOD NET PAYABLE</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: C.green, marginTop: 4 }}>₹{Math.round(fin.periodNet).toLocaleString("en-IN")}</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: C.green, marginTop: 4 }}>₹{Math.round(fin.netPayable).toLocaleString("en-IN")}</div>
         </div>
         <div style={{ padding: 16, background: C.panel, borderRadius: 6, border: `1px solid ${C.border}`, boxShadow: "0 1px 2px rgba(0,0,0,0.05)" }}>
           <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700 }}>OVERTIME HOURS (PERIOD)</div>
