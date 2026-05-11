@@ -2353,6 +2353,52 @@ function LogsView({ logs, setLogs }) {
   );
 }
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
+// ─── USER MANAGEMENT (DIRECTOR ONLY) ──────────────────────────────────────────
+function UserManagementView({ users, setUsers, employees }) {
+  const updateRole = async (userId, newRole) => {
+    await supabase.from("app_users").update({ role: newRole }).eq("id", userId);
+    setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
+  };
+
+  const linkEmployee = async (userId, empId) => {
+    const val = empId === "" ? null : empId;
+    await supabase.from("app_users").update({ employee_id: val }).eq("id", userId);
+    setUsers(prev => prev.map(u => u.id === userId ? { ...u, employee_id: val } : u));
+  };
+
+  return (
+    <div style={css.page}>
+      <div style={css.sectionTitle}>User Access Management</div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={css.table}>
+          <thead><tr><th style={css.th}>Email</th><th style={css.th}>Role</th><th style={css.th}>Linked Employee (For Viewers)</th></tr></thead>
+          <tbody>
+            {users.map(u => (
+              <tr key={u.id} style={{ background: u.role === "pending" ? C.orange + "15" : "transparent" }}>
+                <td style={css.td}><strong>{u.email}</strong></td>
+                <td style={css.td}>
+                  <select style={css.input} value={u.role} onChange={e => updateRole(u.id, e.target.value)}>
+                    <option value="pending">Pending (Locked Out)</option>
+                    <option value="viewer">Viewer (Staff Only)</option>
+                    <option value="supervisor">Supervisor</option>
+                    <option value="manager">Manager</option>
+                    <option value="director">Director</option>
+                  </select>
+                </td>
+                <td style={css.td}>
+                  <select disabled={u.role !== "viewer"} style={{ ...css.input, opacity: u.role !== "viewer" ? 0.3 : 1, width: "100%" }} value={u.employee_id || ""} onChange={e => linkEmployee(u.id, e.target.value)}>
+                    <option value="">-- Link to Staff Profile --</option>
+                    {employees.filter(e => e.status === "active").map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                  </select>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 export default function App() {
   const [user, setUser] = useState(null);
   const [tab, setTab] = useState("dashboard");
@@ -2366,7 +2412,9 @@ export default function App() {
   const nowDt = new Date();
   const defaultStart = [nowDt.getFullYear(), String(nowDt.getMonth() + 1).padStart(2, "0"), "01"].join("-");
   const [trackingStartDate, setTrackingStartDate] = useState(localStorage.getItem("trackingStartDate") || defaultStart);
-const [logs, setLogs] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [appUsers, setAppUsers] = useState([]);
+  const [myRole, setMyRole] = useState(null);
 
   // Use this function anywhere to record an action
   const logAction = async (action, details) => {
@@ -2401,6 +2449,14 @@ const [logs, setLogs] = useState([]);
       if (otData) setOvertime(otData);
       const { data: logData } = await supabase.from("audit_logs").select("*").order("created_at", { ascending: false });
       if (logData) setLogs(logData);
+      
+      const { data: usersData } = await supabase.from("app_users").select("*").order("created_at", { ascending: false });
+      if (usersData) {
+        setAppUsers(usersData);
+        const me = usersData.find(u => u.email === user.email);
+        setMyRole(me ? me.role : "pending");
+      } else setMyRole("pending");
+      
       setLoading(false);
     };
     loadData();
@@ -2417,16 +2473,26 @@ const [logs, setLogs] = useState([]);
   const alerts = getCoverage(employees.filter(e => e.status === "active"), attendance, posts);
   const pendingSettlements = employees.filter(e => e.status === "inactive" && !e.settlement_done).length;
 
- const TABS = [
+ // Dynamic tabs based on role
+  const TABS = [
     { id: "dashboard", label: "Dashboard" },
-    { id: "attendance", label: "Attendance" },
-    { id: "overtime", label: "Overtime" },
-    { id: "staff", label: "Staff" },
-    { id: "payroll", label: "Payroll" },
-    { id: "reports", label: "📊 Reports" },
-    { id: "settings", label: "⚙ Settings" },
-    { id: "logs", label: "📋 Logs" }, // <-- NEW LOGS TAB
+    ...(myRole !== "viewer" ? [{ id: "attendance", label: "Attendance" }, { id: "overtime", label: "Overtime" }] : []),
+    ...(myRole === "director" || myRole === "manager" || myRole === "supervisor" ? [{ id: "staff", label: "Staff" }] : []),
+    ...(myRole === "director" || myRole === "manager" ? [{ id: "payroll", label: "Payroll" }, { id: "reports", label: "📊 Reports" }] : []),
+    ...(myRole === "director" ? [{ id: "settings", label: "⚙ Settings" }, { id: "logs", label: "📋 Logs" }, { id: "users", label: "🔐 Users" }] : []),
   ];
+
+  if (myRole === "pending") {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.bg }}>
+        <div style={{ ...css.card, textAlign: "center", padding: 40 }}>
+          <h2 style={{ color: C.orange, marginTop: 0 }}>Account Under Review</h2>
+          <p style={{ color: C.textDim, marginTop: 10 }}>Your account has been created but is waiting for Director approval.</p>
+          <button onClick={handleSignOut} style={{ ...css.btn(C.red), marginTop: 20 }}>Sign Out</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={css.page}>
@@ -2501,6 +2567,7 @@ const [logs, setLogs] = useState([]);
           {tab === "reports" && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} logAction={logAction} />}
           {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} logAction={logAction} />}
           {tab === "logs" && <LogsView logs={logs} setLogs={setLogs} />} {/* <-- NEW RENDER LINE */}
+          {tab === "users" && <UserManagementView users={appUsers} setUsers={setAppUsers} employees={employees} />}
         </>
       )}
     </div>
