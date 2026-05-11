@@ -2444,10 +2444,20 @@ function UserManagementView({ users, setUsers, employees }) {
   );
 }
 // ─── VIEWER DASHBOARD (EMPLOYEE SELF-SERVICE) ───────────────────────────────
-function ViewerDashboardView({ userEmail, appUsers, employees, posts, rangeAttendance, ledger, postHistory, overtime }) {
+function ViewerDashboardView({ userEmail, appUsers, employees, posts, ledger, postHistory, overtime }) {
   // Let the user pick their own dates
   const [start, setStart] = useState(() => { const d = new Date(); d.setDate(1); return d.toISOString().split("T")[0]; });
   const [end, setEnd] = useState(() => new Date().toISOString().split("T")[0]);
+  
+  // NEW: Fetch their attendance for the selected date range
+  const [rangeAttendance, setRangeAttendance] = useState([]);
+  useEffect(() => {
+    const fetchAtt = async () => {
+      const { data } = await supabase.from("attendance").select("*").gte("date", start).lte("date", end);
+      if (data) setRangeAttendance(data);
+    };
+    fetchAtt();
+  }, [start, end]);
 
   const me = appUsers.find(u => u.email === userEmail);
   const myEmp = employees.find(e => e.id === me?.employee_id);
@@ -2734,7 +2744,7 @@ export default function App() {
       ) : (
         <>
           {tab === "dashboard" && myRole === "viewer" && (
-          <ViewerDashboardView userEmail={user.email} appUsers={appUsers} employees={employees} posts={posts} rangeAttendance={rangeAttendance} ledger={ledger} postHistory={postHistory} overtime={overtime} />
+          <ViewerDashboardView userEmail={user.email} appUsers={appUsers} employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} />
         )}
         {tab === "dashboard" && myRole !== "viewer" && <DashboardView employees={employees} attendance={attendance} posts={posts} trackingStartDate={trackingStartDate} />}
           {tab === "attendance" && myRole !== "viewer" && <AttendanceView employees={employees} logAction={logAction} />}
