@@ -1320,25 +1320,52 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
       )}
 
       <div style={css.sectionTitle}>Active Staff ({filtered.length})</div>
-      <div style={{ overflowX: "auto", marginBottom: 24 }}>
-        <table style={css.table}>
-          <thead><tr>{["Code", "Name", "Post", "Type", "Shift", "Joined", "Salary", ""].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
-          <tbody>
-            {filtered.length === 0 && <tr><td colSpan={7} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No employees found.</td></tr>}
-            {filtered.map(emp => (
-              <tr key={emp.id} style={{ cursor: "pointer" }} onClick={() => { setViewing(emp); setConfirmLeave(false); }}>
-                <td style={{ ...css.td, fontSize: 12 }}><strong>{emp.emp_code || "—"}</strong></td>
-                <td style={css.td}><span style={{ color: C.accent, fontWeight: 700, textDecoration: "underline" }}>{emp.name}</span></td>
-                <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{emp.post}</span></td>
-                <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
-                <td style={css.td}><span style={css.badge(shiftColor(emp.shift))}>{emp.shift}</span></td>
-                <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{fDate(emp.joining_date)}</span></td>
-                <td style={css.td}><span style={{ color: C.accent }}>₹{Number(emp.base_salary).toLocaleString("en-IN")}</span></td>
-                <td style={css.td}><span style={{ fontSize: 11, color: C.accent }}>View →</span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div style={{ marginBottom: 24 }}>
+        {filtered.length === 0 && <div style={{ ...css.card, textAlign: "center", padding: 30, color: C.textDim }}>No employees found.</div>}
+        
+        {/* GROUP BY POST */}
+        {Array.from(new Set(filtered.map(e => e.post))).sort().map(postName => {
+          const postStaff = filtered.filter(e => e.post === postName);
+          
+          return (
+            <div key={postName} style={{ marginBottom: 20, borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}` }}>
+              <div style={{ background: C.accent, color: "white", padding: "10px 14px", fontWeight: 700, fontSize: 14 }}>
+                {postName} ({postStaff.length})
+              </div>
+              
+              {/* SUB-GROUP BY SHIFT */}
+              {["Morning", "Night"].map(shiftName => {
+                const shiftStaff = postStaff.filter(e => e.shift === shiftName);
+                if (shiftStaff.length === 0) return null;
+                
+                return (
+                  <div key={shiftName} style={{ borderTop: `1px solid ${C.border}`, background: C.panel }}>
+                    <div style={{ background: C.bg, padding: "6px 14px", fontSize: 11, fontWeight: 700, color: shiftName === "Morning" ? C.accent : C.blue, borderBottom: `1px solid ${C.border}` }}>
+                      {shiftName.toUpperCase()} SHIFT ({shiftStaff.length})
+                    </div>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={css.table}>
+                        <thead><tr>{["Code", "Name", "Type", "Joined", "Salary", ""].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+                        <tbody>
+                          {shiftStaff.map(emp => (
+                            <tr key={emp.id} style={{ cursor: "pointer" }} onClick={() => { setViewing(emp); setConfirmLeave(false); }}>
+                              <td style={{ ...css.td, fontSize: 12 }}><strong>{emp.emp_code || "—"}</strong></td>
+                              <td style={css.td}><span style={{ color: C.accent, fontWeight: 700, textDecoration: "underline" }}>{emp.name}</span></td>
+                              <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
+                              <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{fDate(emp.joining_date)}</span></td>
+                              <td style={css.td}><span style={{ color: C.green }}>₹{Number(emp.base_salary).toLocaleString("en-IN")}</span></td>
+                              <td style={css.td}><span style={{ fontSize: 11, color: C.accent }}>View →</span></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
       </div>
 
       {showInactive && (
