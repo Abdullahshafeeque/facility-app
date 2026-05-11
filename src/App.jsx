@@ -1297,7 +1297,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <strong style={{ fontSize: 11, color: l.transaction_type === "Bonus" || l.transaction_type === "Payout" ? C.green : C.red }}>₹{l.amount}</strong>
                       <button style={{ background: "transparent", border: "none", color: C.blue, cursor: "pointer", fontSize: 14, padding: "0 4px" }} title="Edit Amount" onClick={() => editTransaction(l)}>✎</button>
-                      <button style={{ background: "transparent", border: "none", color: C.red, cursor: "pointer", fontSize: 12, padding: "0 4px" }} title="Delete Transaction" onClick={() => deleteTransaction(l.id)}>✕</button>
+                      {myRole === "director" && <button style={{ background: "transparent", border: "none", color: C.red, cursor: "pointer", fontSize: 12, padding: "0 4px" }} title="Delete Transaction" onClick={() => deleteTransaction(l.id)}>✕</button>}
                     </div>
                   </div>
                 ))
@@ -2812,7 +2812,7 @@ export default function App() {
           {tab === "attendance" && myRole !== "viewer" && <AttendanceView employees={employees} logAction={logAction} myRole={myRole} />}
           {tab === "overtime" && myRole !== "viewer" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} logAction={logAction} myRole={myRole} />}
           {tab === "staff" && myRole !== "viewer" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
-          {tab === "payroll" && (myRole === "director" || myRole === "manager") && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setTab={setTab} overtime={overtime} logAction={logAction} />}
+          {tab === "payroll" && myRole !== "viewer" && <PayrollView employees={employees} ledger={ledger} setLedger={setLedger} logAction={logAction} myRole={myRole} />}
           {tab === "reports" && (myRole === "director" || myRole === "manager") && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} logAction={logAction} />}
           {tab === "settings" && myRole === "director" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} logAction={logAction} />}
           {tab === "logs" && myRole === "director" && <LogsView logs={logs} setLogs={setLogs} />} {/* <-- NEW RENDER LINE */}
