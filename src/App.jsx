@@ -270,7 +270,7 @@ function AlertBanner({ alerts }) {
 }
 
 // ─── OVERTIME ─────────────────────────────────────────────────────────────────
-function OvertimeView({ employees, posts, overtime, setOvertime, logAction }) {
+function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRole }) {
   const [form, setForm] = useState({ empId: "", startDate: todayStr, endDate: todayStr, start: "", end: "", post: "" });
   const [saving, setSaving] = useState(false);
   const active = employees.filter(e => e.status === "active");
@@ -391,7 +391,7 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction }) {
                   <td style={css.td}>{o.start_time}</td>
                   <td style={css.td}>{o.end_time}</td>
                   <td style={{...css.td, color: C.green, fontWeight: "bold"}}>{Number(o.hours).toFixed(1)}h</td>
-                  <td style={css.td}><button style={{...css.btn(C.red), padding: "4px 8px"}} onClick={() => deleteOT(o.id)}>✕</button></td>
+                  <td style={css.td}>{myRole === "director" && <button style={{...css.btn(C.red), padding: "4px 8px"}} onClick={() => deleteOT(o.id)}>✕</button>}</td>
                 </tr>
               )
             })}
@@ -512,7 +512,7 @@ function DashboardView({ employees, attendance, posts, trackingStartDate }) {
 }
 
 // ─── ATTENDANCE ───────────────────────────────────────────────────────────────
-function AttendanceView({ employees, logAction }) {
+function AttendanceView({ employees, logAction, myRole }) {
   const [selectedDate, setSelectedDate] = useState(todayStr);
   const [dayAttendance, setDayAttendance] = useState({});
   const [activeShift, setActiveShift] = useState("Morning");
@@ -636,7 +636,7 @@ function AttendanceView({ employees, logAction }) {
       </div>
       <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
         <input placeholder="🔍 Search employee..." value={search} onChange={e => setSearch(e.target.value)} style={{ ...css.input, flex: 1, minWidth: 180 }} />
-        {!isHoliday && <button style={css.btn(C.green)} onClick={markAllPresent}>✓ Mark All Present</button>}
+        {!isHoliday && (!isSubmitted || myRole === "director") && <button style={css.btn(C.green)} onClick={markAllPresent}>✓ Mark All Present</button>}
       </div>
       {loading ? <div style={{ textAlign: "center", padding: 40, color: C.textDim }}>Loading {selectedDate}...</div> : (
         <>
@@ -657,7 +657,7 @@ function AttendanceView({ employees, logAction }) {
                       <td style={css.td}>
                         <div style={{ display: "flex", gap: 4 }}>
                           {["Present", "Absent", "Leave"].map(s => (
-  <button key={s} disabled={isHoliday} style={{ ...css.btn(statusColor(s)), opacity: rec.status === s ? 1 : 0.25, padding: "6px 8px", fontSize: 11, minWidth: 60 }} onClick={() => toggle(emp.id, "status", s)}>{s[0]}</button>
+  <button key={s} disabled={isHoliday || (isSubmitted && myRole !== "director")} style={{ ...css.btn(statusColor(s)), opacity: rec.status === s ? 1 : 0.25, padding: "6px 8px", fontSize: 11, minWidth: 60 }} onClick={() => toggle(emp.id, "status", s)}>{s[0]}</button>
                           ))}
                         </div>
                       </td>
@@ -670,9 +670,9 @@ function AttendanceView({ employees, logAction }) {
           <div style={{ marginTop: 20, ...css.card, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
             <span style={{ fontSize: 12, color: C.textDim }}>{isHoliday ? "Holiday — all staff marked present." : isSubmitted ? "Submitted. Click Unlock to make changes." : "Draft — submit when attendance is finalised."}</span>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {isSubmitted && <button style={css.btn(C.red)} onClick={handleUnsubmit}>🔓 Unlock Day</button>}
-              <button style={css.btn(C.orange)} onClick={handleHolidaySubmit} disabled={saving}>⛱ Mark Holiday</button>
-              <button style={css.btn(C.green)} onClick={handleSubmit} disabled={saving}>{saving ? "Saving..." : isSubmitted ? "Update Day" : "✓ Submit Day"}</button>
+              {isSubmitted && myRole === "director" && <button style={css.btn(C.red)} onClick={handleUnsubmit}>🔓 Unlock Day</button>}
+              {(!isSubmitted || myRole === "director") && <button style={css.btn(C.orange)} onClick={handleHolidaySubmit} disabled={saving}>⛱ Mark Holiday</button>}
+              {(!isSubmitted || myRole === "director") && <button style={css.btn(C.green)} onClick={handleSubmit} disabled={saving}>{saving ? "Saving..." : isSubmitted ? "Update Day" : "✓ Submit Day"}</button>}
             </div>
           </div>
         </>
@@ -682,7 +682,7 @@ function AttendanceView({ employees, logAction }) {
 }
 
 // ─── STAFF ────────────────────────────────────────────────────────────────────
-function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHistory, setPostHistory, overtime, logAction }) {
+function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHistory, setPostHistory, overtime, logAction, myRole }) {
   const deleteTransaction = async (txId) => {
     if (!window.confirm("Delete this transaction? This will instantly adjust their Net Payable.")) return;
     await supabase.from("financial_ledger").delete().eq("id", txId);
@@ -1310,9 +1310,11 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
                 <button style={{ ...css.btn(C.orange), flex: 1 }} onClick={() => setConfirmLeave(true)}>
                   ⏸ Mark as Left / Inactive
                 </button>
-                <button style={{ ...css.btn(C.red), flex: 1 }} onClick={deleteEmployee}>
-                  🗑 Delete Permanently
-                </button>
+                {myRole === "director" && (
+                  <button style={{ ...css.btn(C.red), flex: 1 }} onClick={deleteEmployee}>
+                    🗑 Delete Permanently
+                  </button>
+                )}
               </div>
             ) : (
               <div style={{ background: C.red + "15", border: `1px solid ${C.red}44`, borderRadius: 6, padding: 14 }}>
@@ -1403,7 +1405,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
                     <td style={css.td}>
                       <div style={{ display: "flex", gap: 6 }}>
                         <button style={{ ...css.btn(C.green), padding: "4px 10px", fontSize: 10 }} onClick={() => reactivate(emp)}>Reactivate</button>
-                        <button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => deleteInactive(emp)}>Delete</button>
+                        {myRole === "director" && <button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => deleteInactive(emp)}>Delete</button>}
                       </div>
                     </td>
                   </tr>
@@ -2807,9 +2809,9 @@ export default function App() {
           <ViewerDashboardView userEmail={user.email} appUsers={appUsers} employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} />
         )}
         {tab === "dashboard" && myRole !== "viewer" && <DashboardView employees={employees} attendance={attendance} posts={posts} trackingStartDate={trackingStartDate} />}
-          {tab === "attendance" && myRole !== "viewer" && <AttendanceView employees={employees} logAction={logAction} />}
-          {tab === "overtime" && myRole !== "viewer" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} logAction={logAction} />}
-          {tab === "staff" && myRole !== "viewer" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} />}
+          {tab === "attendance" && myRole !== "viewer" && <AttendanceView employees={employees} logAction={logAction} myRole={myRole} />}
+          {tab === "overtime" && myRole !== "viewer" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} logAction={logAction} myRole={myRole} />}
+          {tab === "staff" && myRole !== "viewer" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
           {tab === "payroll" && (myRole === "director" || myRole === "manager") && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setTab={setTab} overtime={overtime} logAction={logAction} />}
           {tab === "reports" && (myRole === "director" || myRole === "manager") && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} logAction={logAction} />}
           {tab === "settings" && myRole === "director" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} logAction={logAction} />}
