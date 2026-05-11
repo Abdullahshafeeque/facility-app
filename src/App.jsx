@@ -2449,18 +2449,19 @@ function ViewerDashboardView({ userEmail, appUsers, employees, posts, ledger, po
   const [start, setStart] = useState(() => { const d = new Date(); d.setDate(1); return d.toISOString().split("T")[0]; });
   const [end, setEnd] = useState(() => new Date().toISOString().split("T")[0]);
   
-  // NEW: Fetch their attendance for the selected date range
+  const me = appUsers.find(u => u.email === userEmail);
+  const myEmp = employees.find(e => e.id === me?.employee_id);
+
+  // Fetch full lifetime attendance for this employee to correctly calculate Opening Balance
   const [rangeAttendance, setRangeAttendance] = useState([]);
   useEffect(() => {
     const fetchAtt = async () => {
-      const { data } = await supabase.from("attendance").select("*").gte("date", start).lte("date", end);
+      if (!myEmp) return;
+      const { data } = await supabase.from("attendance").select("*").eq("employee_id", myEmp.id);
       if (data) setRangeAttendance(data);
     };
     fetchAtt();
-  }, [start, end]);
-
-  const me = appUsers.find(u => u.email === userEmail);
-  const myEmp = employees.find(e => e.id === me?.employee_id);
+  }, [myEmp?.id]);
 
   if (!myEmp) {
     return (
@@ -2474,7 +2475,7 @@ function ViewerDashboardView({ userEmail, appUsers, employees, posts, ledger, po
   }
 
   // Filter data and calculate finances securely using the global function
-  let fin = { absentDays: 0, otEarnings: 0, totalAdvances: 0, totalFines: 0, netPayable: 0, pendingLoan: 0, proratedSalary: 0, totalBonuses: 0, foodAllowance: 0 };
+  let fin = { absentDays: 0, leaveDays: 0, totalOTHours: 0, otEarnings: 0, totalAdvances: 0, attendanceDeduction: 0, totalPaid: 0, netPayable: 0, pendingLoan: 0, proratedSalary: 0, totalBonuses: 0, foodAllowance: 0 };
   try { fin = calcFinances(myEmp, posts, rangeAttendance, ledger, start, end, postHistory, overtime); } catch (err) {}
 
   const myLedger = ledger.filter(l => String(l.employee_id) === String(myEmp.id) && l.date >= start && l.date <= end).sort((a,b) => new Date(b.date) - new Date(a.date));
@@ -2482,44 +2483,89 @@ function ViewerDashboardView({ userEmail, appUsers, employees, posts, ledger, po
   const totalOTHours = myOT.reduce((sum, o) => sum + Number(o.hours), 0);
 
   const downloadMyStatement = () => {
-    import("jspdf").then(({ jsPDF }) => {
-      import("jspdf-autotable").then(({ default: autoTable }) => {
-        const doc = new jsPDF();
-        doc.setFontSize(16); doc.setTextColor(30, 111, 219);
-        doc.text("PUNATHIL ROLLER FLOUR MILLS", 14, 20);
-        doc.setFontSize(12); doc.setTextColor(20);
-        doc.text(`Employee Statement: ${myEmp.name}`, 14, 28);
-        doc.setFontSize(10); doc.setTextColor(100);
-        doc.text(`Period: ${start} to ${end} | Post: ${myEmp.post}`, 14, 34);
+    try {
+      // Calculate Prior Balance (Carried Forward)
+      const [y, m, d] = start.split("-").map(Number);
+      const beforeDt = new Date(y, m - 1, d - 1);
+      const beforeStartStr = [beforeDt.getFullYear(), String(beforeDt.getMonth() + 1).padStart(2, "0"), String(beforeDt.getDate()).padStart(2, "0")].join("-");
+      
+      const priorFin = calcFinances(myEmp, posts, rangeAttendance, ledger, myEmp.joining_date || "2020-01-01", beforeStartStr, postHistory, overtime);
+      const openingBalance = Math.round(priorFin.netPayable);
 
-        const body = [
-          [{ content: "--- EMPLOYMENT METRICS ---", colSpan: 3, styles: { fillColor: [240, 245, 255], textColor: [30, 111, 219], fontStyle: "bold" } }],
-          ["Period Overtime Logged", "Total OT hours during period", `${totalOTHours} hrs`],
-          ["Period Absences", "Leaves & unpaid absences during period", `${fin.absentDays} days`],
-          [{ content: "--- FINANCIAL SUMMARY ---", colSpan: 3, styles: { fillColor: [240, 245, 255], textColor: [30, 111, 219], fontStyle: "bold" } }],
-          ["Period Earnings", "Base + OT + Bonus + Food", `+ Rs. ${Math.round(fin.proratedSalary + fin.otEarnings + fin.totalBonuses + (fin.foodAllowance || 0)).toLocaleString("en-IN")}`],
-          ["Period Deductions", "Advances & Fines Deducted", `- Rs. ${Math.round(fin.totalAdvances + fin.totalFines).toLocaleString("en-IN")}`],
-          ["CLOSING NET PAYABLE", `Total earned in this period`, `Rs. ${Math.round(fin.netPayable).toLocaleString("en-IN")}`],
-          ["Active Loan Balance", `Total unpaid company loans`, `Rs. ${Math.round(fin.pendingLoan).toLocaleString("en-IN")}`]
-        ];
+      const closingFin = calcFinances(myEmp, posts, rangeAttendance, ledger, myEmp.joining_date || "2020-01-01", end, postHistory, overtime);
+      const closingBalance = Math.round(closingFin.netPayable);
 
-        autoTable(doc, {
-          startY: 40, head: [["Metric / Account", "Details", "Amount / Stat"]], body: body,
-          theme: "grid", headStyles: { fillColor: [240, 240, 240], textColor: [20, 20, 20] }, styles: { fontSize: 10 }
-        });
+      const periodDays = Math.max(1, Math.round((new Date(end) - new Date(start)) / 86400000) + 1);
+      const periodPresent = Math.max(0, periodDays - fin.absentDays - fin.leaveDays);
+      const periodAttPct = ((periodPresent / periodDays) * 100).toFixed(1);
 
-        if (myLedger.length > 0) {
-          doc.addPage();
-          doc.setFontSize(14); doc.setTextColor(20); doc.text("Detailed Ledger Transactions", 14, 20);
+      import("jspdf").then(({ jsPDF }) => {
+        import("jspdf-autotable").then(({ default: autoTable }) => {
+          const doc = new jsPDF();
+          doc.setFontSize(20); doc.setTextColor(30, 111, 219);
+          doc.text("PUNATHIL ROLLER FLOUR MILLS", 14, 20);
+          doc.setFontSize(14); doc.setTextColor(0);
+          doc.text(`Comprehensive Statement: ${myEmp.name}`, 14, 28);
+          doc.setFontSize(10);
+          doc.text(`Period: ${start} to ${end} | Aadhar: ${myEmp.aadhar || "N/A"}`, 14, 34);
+
           autoTable(doc, {
-            startY: 25, head: [["Date", "Type", "Amount", "Note"]],
-            body: myLedger.map(l => [l.date, l.transaction_type, `Rs. ${l.amount}`, l.note || "-"]),
-            theme: "grid", styles: { fontSize: 9 }
+            startY: 40,
+            head: [["Metric / Account", "Details", "Amount / Stat"]],
+            body: [
+              ["--- EMPLOYMENT METRICS ---", "", ""],
+              ["Period Attendance %", `${periodPresent} present / ${periodDays} period days`, `${periodAttPct}%`],
+              ["Period Absences", "Leaves & unpaid absences during period", `${fin.absentDays + fin.leaveDays} days`],
+              ["Period Overtime Logged", "Total OT hours during period", `${fin.totalOTHours} hrs`],
+              ["--- FINANCIAL LEDGER ---", "", ""],
+              ["OPENING BALANCE (Brought Forward)", `Net balance as of ${beforeStartStr}`, `Rs. ${openingBalance.toLocaleString("en-IN")}`],
+              ["(+) Base Salary (Prorated)", `Base pay for worked days`, `Rs. ${Math.round(fin.proratedSalary).toLocaleString("en-IN")}`],
+              ["(+) Overtime Earnings", `Pay for ${fin.totalOTHours} OT hours`, `Rs. ${Math.round(fin.otEarnings).toLocaleString("en-IN")}`],
+              ["(+) Bonuses & Allowances", `Bonus: ₹${fin.totalBonuses} | Food: ₹${fin.foodAllowance}`, `Rs. ${Math.round(fin.totalBonuses + (fin.foodAllowance || 0)).toLocaleString("en-IN")}`],
+              ["(-) Attendance Deductions", `Deducted for absences/leaves`, `Rs. ${Math.round(fin.attendanceDeduction).toLocaleString("en-IN")}`],
+              ["(-) Advances & Fines", `Deducted during period`, `Rs. ${fin.totalAdvances.toLocaleString("en-IN")}`],
+              ["(-) Period Payments", `Payouts transferred during period`, `Rs. ${fin.totalPaid.toLocaleString("en-IN")}`],
+              ["CLOSING NET BALANCE", `Payable as of ${end}`, `Rs. ${closingBalance.toLocaleString("en-IN")}`],
+              ["Active Loan Balance", `Total unpaid company loans`, `Rs. ${closingFin.pendingLoan.toLocaleString("en-IN")}`]
+            ],
+            theme: "grid", headStyles: { fillColor: [244, 246, 249], textColor: [0, 0, 0] }, styles: { fontSize: 10, fontStyle: "bold" }
           });
-        }
-        doc.save(`PRFM_Statement_${myEmp.name}_${start}_to_${end}.pdf`);
+
+          let finalY = doc.lastAutoTable.finalY + 10;
+
+          if (myOT.length > 0) {
+            const fallbackHourly = Math.round((((Number(myEmp.base_salary) * 12) / 365) / 12) * 2) / 2;
+            autoTable(doc, {
+              startY: finalY,
+              head: [["Date", "Overtime Post", "Time", "Hours", "Amount Earned"]],
+              body: myOT.map(o => {
+                let hrRate = fallbackHourly;
+                const p = (posts || []).find(x => x.name === o.post);
+                if (p) {
+                  const pSal = Number(p.contract_salary) || Number(p.base_salary) || 0;
+                  if (pSal > 0) hrRate = Math.round((((pSal * 12) / 365) / 12) * 2) / 2;
+                }
+                const earned = Math.round(Number(o.hours) * hrRate);
+                return [o.date, o.post, `${o.start_time} - ${o.end_time}`, `${o.hours}h`, `Rs. ${earned.toLocaleString("en-IN")}`];
+              }),
+              theme: "grid", headStyles: { fillColor: [22, 163, 74] }, styles: { fontSize: 9 }
+            });
+            finalY = doc.lastAutoTable.finalY + 10;
+          }
+
+          if (myLedger.length > 0) {
+            autoTable(doc, {
+              startY: finalY,
+              head: [["Date", "Transaction Type", "Amount", "Remarks"]],
+              body: myLedger.map(l => [l.date, l.transaction_type, `Rs. ${l.amount.toLocaleString("en-IN")}`, l.note || l.notes || "-"]),
+              theme: "grid", headStyles: { fillColor: [234, 88, 12] }, styles: { fontSize: 9 }
+            });
+          }
+
+          doc.save(`Statement_${myEmp.name.replace(/ /g, "_")}_${start}_to_${end}.pdf`);
+        });
       });
-    });
+    } catch (err) { alert("PDF Logic Error: " + err.message); }
   };
 
   return (
