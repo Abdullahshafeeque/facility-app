@@ -780,6 +780,10 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
       const finPeriod = calcFinances(emp, posts, viewingAtt, ledger, startDate, endDate, postHistory, overtime);
       const periodEarned = finPeriod.proratedSalary - finPeriod.attendanceDeduction + finPeriod.otEarnings + finPeriod.totalBonuses + (finPeriod.foodAllowance || 0);
 
+      const staffLedgerPeriod = (ledger || []).filter(l => l.employee_id === emp.id && l.date >= startDate && l.date <= endDate);
+      const periodAdvances = staffLedgerPeriod.filter(l => l.transaction_type === "Advance").reduce((s, l) => s + Number(l.amount), 0);
+      const periodFines = staffLedgerPeriod.filter(l => l.transaction_type === "Fine").reduce((s, l) => s + Number(l.amount), 0);
+
       // 3. Closing Balance (Lifetime up to End Date)
       const closingFin = calcFinances(emp, posts, viewingAtt, ledger, emp.joining_date || "2020-01-01", endDate, postHistory, overtime);
       const closingBalance = Math.round(closingFin.netPayable);
@@ -826,10 +830,14 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
                 ["OPENING BALANCE (Brought Forward)", `Net balance as of ${beforeStartStr}`, `Rs. ${openingBalance.toLocaleString("en-IN")}`],
                 ["(+) Base Salary (Prorated)", `Base pay for worked days`, `Rs. ${Math.round(finPeriod.proratedSalary).toLocaleString("en-IN")}`],
                 ["(+) Overtime Earnings", `Pay for ${finPeriod.totalOTHours} OT hours`, `Rs. ${Math.round(finPeriod.otEarnings).toLocaleString("en-IN")}`],
-                ["(+) Bonuses & Allowances", `Bonus: Rs. ${finPeriod.totalBonuses} | Food: Rs. ${finPeriod.foodAllowance || 0}`, `Rs. ${Math.round(finPeriod.totalBonuses + (finPeriod.foodAllowance || 0)).toLocaleString("en-IN")}`],
+                ["(+) Bonus", `Bonuses added during period`, `Rs. ${Math.round(finPeriod.totalBonuses).toLocaleString("en-IN")}`],
+                ["(+) Food Allowance", `Food allowance for period`, `Rs. ${Math.round(finPeriod.foodAllowance || 0).toLocaleString("en-IN")}`],
+                ["(+) Loan Repayments", `Repayments made by employee`, `Rs. ${Math.round(finPeriod.totalRepayments).toLocaleString("en-IN")}`],
                 ["(-) Attendance Deductions", `Deducted for absences/leaves`, `Rs. ${Math.round(finPeriod.attendanceDeduction).toLocaleString("en-IN")}`],
-                ["(-) Advances & Fines", `Deducted during period`, `Rs. ${finPeriod.totalAdvances.toLocaleString("en-IN")}`],
-                ["(-) Period Payments", `Payouts transferred during period`, `Rs. ${finPeriod.totalPaid.toLocaleString("en-IN")}`],
+                ["(-) Advances", `Advances taken during period`, `Rs. ${periodAdvances.toLocaleString("en-IN")}`],
+                ["(-) Fines", `Fines deducted during period`, `Rs. ${periodFines.toLocaleString("en-IN")}`],
+                ["(-) Loans Given", `New company loans issued`, `Rs. ${Math.round(finPeriod.totalLoans).toLocaleString("en-IN")}`],
+                ["(-) Period Payouts", `Salary transfers & payouts made`, `Rs. ${finPeriod.totalPaid.toLocaleString("en-IN")}`],
                 ["CLOSING NET BALANCE", `Payable as of ${endDate}`, `Rs. ${closingBalance.toLocaleString("en-IN")}`],
                 ["Active Loan Balance", `Total unpaid loans as of ${endDate}`, `Rs. ${closingFin.pendingLoan.toLocaleString("en-IN")}`]
               ],
