@@ -1296,7 +1296,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
                     <span style={{ fontSize: 11 }}>{fDate(l.date)} · {l.transaction_type}</span>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <strong style={{ fontSize: 11, color: l.transaction_type === "Bonus" || l.transaction_type === "Payout" ? C.green : C.red }}>₹{l.amount}</strong>
-                      <button style={{ background: "transparent", border: "none", color: C.blue, cursor: "pointer", fontSize: 14, padding: "0 4px" }} title="Edit Amount" onClick={() => editTransaction(l)}>✎</button>
+                      {myRole === "director" && <button style={{ background: "transparent", border: "none", color: C.blue, cursor: "pointer", fontSize: 14, padding: "0 4px" }} title="Edit Amount" onClick={() => editTransaction(l)}>✎</button>}
                       {myRole === "director" && <button style={{ background: "transparent", border: "none", color: C.red, cursor: "pointer", fontSize: 12, padding: "0 4px" }} title="Delete Transaction" onClick={() => deleteTransaction(l.id)}>✕</button>}
                     </div>
                   </div>
