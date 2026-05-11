@@ -2049,6 +2049,150 @@ const printRoster = () => {
     });
   };
 
+  const downloadLoanReport = () => {
+    import("jspdf").then(({ jsPDF }) => {
+      import("jspdf-autotable").then(({ default: autoTable }) => {
+        const doc = new jsPDF();
+        doc.setFontSize(18); doc.setTextColor(220, 38, 38);
+        doc.text("Outstanding Loan & Advance Recovery", 14, 20);
+        doc.setFontSize(11); doc.setTextColor(100);
+        doc.text(`As of: ${fDate(todayStr)}`, 14, 28);
+        
+        const active = employees.filter(e => e.status === "active");
+        const rows = active.map(emp => {
+          const fin = calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || "2020-01-01", todayStr, postHistory, overtime);
+          return { name: emp.name, post: emp.post, type: emp.staff_type, loan: fin.pendingLoan };
+        }).filter(e => e.loan > 0).sort((a, b) => b.loan - a.loan);
+        
+        autoTable(doc, {
+          startY: 35, head: [["Name", "Post", "Staff Type", "Pending Loan Balance"]],
+          body: rows.map(r => [r.name, r.post, r.type === "company" ? "Company" : "Contract", "Rs. " + r.loan.toLocaleString("en-IN")]),
+          theme: "grid", headStyles: { fillColor: [220, 38, 38] }, styles: { fontSize: 10 }
+        });
+        doc.save(`PRFM_Loan_Recovery_${todayStr}.pdf`);
+      });
+    });
+  };
+
+  const downloadCostingReport = () => {
+    import("jspdf").then(({ jsPDF }) => {
+      import("jspdf-autotable").then(({ default: autoTable }) => {
+        const doc = new jsPDF();
+        doc.setFontSize(18); doc.setTextColor(30, 111, 219);
+        doc.text("Role-Wise Costing Breakdown", 14, 20);
+        doc.setFontSize(11); doc.setTextColor(100);
+        doc.text(`Period: ${fDate(start)} to ${fDate(end)}`, 14, 28);
+        
+        const costing = posts.map(p => {
+           const staff = employees.filter(e => e.post === p.name && e.status === "active");
+           let totalCost = 0;
+           staff.forEach(emp => {
+               const fin = calcFinances(emp, posts, rangeAttendance, ledger, start, end, postHistory, overtime);
+               // Gross labor cost before personal deductions
+               totalCost += (fin.proratedSalary + fin.otEarnings + fin.totalBonuses + (fin.foodAllowance || 0) - fin.attendanceDeduction); 
+           });
+           return { post: p.name, count: staff.length, cost: Math.round(totalCost) };
+        }).sort((a, b) => b.cost - a.cost);
+        
+        autoTable(doc, {
+          startY: 35, head: [["Role / Post", "Active Staff", "Total Labor Cost"]],
+          body: costing.map(c => [c.post, c.count, "Rs. " + c.cost.toLocaleString("en-IN")]),
+          foot: [["TOTAL", costing.reduce((sum, c) => sum + c.count, 0), "Rs. " + costing.reduce((sum, c) => sum + c.cost, 0).toLocaleString("en-IN")]],
+          theme: "grid", headStyles: { fillColor: [30, 111, 219] }, footStyles: { fillColor: [240, 245, 255], textColor: [30, 111, 219], fontStyle: "bold" }, styles: { fontSize: 10 }
+        });
+        doc.save(`PRFM_Costing_${start}_to_${end}.pdf`);
+      });
+    });
+  };
+
+  const downloadContractorReport = () => {
+    import("jspdf").then(({ jsPDF }) => {
+      import("jspdf-autotable").then(({ default: autoTable }) => {
+        const doc = new jsPDF();
+        doc.setFontSize(18); doc.setTextColor(30, 111, 219);
+        doc.text("Contractor Reconciliation Statement", 14, 20);
+        doc.setFontSize(11); doc.setTextColor(100);
+        doc.text(`Period: Lifetime up to ${fDate(end)}`, 14, 28);
+        
+        const payouts = ledger.filter(l => l.transaction_type === "Contractor Payout" && l.date <= end);
+        const distributions = ledger.filter(l => l.transaction_type === "Contractor Distribution" && l.date <= end);
+        const totalPaid = payouts.reduce((s, l) => s + Number(l.amount), 0);
+        const totalDist = distributions.reduce((s, l) => s + Number(l.amount), 0);
+        
+        autoTable(doc, {
+          startY: 35, head: [["Metric", "Amount"]],
+          body: [
+             ["Total Lump Sum Paid to Contractor", "Rs. " + totalPaid.toLocaleString("en-IN")],
+             ["Total Distributed to Contract Staff", "Rs. " + totalDist.toLocaleString("en-IN")],
+             ["Unassigned Pool Remaining", "Rs. " + (totalPaid - totalDist).toLocaleString("en-IN")]
+          ], theme: "grid", headStyles: { fillColor: [30, 111, 219] }, styles: { fontSize: 12, cellPadding: 8 }
+        });
+        doc.save(`PRFM_Contractor_Reconciliation_${end}.pdf`);
+      });
+    });
+  };
+
+  const downloadAbsenteeismReport = () => {
+    import("jspdf").then(({ jsPDF }) => {
+      import("jspdf-autotable").then(({ default: autoTable }) => {
+        const doc = new jsPDF();
+        doc.setFontSize(18); doc.setTextColor(234, 88, 12);
+        doc.text("Chronic Absenteeism Warning Report", 14, 20);
+        doc.setFontSize(11); doc.setTextColor(100);
+        doc.text(`Period: ${fDate(start)} to ${fDate(end)} (Below 75% Attendance)`, 14, 28);
+        
+        const sDt = new Date(start); const eDt = new Date(end);
+        const days = Math.max(1, Math.round((eDt - sDt) / 86400000) + 1);
+        const active = employees.filter(e => e.status === "active");
+        
+        const rows = active.map(emp => {
+           const fin = calcFinances(emp, posts, rangeAttendance, ledger, start, end, postHistory, overtime);
+           const present = Math.max(0, days - fin.absentDays - fin.leaveDays);
+           const pct = (present / days) * 100;
+           return { name: emp.name, post: emp.post, pct, absent: fin.absentDays };
+        }).filter(r => r.pct < 75).sort((a, b) => a.pct - b.pct);
+        
+        autoTable(doc, {
+          startY: 35, head: [["Name", "Post", "Absent Days", "Attendance %"]],
+          body: rows.length ? rows.map(r => [r.name, r.post, r.absent + "d", r.pct.toFixed(1) + "%"]) : [["All staff have good attendance", "-", "-", "-"]],
+          theme: "grid", headStyles: { fillColor: [234, 88, 12] }, styles: { fontSize: 10 }
+        });
+        doc.save(`PRFM_Absenteeism_${start}_to_${end}.pdf`);
+      });
+    });
+  };
+
+  const downloadAttritionReport = () => {
+    import("jspdf").then(({ jsPDF }) => {
+      import("jspdf-autotable").then(({ default: autoTable }) => {
+        const doc = new jsPDF();
+        doc.setFontSize(18); doc.setTextColor(15, 23, 42);
+        doc.text("Monthly Attrition & New Hires", 14, 20);
+        doc.setFontSize(11); doc.setTextColor(100);
+        doc.text(`Period: ${fDate(start)} to ${fDate(end)}`, 14, 28);
+        
+        const joined = employees.filter(e => e.joining_date >= start && e.joining_date <= end);
+        const left = employees.filter(e => e.left_date && e.left_date >= start && e.left_date <= end);
+        
+        doc.setTextColor(22, 163, 74); doc.setFontSize(14); doc.text(`New Hires: ${joined.length}`, 14, 40);
+        autoTable(doc, {
+          startY: 45, head: [["Name", "Post", "Joined Date"]],
+          body: joined.length ? joined.map(j => [j.name, j.post, fDate(j.joining_date)]) : [["No new hires", "-", "-"]],
+          theme: "grid", headStyles: { fillColor: [22, 163, 74] }, styles: { fontSize: 10 }
+        });
+        
+        let finalY = doc.lastAutoTable.finalY + 15;
+        doc.setTextColor(220, 38, 38); doc.setFontSize(14); doc.text(`Staff Left: ${left.length}`, 14, finalY);
+        autoTable(doc, {
+          startY: finalY + 5, head: [["Name", "Last Post", "Left Date"]],
+          body: left.length ? left.map(l => [l.name, l.post, fDate(l.left_date)]) : [["No staff left", "-", "-"]],
+          theme: "grid", headStyles: { fillColor: [220, 38, 38] }, styles: { fontSize: 10 }
+        });
+        doc.save(`PRFM_Attrition_${start}_to_${end}.pdf`);
+      });
+    });
+  };
+
   return (
     <div style={css.page}>
       <div style={{ marginBottom: 20 }}>
@@ -2114,6 +2258,28 @@ const printRoster = () => {
 
         </div>
       </div>
+
+      {/* --- CARD 3: FINANCIAL & CASH FLOW --- */}
+      <div style={{ ...css.card, marginBottom: 20, borderLeft: `3px solid ${C.accent}` }}>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>3. Financial & Cash Flow Reports</div>
+        <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>Deep insights into labor costs, contractor reconciliations, and active employee debts.</div>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <button style={{ ...css.btn(C.red), flex: "1 1 200px" }} onClick={downloadLoanReport} disabled={loading}>📥 Loan & Advance Recovery</button>
+          <button style={{ ...css.btn(C.blue), flex: "1 1 200px" }} onClick={downloadCostingReport} disabled={loading}>📥 Role-Wise Costing</button>
+          <button style={{ ...css.btn(C.accent), flex: "1 1 200px" }} onClick={downloadContractorReport} disabled={loading}>📥 Contractor Reconciliation</button>
+        </div>
+      </div>
+
+      {/* --- CARD 4: HR & DISCIPLINE --- */}
+      <div style={{ ...css.card, borderLeft: `3px solid ${C.orange}` }}>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>4. HR & Discipline Reports</div>
+        <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>Track workforce stability, identify chronic absenteeism, and monitor monthly turnover.</div>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <button style={{ ...css.btn(C.orange), flex: "1 1 200px" }} onClick={downloadAbsenteeismReport} disabled={loading}>📥 Chronic Absenteeism ({"<"} 75%)</button>
+          <button style={{ ...css.btn(C.textDim), flex: "1 1 200px", color: C.text, borderColor: C.border }} onClick={downloadAttritionReport} disabled={loading}>📥 Monthly Attrition & New Hires</button>
+        </div>
+      </div>
+
     </div>
   );
 }
