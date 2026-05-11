@@ -828,18 +828,18 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
                 ["Period Overtime Logged", "Total OT hours during period", `${finPeriod.totalOTHours} hrs`],
                 ["--- FINANCIAL LEDGER ---", "", ""],
                 ["OPENING BALANCE (Brought Forward)", `Net balance as of ${beforeStartStr}`, `Rs. ${openingBalance.toLocaleString("en-IN")}`],
-                ["(+) Base Salary (Prorated)", `Base pay for worked days`, `Rs. ${Math.round(finPeriod.proratedSalary).toLocaleString("en-IN")}`],
-                ["(+) Overtime Earnings", `Pay for ${finPeriod.totalOTHours} OT hours`, `Rs. ${Math.round(finPeriod.otEarnings).toLocaleString("en-IN")}`],
-                ["(+) Bonus", `Bonuses added during period`, `Rs. ${Math.round(finPeriod.totalBonuses).toLocaleString("en-IN")}`],
-                ["(+) Food Allowance", `Food allowance for period`, `Rs. ${Math.round(finPeriod.foodAllowance || 0).toLocaleString("en-IN")}`],
-                ["(+) Loan Repayments", `Repayments made by employee`, `Rs. ${Math.round(finPeriod.totalRepayments).toLocaleString("en-IN")}`],
-                ["(-) Attendance Deductions", `Deducted for absences/leaves`, `Rs. ${Math.round(finPeriod.attendanceDeduction).toLocaleString("en-IN")}`],
-                ["(-) Advances", `Advances taken during period`, `Rs. ${periodAdvances.toLocaleString("en-IN")}`],
-                ["(-) Fines", `Fines deducted during period`, `Rs. ${periodFines.toLocaleString("en-IN")}`],
-                ["(-) Loans Given", `New company loans issued`, `Rs. ${Math.round(finPeriod.totalLoans).toLocaleString("en-IN")}`],
-                ["(-) Period Payouts", `Salary transfers & payouts made`, `Rs. ${finPeriod.totalPaid.toLocaleString("en-IN")}`],
-                ["CLOSING NET BALANCE", `Payable as of ${endDate}`, `Rs. ${closingBalance.toLocaleString("en-IN")}`],
-                ["Active Loan Balance", `Total unpaid loans as of ${endDate}`, `Rs. ${closingFin.pendingLoan.toLocaleString("en-IN")}`]
+                ["(+) Base Salary (Prorated)", `Days Worked: ${periodPresent}`, `Rs. ${Math.round(finPeriod.proratedSalary).toLocaleString("en-IN")}`],
+                ["(+) Overtime Earnings", `OT Hours: ${finPeriod.totalOTHours}`, `Rs. ${Math.round(finPeriod.otEarnings).toLocaleString("en-IN")}`],
+                ["(+) Performance Bonus", `Period Bonuses`, `Rs. ${Math.round(finPeriod.totalBonuses).toLocaleString("en-IN")}`],
+                ["(+) Food Allowance", `Attendance: ${periodAttPct}%`, `Rs. ${Math.round(finPeriod.foodAllowance || 0).toLocaleString("en-IN")}`],
+                ["(+) Loan Repayments", `Recovery from staff`, `Rs. ${Math.round(finPeriod.totalRepayments).toLocaleString("en-IN")}`],
+                ["(-) Attendance Deductions", `Absences: ${finPeriod.absentDays + finPeriod.leaveDays}d`, `Rs. ${Math.round(finPeriod.attendanceDeduction).toLocaleString("en-IN")}`],
+                ["(-) Personal Advances", `Cash advances taken`, `Rs. ${periodAdvances.toLocaleString("en-IN")}`],
+                ["(-) Disciplinary Fines", `Penalties issued`, `Rs. ${periodFines.toLocaleString("en-IN")}`],
+                ["(-) New Loans Issued", `Company loans given`, `Rs. ${Math.round(finPeriod.totalLoans).toLocaleString("en-IN")}`],
+                ["(-) Salary Payouts", `Bank/Cash transfers`, `Rs. ${finPeriod.totalPaid.toLocaleString("en-IN")}`],
+                ["CLOSING NET BALANCE", `Final Payable as of ${endDate}`, `Rs. ${closingBalance.toLocaleString("en-IN")}`],
+                ["ACTIVE LOAN DEBT", `Total Unpaid Principal`, `Rs. ${closingFin.pendingLoan.toLocaleString("en-IN")}`]
               ],
               theme: "grid",
               headStyles: { fillColor: [244, 246, 249], textColor: [0, 0, 0] },
@@ -1465,7 +1465,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
 }
 
 // ─── PAYROLL ──────────────────────────────────────────────────────────────────
-function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab, overtime, logAction }) {
+function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab, overtime, logAction, myRole }) {
   const now = new Date();
   const monthStart = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), "01"].join("-");
   const [start, setStart] = useState(monthStart);
@@ -1710,7 +1710,7 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
               {ledger.filter(l => l.transaction_type === "Contractor Payout").slice(0, 8).map(l => (
                 <div key={l.id} style={{ ...css.badge(C.orange), display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
                   {fDate(l.date)}: ₹{l.amount.toLocaleString("en-IN")}
-                  <button style={{ background: "transparent", border: "none", color: C.red, cursor: "pointer", marginLeft: 4 }} onClick={async () => { if(!window.confirm("Delete this contractor payout?")) return; await supabase.from("financial_ledger").delete().eq("id", l.id); setLedger(prev => prev.filter(x => x.id !== l.id)); }}>✕</button>
+                  {myRole === "director" && <button style={{ background: "transparent", border: "none", color: C.red, cursor: "pointer", marginLeft: 4 }} onClick={async () => { if(!window.confirm("Delete this contractor payout?")) return; await supabase.from("financial_ledger").delete().eq("id", l.id); setLedger(prev => prev.filter(x => x.id !== l.id)); }}>✕</button>}
                 </div>
               ))}
             </div>
@@ -2528,18 +2528,21 @@ function ViewerDashboardView({ userEmail, appUsers, employees, posts, ledger, po
             body: [
               ["--- EMPLOYMENT METRICS ---", "", ""],
               ["Period Attendance %", `${periodPresent} present / ${periodDays} period days`, `${periodAttPct}%`],
-              ["Period Absences", "Leaves & unpaid absences during period", `${fin.absentDays + fin.leaveDays} days`],
-              ["Period Overtime Logged", "Total OT hours during period", `${fin.totalOTHours} hrs`],
+              ["Period Absences", "Total leaves & absences", `${fin.absentDays + fin.leaveDays} days`],
+              ["Period Overtime Logged", "Total overtime hours", `${fin.totalOTHours} hrs`],
               ["--- FINANCIAL LEDGER ---", "", ""],
-              ["OPENING BALANCE (Brought Forward)", `Net balance as of ${beforeStartStr}`, `Rs. ${openingBalance.toLocaleString("en-IN")}`],
-              ["(+) Base Salary (Prorated)", `Base pay for worked days`, `Rs. ${Math.round(fin.proratedSalary).toLocaleString("en-IN")}`],
-              ["(+) Overtime Earnings", `Pay for ${fin.totalOTHours} OT hours`, `Rs. ${Math.round(fin.otEarnings).toLocaleString("en-IN")}`],
-              ["(+) Bonuses & Allowances", `Bonus: Rs. ${fin.totalBonuses} | Food: Rs. ${fin.foodAllowance || 0}`, `Rs. ${Math.round(fin.totalBonuses + (fin.foodAllowance || 0)).toLocaleString("en-IN")}`],
-              ["(-) Attendance Deductions", `Deducted for absences/leaves`, `Rs. ${Math.round(fin.attendanceDeduction).toLocaleString("en-IN")}`],
-              ["(-) Advances & Fines", `Deducted during period`, `Rs. ${fin.totalAdvances.toLocaleString("en-IN")}`],
-              ["(-) Period Payments", `Payouts transferred during period`, `Rs. ${fin.totalPaid.toLocaleString("en-IN")}`],
-              ["CLOSING NET BALANCE", `Payable as of ${end}`, `Rs. ${closingBalance.toLocaleString("en-IN")}`],
-              ["Active Loan Balance", `Total unpaid company loans`, `Rs. ${closingFin.pendingLoan.toLocaleString("en-IN")}`]
+              ["OPENING BALANCE (Brought Forward)", `Balance as of ${beforeStartStr}`, `Rs. ${openingBalance.toLocaleString("en-IN")}`],
+              ["(+) Base Salary (Prorated)", `Worked: ${periodPresent} days`, `Rs. ${Math.round(fin.proratedSalary).toLocaleString("en-IN")}`],
+              ["(+) Overtime Earnings", `OT Hours: ${fin.totalOTHours}`, `Rs. ${Math.round(fin.otEarnings).toLocaleString("en-IN")}`],
+              ["(+) Bonus", `Period incentives`, `Rs. ${Math.round(fin.totalBonuses).toLocaleString("en-IN")}`],
+              ["(+) Food Allowance", `Attendance incentive`, `Rs. ${Math.round(fin.foodAllowance || 0).toLocaleString("en-IN")}`],
+              ["(+) Loan Repayments", `Repaid to company`, `Rs. ${Math.round(fin.totalRepayments).toLocaleString("en-IN")}`],
+              ["(-) Attendance Deductions", `Absences: ${fin.absentDays + fin.leaveDays}d`, `Rs. ${Math.round(fin.attendanceDeduction).toLocaleString("en-IN")}`],
+              ["(-) Personal Advances", `Cash advances taken`, `Rs. ${fin.totalAdvances.toLocaleString("en-IN")}`],
+              ["(-) New Loans Given", `Company loans issued`, `Rs. ${Math.round(fin.totalLoans).toLocaleString("en-IN")}`],
+              ["(-) Salary Payouts", `Transfers & payouts`, `Rs. ${fin.totalPaid.toLocaleString("en-IN")}`],
+              ["CLOSING NET BALANCE", `Final Payable as of ${end}`, `Rs. ${closingBalance.toLocaleString("en-IN")}`],
+              ["ACTIVE LOAN DEBT", `Total Unpaid Principal`, `Rs. ${closingFin.pendingLoan.toLocaleString("en-IN")}`]
             ],
             theme: "grid", headStyles: { fillColor: [244, 246, 249], textColor: [0, 0, 0] }, styles: { fontSize: 10, fontStyle: "bold" }
           });
