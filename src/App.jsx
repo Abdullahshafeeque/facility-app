@@ -2366,12 +2366,22 @@ function UserManagementView({ users, setUsers, employees }) {
     setUsers(prev => prev.map(u => u.id === userId ? { ...u, employee_id: val } : u));
   };
 
+  const deleteUser = async (userId, email) => {
+    if (!window.confirm(`Are you sure you want to remove access for ${email}?`)) return;
+    const { error } = await supabase.from("app_users").delete().eq("id", userId);
+    if (error) {
+      alert("Error removing user: " + error.message);
+    } else {
+      setUsers(prev => prev.filter(u => u.id !== userId));
+    }
+  };
+
   return (
     <div style={css.page}>
       <div style={css.sectionTitle}>User Access Management</div>
       <div style={{ overflowX: "auto" }}>
         <table style={css.table}>
-          <thead><tr><th style={css.th}>Email</th><th style={css.th}>Role</th><th style={css.th}>Linked Employee (For Viewers)</th></tr></thead>
+          <thead><tr><th style={css.th}>Email</th><th style={css.th}>Role</th><th style={css.th}>Linked Employee (For Viewers)</th><th style={css.th}>Action</th></tr></thead>
           <tbody>
             {users.map(u => (
               <tr key={u.id} style={{ background: u.role === "pending" ? C.orange + "15" : "transparent" }}>
@@ -2390,6 +2400,9 @@ function UserManagementView({ users, setUsers, employees }) {
                     <option value="">-- Link to Staff Profile --</option>
                     {employees.filter(e => e.status === "active").map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
                   </select>
+                </td>
+                <td style={css.td}>
+                  <button style={{ ...css.btn(C.red), padding: "4px 8px", fontSize: 10 }} onClick={() => deleteUser(u.id, u.email)}>Remove</button>
                 </td>
               </tr>
             ))}
