@@ -2723,7 +2723,7 @@ export default function App() {
   const TABS = [
     { id: "dashboard", label: "Dashboard" },
     ...(myRole !== "viewer" ? [{ id: "attendance", label: "Attendance" }, { id: "overtime", label: "Overtime" }] : []),
-    ...(myRole === "director" || myRole === "manager" || myRole === "supervisor" ? [{ id: "staff", label: "Staff" }] : []),
+    ...(myRole === "director" || myRole === "manager" ? [{ id: "staff", label: "Staff" }] : []),
     ...(myRole === "director" || myRole === "manager" ? [{ id: "payroll", label: "Payroll" }, { id: "reports", label: "📊 Reports" }] : []),
     ...(myRole === "director" ? [{ id: "settings", label: "⚙ Settings" }, { id: "logs", label: "📋 Logs" }, { id: "users", label: "🔐 Users" }] : []),
   ];
@@ -2814,7 +2814,7 @@ export default function App() {
         {tab === "dashboard" && myRole !== "viewer" && <DashboardView employees={employees} attendance={attendance} posts={posts} trackingStartDate={trackingStartDate} />}
           {tab === "attendance" && myRole !== "viewer" && <AttendanceView employees={employees} logAction={logAction} myRole={myRole} />}
           {tab === "overtime" && myRole !== "viewer" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} logAction={logAction} myRole={myRole} />}
-          {tab === "staff" && myRole !== "viewer" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
+          {tab === "staff" && (myRole === "director" || myRole === "manager") && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
           {tab === "payroll" && myRole !== "viewer" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
           {tab === "reports" && (myRole === "director" || myRole === "manager") && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} logAction={logAction} />}
           {tab === "settings" && myRole === "director" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} logAction={logAction} />}
