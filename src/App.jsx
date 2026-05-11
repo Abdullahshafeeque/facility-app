@@ -1327,10 +1327,14 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
         {Array.from(new Set(filtered.map(e => e.post))).sort().map(postName => {
           const postStaff = filtered.filter(e => e.post === postName);
           
+          // Cross-reference with Settings to get required numbers
+          const postDef = posts.find(p => p.name === postName);
+          const totalReq = postDef ? (postDef.required_morning + postDef.required_night) : 0;
+          
           return (
             <div key={postName} style={{ marginBottom: 20, borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}` }}>
               <div style={{ background: C.accent, color: "white", padding: "10px 14px", fontWeight: 700, fontSize: 14 }}>
-                {postName} ({postStaff.length})
+                {postName} ({postStaff.length}/{totalReq})
               </div>
               
               {/* SUB-GROUP BY SHIFT */}
@@ -1338,10 +1342,13 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
                 const shiftStaff = postStaff.filter(e => e.shift === shiftName);
                 if (shiftStaff.length === 0) return null;
                 
+                // Get requirement for this specific shift
+                const shiftReq = shiftName === "Morning" ? (postDef?.required_morning || 0) : (postDef?.required_night || 0);
+                
                 return (
                   <div key={shiftName} style={{ borderTop: `1px solid ${C.border}`, background: C.panel }}>
                     <div style={{ background: C.bg, padding: "6px 14px", fontSize: 11, fontWeight: 700, color: shiftName === "Morning" ? C.accent : C.blue, borderBottom: `1px solid ${C.border}` }}>
-                      {shiftName.toUpperCase()} SHIFT ({shiftStaff.length})
+                      {shiftName.toUpperCase()} SHIFT ({shiftStaff.length}/{shiftReq})
                     </div>
                     <div style={{ overflowX: "auto" }}>
                       <table style={css.table}>
