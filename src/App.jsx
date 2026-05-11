@@ -1975,7 +1975,10 @@ function SettingsView({ posts, setPosts, employees, setEmployees, trackingStartD
           </div>
         </div>
       )}
-      <div style={css.sectionTitle}>Manage Posts & Requirements</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+  <div style={css.sectionTitle}>Manage Posts & Requirements</div>
+  <button style={css.btn(C.green)} onClick={() => setShowForm(v => !v)}>+ Add Post</button>
+</div>
       {posts.length === 0 && <div style={{ ...css.card, textAlign: "center", padding: 40, color: C.textDim }}>No posts added yet.</div>}
       {posts.length > 0 && (
         <div style={{ overflowX: "auto" }}>
