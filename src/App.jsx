@@ -2443,6 +2443,45 @@ function UserManagementView({ users, setUsers, employees }) {
     </div>
   );
 }
+// ─── VIEWER DASHBOARD (EMPLOYEE SELF-SERVICE) ───────────────────────────────
+function ViewerDashboardView({ userEmail, appUsers, employees }) {
+  const me = appUsers.find(u => u.email === userEmail);
+  const myEmp = employees.find(e => e.id === me?.employee_id);
+
+  if (!myEmp) {
+    return (
+      <div style={{ minHeight: "60vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ ...css.card, textAlign: "center", padding: 40, color: C.textDim, maxWidth: 400 }}>
+          <h3 style={{ marginTop: 0, color: C.accent }}>Account Not Linked</h3>
+          <p>Your account has been approved, but the Director has not linked it to your staff profile yet.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={css.page}>
+      <div style={{ ...css.card, marginBottom: 20, borderLeft: `3px solid ${C.accent}` }}>
+        <div style={css.sectionTitle}>Welcome, {myEmp.name}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginTop: 20 }}>
+          <div style={{ padding: 16, background: C.bg, borderRadius: 6, border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700 }}>POST / ROLE</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.text, marginTop: 4 }}>{myEmp.post}</div>
+          </div>
+          <div style={{ padding: 16, background: C.bg, borderRadius: 6, border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700 }}>SHIFT</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.text, marginTop: 4 }}>{myEmp.shift}</div>
+          </div>
+          <div style={{ padding: 16, background: C.bg, borderRadius: 6, border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700 }}>BASE SALARY / RATE</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.green, marginTop: 4 }}>₹{Number(myEmp.base_salary).toLocaleString("en-IN")}</div>
+          </div>
+        </div>
+        <p style={{ fontSize: 12, color: C.textDim, marginTop: 20 }}>* For detailed attendance, advances, and full payslips, please contact the HR office.</p>
+      </div>
+    </div>
+  );
+}
 export default function App() {
   const [user, setUser] = useState(null);
   const [tab, setTab] = useState("dashboard");
@@ -2603,15 +2642,16 @@ export default function App() {
         <div style={{ textAlign: "center", padding: 60, color: C.textDim }}>Loading data...</div>
       ) : (
         <>
-          {tab === "dashboard" && <DashboardView employees={employees} attendance={attendance} posts={posts} trackingStartDate={trackingStartDate} />}
-          {tab === "attendance" && <AttendanceView employees={employees} logAction={logAction} />}
-          {tab === "overtime" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} logAction={logAction} />}
-          {tab === "staff" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} />}
-          {tab === "payroll" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setTab={setTab} overtime={overtime} logAction={logAction} />}
-          {tab === "reports" && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} logAction={logAction} />}
-          {tab === "settings" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} logAction={logAction} />}
-          {tab === "logs" && <LogsView logs={logs} setLogs={setLogs} />} {/* <-- NEW RENDER LINE */}
-          {tab === "users" && <UserManagementView users={appUsers} setUsers={setAppUsers} employees={employees} />}
+          {tab === "dashboard" && myRole === "viewer" && <ViewerDashboardView userEmail={user.email} appUsers={appUsers} employees={employees} />}
+        {tab === "dashboard" && myRole !== "viewer" && <DashboardView employees={employees} attendance={attendance} posts={posts} trackingStartDate={trackingStartDate} />}
+          {tab === "attendance" && myRole !== "viewer" && <AttendanceView employees={employees} logAction={logAction} />}
+          {tab === "overtime" && myRole !== "viewer" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} logAction={logAction} />}
+          {tab === "staff" && myRole !== "viewer" && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} />}
+          {tab === "payroll" && (myRole === "director" || myRole === "manager") && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setTab={setTab} overtime={overtime} logAction={logAction} />}
+          {tab === "reports" && (myRole === "director" || myRole === "manager") && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} logAction={logAction} />}
+          {tab === "settings" && myRole === "director" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} logAction={logAction} />}
+          {tab === "logs" && myRole === "director" && <LogsView logs={logs} setLogs={setLogs} />} {/* <-- NEW RENDER LINE */}
+          {tab === "users" && myRole === "director" && <UserManagementView users={appUsers} setUsers={setAppUsers} employees={employees} />}
         </>
       )}
     </div>
