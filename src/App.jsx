@@ -45,7 +45,8 @@ function getCoverage(employees, attendance, posts) {
   ["Morning", "Night"].forEach(shift => {
     posts.forEach(post => {
       const required = shift === "Morning" ? post.required_morning : post.required_night;
-      const present = employees.filter(e => e.shift === shift && e.post === post.name && attendance[e.id]?.status === "Present").length;
+      // FIXED: Count staff as available to fill the post unless explicitly marked Absent or Leave
+      const present = employees.filter(e => e.shift === shift && e.post === post.name && attendance[e.id]?.status !== "Absent" && attendance[e.id]?.status !== "Leave").length;
       if (present < required) alerts.push({ shift, post: post.name, present, required, shortage: required - present });
     });
   });
@@ -58,6 +59,12 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
   const joiningDate = employee.joining_date || start;
   const effectiveStart = joiningDate > start ? joiningDate : start;
   const effectiveEnd = employee.left_date && employee.left_date < end ? employee.left_date : end;
+
+  // FIXED: Stop calculating if the evaluation period is completely before the employee joined
+  if (effectiveEnd < effectiveStart) {
+    return { periods: [], proratedSalary: 0, attendanceDeduction: 0, otEarnings: 0, absentDays: 0, leaveDays: 0, totalOTHours: 0, totalBonuses: 0, foodAllowance: 0, totalAdvances: 0, totalPaid: 0, totalContractorDist: 0, totalLoans: 0, totalRepayments: 0, pendingLoan: 0, netPayable: 0, joiningDate, effectiveStart };
+  }
+
   const periods = [];
 
   if (empHistory.length === 0) {
@@ -478,7 +485,8 @@ function DashboardView({ employees, attendance, posts, trackingStartDate }) {
                   </div>
                   {posts.map(post => {
                     const req = shift === "Morning" ? post.required_morning : post.required_night;
-                    const pres = sEmp.filter(e => e.post === post.name && attendance[e.id]?.status === "Present").length;
+                    // FIXED: Progress bar reflects expected roster availability rather than strictly 'Present'
+                    const pres = sEmp.filter(e => e.post === post.name && attendance[e.id]?.status !== "Absent" && attendance[e.id]?.status !== "Leave").length;
                     const pct = req > 0 ? Math.min(100, (pres / req) * 100) : 100;
                     const col = pres >= req ? C.green : pres > 0 ? C.accent : C.red;
                     return (
