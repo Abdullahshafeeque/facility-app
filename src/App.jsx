@@ -2730,8 +2730,11 @@ export default function App() {
         <div style={css.logo}>⚙ PRFM HR Portal</div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", flexShrink: 0 }}>
           <span style={{ fontSize: 11, color: C.textDim, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</span>
-          {alerts.length > 0 && <span style={{ ...css.badge(C.red), cursor: "pointer" }} onClick={() => setTab("dashboard")}>⚠ {alerts.length} Alert{alerts.length > 1 ? "s" : ""}</span>}
-          {pendingSettlements > 0 && <span style={{ ...css.badge(C.orange), cursor: "pointer" }} onClick={() => setTab("payroll")}>⚖ {pendingSettlements} Pending</span>}
+          
+          {/* Locked to prevent viewers from seeing internal HR alerts */}
+          {myRole !== "viewer" && alerts.length > 0 && <span style={{ ...css.badge(C.red), cursor: "pointer" }} onClick={() => setTab("dashboard")}>⚠ {alerts.length} Alert{alerts.length > 1 ? "s" : ""}</span>}
+          {myRole !== "viewer" && pendingSettlements > 0 && <span style={{ ...css.badge(C.orange), cursor: "pointer" }} onClick={() => setTab("payroll")}>⚖ {pendingSettlements} Pending</span>}
+          
           <span style={css.badge(C.green)}>LIVE</span>
           <button onClick={handleSignOut} style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }}>Sign Out</button>
         </div>
