@@ -2444,7 +2444,11 @@ function UserManagementView({ users, setUsers, employees }) {
   );
 }
 // ─── VIEWER DASHBOARD (EMPLOYEE SELF-SERVICE) ───────────────────────────────
-function ViewerDashboardView({ userEmail, appUsers, employees }) {
+function ViewerDashboardView({ userEmail, appUsers, employees, posts, rangeAttendance, ledger, postHistory, overtime }) {
+  // Let the user pick their own dates
+  const [start, setStart] = useState(() => { const d = new Date(); d.setDate(1); return d.toISOString().split("T")[0]; });
+  const [end, setEnd] = useState(() => new Date().toISOString().split("T")[0]);
+
   const me = appUsers.find(u => u.email === userEmail);
   const myEmp = employees.find(e => e.id === me?.employee_id);
 
@@ -2459,25 +2463,112 @@ function ViewerDashboardView({ userEmail, appUsers, employees }) {
     );
   }
 
+  // Filter data and calculate finances securely using the global function
+  let fin = { absentDays: 0, otEarnings: 0, totalAdvances: 0, totalFines: 0, periodNet: 0, pendingLoan: 0, proratedSalary: 0, totalBonuses: 0, foodAllowance: 0 };
+  try { fin = calcFinances(myEmp, posts, rangeAttendance, ledger, start, end, postHistory, overtime); } catch (err) {}
+
+  const myLedger = ledger.filter(l => String(l.employee_id) === String(myEmp.id) && l.date >= start && l.date <= end).sort((a,b) => new Date(b.date) - new Date(a.date));
+  const myOT = overtime.filter(o => String(o.employee_id) === String(myEmp.id) && o.date >= start && o.date <= end);
+  const totalOTHours = myOT.reduce((sum, o) => sum + Number(o.hours), 0);
+
+  const downloadMyStatement = () => {
+    import("jspdf").then(({ jsPDF }) => {
+      import("jspdf-autotable").then(({ default: autoTable }) => {
+        const doc = new jsPDF();
+        doc.setFontSize(16); doc.setTextColor(30, 111, 219);
+        doc.text("PUNATHIL ROLLER FLOUR MILLS", 14, 20);
+        doc.setFontSize(12); doc.setTextColor(20);
+        doc.text(`Employee Statement: ${myEmp.name}`, 14, 28);
+        doc.setFontSize(10); doc.setTextColor(100);
+        doc.text(`Period: ${start} to ${end} | Post: ${myEmp.post}`, 14, 34);
+
+        const body = [
+          [{ content: "--- EMPLOYMENT METRICS ---", colSpan: 3, styles: { fillColor: [240, 245, 255], textColor: [30, 111, 219], fontStyle: "bold" } }],
+          ["Period Overtime Logged", "Total OT hours during period", `${totalOTHours} hrs`],
+          ["Period Absences", "Leaves & unpaid absences during period", `${fin.absentDays} days`],
+          [{ content: "--- FINANCIAL SUMMARY ---", colSpan: 3, styles: { fillColor: [240, 245, 255], textColor: [30, 111, 219], fontStyle: "bold" } }],
+          ["Period Earnings", "Base + OT + Bonus + Food", `+ Rs. ${Math.round(fin.proratedSalary + fin.otEarnings + fin.totalBonuses + (fin.foodAllowance || 0)).toLocaleString("en-IN")}`],
+          ["Period Deductions", "Advances & Fines Deducted", `- Rs. ${Math.round(fin.totalAdvances + fin.totalFines).toLocaleString("en-IN")}`],
+          ["CLOSING NET PAYABLE", `Total earned in this period`, `Rs. ${Math.round(fin.periodNet).toLocaleString("en-IN")}`],
+          ["Active Loan Balance", `Total unpaid company loans`, `Rs. ${Math.round(fin.pendingLoan).toLocaleString("en-IN")}`]
+        ];
+
+        autoTable(doc, {
+          startY: 40, head: [["Metric / Account", "Details", "Amount / Stat"]], body: body,
+          theme: "grid", headStyles: { fillColor: [240, 240, 240], textColor: [20, 20, 20] }, styles: { fontSize: 10 }
+        });
+
+        if (myLedger.length > 0) {
+          doc.addPage();
+          doc.setFontSize(14); doc.setTextColor(20); doc.text("Detailed Ledger Transactions", 14, 20);
+          autoTable(doc, {
+            startY: 25, head: [["Date", "Type", "Amount", "Note"]],
+            body: myLedger.map(l => [l.date, l.transaction_type, `Rs. ${l.amount}`, l.note || "-"]),
+            theme: "grid", styles: { fontSize: 9 }
+          });
+        }
+        doc.save(`PRFM_Statement_${myEmp.name}_${start}_to_${end}.pdf`);
+      });
+    });
+  };
+
   return (
     <div style={css.page}>
-      <div style={{ ...css.card, marginBottom: 20, borderLeft: `3px solid ${C.accent}` }}>
-        <div style={css.sectionTitle}>Welcome, {myEmp.name}</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginTop: 20 }}>
-          <div style={{ padding: 16, background: C.bg, borderRadius: 6, border: `1px solid ${C.border}` }}>
-            <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700 }}>POST / ROLE</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: C.text, marginTop: 4 }}>{myEmp.post}</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 16, marginBottom: 20 }}>
+        <div style={{ ...css.card, flex: 1, minWidth: 280, borderLeft: `3px solid ${C.accent}`, margin: 0 }}>
+          <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700 }}>WELCOME,</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: C.accent, marginTop: 4, textTransform: "uppercase" }}>{myEmp.name}</div>
+          <div style={{ color: C.textDim, marginTop: 4 }}>{myEmp.post} • {myEmp.shift} Shift</div>
+        </div>
+        
+        <div style={{ ...css.card, display: "flex", gap: 10, alignItems: "flex-end", margin: 0 }}>
+          <div>
+            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4, fontWeight: 700 }}>START DATE</div>
+            <input type="date" value={start} onChange={e => setStart(e.target.value)} style={css.input} />
           </div>
-          <div style={{ padding: 16, background: C.bg, borderRadius: 6, border: `1px solid ${C.border}` }}>
-            <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700 }}>SHIFT</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: C.text, marginTop: 4 }}>{myEmp.shift}</div>
-          </div>
-          <div style={{ padding: 16, background: C.bg, borderRadius: 6, border: `1px solid ${C.border}` }}>
-            <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700 }}>BASE SALARY / RATE</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: C.green, marginTop: 4 }}>₹{Number(myEmp.base_salary).toLocaleString("en-IN")}</div>
+          <div>
+            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4, fontWeight: 700 }}>END DATE</div>
+            <input type="date" value={end} onChange={e => setEnd(e.target.value)} style={css.input} />
           </div>
         </div>
-        <p style={{ fontSize: 12, color: C.textDim, marginTop: 20 }}>* For detailed attendance, advances, and full payslips, please contact the HR office.</p>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 24 }}>
+        <div style={{ padding: 16, background: C.panel, borderRadius: 6, border: `1px solid ${C.border}`, boxShadow: "0 1px 2px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700 }}>PERIOD NET PAYABLE</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: C.green, marginTop: 4 }}>₹{Math.round(fin.periodNet).toLocaleString("en-IN")}</div>
+        </div>
+        <div style={{ padding: 16, background: C.panel, borderRadius: 6, border: `1px solid ${C.border}`, boxShadow: "0 1px 2px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700 }}>OVERTIME HOURS (PERIOD)</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: C.accent, marginTop: 4 }}>{totalOTHours} hrs</div>
+        </div>
+        <div style={{ padding: 16, background: C.panel, borderRadius: 6, border: `1px solid ${C.border}`, boxShadow: "0 1px 2px rgba(0,0,0,0.05)" }}>
+          <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700 }}>PENDING LOAN BALANCE</div>
+          <div style={{ fontSize: 24, fontWeight: 700, color: fin.pendingLoan > 0 ? C.red : C.text, marginTop: 4 }}>₹{Math.round(fin.pendingLoan).toLocaleString("en-IN")}</div>
+        </div>
+      </div>
+
+      <div style={{ ...css.card, marginBottom: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={css.sectionTitle}>Period Ledger & Transactions</div>
+          <button style={css.btn(C.blue)} onClick={downloadMyStatement}>📥 Download PDF Statement</button>
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={css.table}>
+            <thead><tr>{["Date", "Type", "Amount", "Note"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {myLedger.length === 0 && <tr><td colSpan={4} style={{ ...css.td, textAlign: "center", color: C.textDim, padding: 20 }}>No transactions in this period.</td></tr>}
+              {myLedger.map(l => (
+                <tr key={l.id}>
+                  <td style={{ ...css.td, fontSize: 12 }}>{l.date}</td>
+                  <td style={{ ...css.td, fontSize: 12 }}>{l.transaction_type}</td>
+                  <td style={{ ...css.td, color: ["Advance", "Fine"].includes(l.transaction_type) ? C.red : C.green, fontWeight: 700 }}>₹{Number(l.amount).toLocaleString("en-IN")}</td>
+                  <td style={{ ...css.td, fontSize: 11, color: C.textDim }}>{l.note || "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -2642,7 +2733,9 @@ export default function App() {
         <div style={{ textAlign: "center", padding: 60, color: C.textDim }}>Loading data...</div>
       ) : (
         <>
-          {tab === "dashboard" && myRole === "viewer" && <ViewerDashboardView userEmail={user.email} appUsers={appUsers} employees={employees} />}
+          {tab === "dashboard" && myRole === "viewer" && (
+          <ViewerDashboardView userEmail={user.email} appUsers={appUsers} employees={employees} posts={posts} rangeAttendance={rangeAttendance} ledger={ledger} postHistory={postHistory} overtime={overtime} />
+        )}
         {tab === "dashboard" && myRole !== "viewer" && <DashboardView employees={employees} attendance={attendance} posts={posts} trackingStartDate={trackingStartDate} />}
           {tab === "attendance" && myRole !== "viewer" && <AttendanceView employees={employees} logAction={logAction} />}
           {tab === "overtime" && myRole !== "viewer" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} logAction={logAction} />}
