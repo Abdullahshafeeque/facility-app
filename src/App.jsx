@@ -361,31 +361,46 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
       <div style={css.sectionTitle}>Log Overtime</div>
       <div style={{ ...css.card, marginBottom: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, alignItems: "flex-end" }}>
         <div style={{ gridColumn: "1 / -1", width: "100%", boxSizing: "border-box" }}>
-          <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>SELECT EMPLOYEES</div>
-          <div style={{ ...css.input, width: "100%", height: 200, overflowY: "auto", overflowX: "hidden", padding: "8px", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: "6px", background: C.panel }}>
-            {active.map(e => {
-              const isSelected = form.empIds.includes(e.id);
-              return (
-                <label key={e.id} style={{ display: "grid", gridTemplateColumns: "auto 1fr", alignItems: "center", gap: "12px", padding: "10px 12px", borderRadius: "6px", border: `1px solid ${isSelected ? C.accent : C.border}`, background: isSelected ? C.accentDim : C.bg, cursor: "pointer", width: "100%", boxSizing: "border-box", margin: 0 }}>
-                  <input 
-                    type="checkbox" 
-                    checked={isSelected} 
-                    onChange={(evt) => {
-                      const checked = evt.target.checked;
-                      setForm(prev => ({
-                        ...prev,
-                        empIds: checked ? [...prev.empIds, e.id] : prev.empIds.filter(id => id !== e.id)
-                      }));
-                    }} 
-                    style={{ margin: 0, cursor: "pointer", width: "18px", height: "18px" }}
-                  />
-                  <span style={{ fontSize: "14px", fontWeight: isSelected ? 700 : 500, color: isSelected ? C.accent : C.text, lineHeight: "1.2", wordBreak: "break-word" }}>
-                    {e.name}
-                  </span>
-                </label>
-              )
-            })}
-          </div>
+          <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>ADD EMPLOYEES</div>
+          
+          <select 
+            style={{ ...css.input, width: "100%", padding: "10px", backgroundColor: C.bg }}
+            value=""
+            onChange={(e) => {
+              const id = e.target.value;
+              if (id && !form.empIds.includes(id)) {
+                setForm(prev => ({ ...prev, empIds: [...prev.empIds, id] }));
+              }
+            }}
+          >
+            <option value="">-- Tap to select and add an employee --</option>
+            {active.filter(e => !form.empIds.includes(e.id)).map(e => (
+              <option key={e.id} value={e.id}>{e.name}</option>
+            ))}
+          </select>
+
+          {form.empIds.length > 0 && (
+            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 10, color: C.textDim, fontWeight: "bold" }}>SELECTED EMPLOYEES ({form.empIds.length})</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {form.empIds.map(id => {
+                  const emp = active.find(a => String(a.id) === String(id));
+                  if (!emp) return null;
+                  return (
+                    <div key={id} style={{ display: "flex", alignItems: "center", gap: 6, background: C.accentDim, border: `1px solid ${C.accent}`, color: C.accent, padding: "6px 12px", borderRadius: "20px", fontSize: 13, fontWeight: 600 }}>
+                      {emp.name}
+                      <span 
+                        onClick={() => setForm(prev => ({ ...prev, empIds: prev.empIds.filter(eid => eid !== id) }))}
+                        style={{ marginLeft: 4, cursor: "pointer", fontSize: 18, lineHeight: 1 }}
+                      >
+                        ×
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
         <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>WORKED AS (POST)</div>
           <select style={{...css.input, width: 160}} value={form.post} onChange={e => setForm({...form, post: e.target.value})}>
