@@ -375,7 +375,7 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
           >
             <option value="">-- Tap to select and add an employee --</option>
             {active.filter(e => !form.empIds.includes(e.id)).map(e => (
-              <option key={e.id} value={e.id}>{e.name}</option>
+              <option key={e.id} value={e.id}>{e.name} ({e.code || e.id})</option>
             ))}
           </select>
 
@@ -388,7 +388,7 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
                   if (!emp) return null;
                   return (
                     <div key={id} style={{ display: "flex", alignItems: "center", gap: 6, background: C.accentDim, border: `1px solid ${C.accent}`, color: C.accent, padding: "6px 12px", borderRadius: "20px", fontSize: 13, fontWeight: 600 }}>
-                      {emp.name}
+                      <span>{emp.name} <span style={{ opacity: 0.7, fontSize: 11 }}>({emp.code || emp.id})</span></span>
                       <span 
                         onClick={() => setForm(prev => ({ ...prev, empIds: prev.empIds.filter(eid => eid !== id) }))}
                         style={{ marginLeft: 4, cursor: "pointer", fontSize: 18, lineHeight: 1 }}
