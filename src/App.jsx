@@ -360,18 +360,13 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
     <div style={css.page}>
       <div style={css.sectionTitle}>Log Overtime</div>
       <div style={{ ...css.card, marginBottom: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, alignItems: "flex-end" }}>
-        <div>
-          <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
-            <span>SELECT EMPLOYEES</span>
-            <span style={{ color: C.accent, cursor: "pointer" }} onClick={() => setForm(f => ({...f, empIds: f.empIds.length === active.length ? [] : active.map(a => a.id)}))}>
-              {form.empIds.length === active.length ? "Deselect All" : "Select All"}
-            </span>
-          </div>
-          <div style={{ ...css.input, width: "100%", height: 120, overflowY: "auto", padding: 6, display: "flex", flexDirection: "column", gap: 4, background: C.panel }}>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>SELECT EMPLOYEES</div>
+          <div style={{ ...css.input, width: "100%", height: 200, overflowY: "auto", padding: 8, display: "flex", flexDirection: "column", gap: 8, background: C.panel }}>
             {active.map(e => {
               const isSelected = form.empIds.includes(e.id);
               return (
-                <label key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 8px", borderRadius: 4, background: isSelected ? C.accentDim : "transparent", cursor: "pointer", transition: "background 0.1s" }}>
+                <label key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, padding: "12px 14px", borderRadius: 6, border: `1px solid ${isSelected ? C.accent : C.border}`, background: isSelected ? C.accentDim : C.bg, cursor: "pointer" }}>
                   <input 
                     type="checkbox" 
                     checked={isSelected} 
@@ -382,9 +377,9 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
                         empIds: checked ? [...prev.empIds, e.id] : prev.empIds.filter(id => id !== e.id)
                       }));
                     }} 
-                    style={{ margin: 0, cursor: "pointer", transform: "scale(1.1)" }}
+                    style={{ margin: 0, cursor: "pointer", transform: "scale(1.3)", flexShrink: 0 }}
                   />
-                  <span style={{ fontSize: 12, fontWeight: isSelected ? 700 : 500, color: isSelected ? C.accent : C.text }}>{e.name}</span>
+                  <span style={{ fontSize: 13, fontWeight: isSelected ? 700 : 500, color: isSelected ? C.accent : C.text, textAlign: "left", flexGrow: 1 }}>{e.name}</span>
                 </label>
               )
             })}
