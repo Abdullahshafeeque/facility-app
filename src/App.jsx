@@ -366,7 +366,7 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
             {active.map(e => {
               const isSelected = form.empIds.includes(e.id);
               return (
-                <label key={e.id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 12px", borderRadius: "6px", border: `1px solid ${isSelected ? C.accent : C.border}`, background: isSelected ? C.accentDim : C.bg, cursor: "pointer", width: "100%", boxSizing: "border-box", margin: 0 }}>
+                <label key={e.id} style={{ display: "grid", gridTemplateColumns: "auto 1fr", alignItems: "center", gap: "12px", padding: "10px 12px", borderRadius: "6px", border: `1px solid ${isSelected ? C.accent : C.border}`, background: isSelected ? C.accentDim : C.bg, cursor: "pointer", width: "100%", boxSizing: "border-box", margin: 0 }}>
                   <input 
                     type="checkbox" 
                     checked={isSelected} 
@@ -377,9 +377,9 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
                         empIds: checked ? [...prev.empIds, e.id] : prev.empIds.filter(id => id !== e.id)
                       }));
                     }} 
-                    style={{ margin: 0, cursor: "pointer", width: "18px", height: "18px", flexShrink: 0 }}
+                    style={{ margin: 0, cursor: "pointer", width: "18px", height: "18px" }}
                   />
-                  <span style={{ fontSize: 14, fontWeight: isSelected ? 700 : 500, color: isSelected ? C.accent : C.text, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  <span style={{ fontSize: "14px", fontWeight: isSelected ? 700 : 500, color: isSelected ? C.accent : C.text, lineHeight: "1.2", wordBreak: "break-word" }}>
                     {e.name}
                   </span>
                 </label>
