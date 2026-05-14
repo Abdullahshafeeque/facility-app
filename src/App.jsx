@@ -362,11 +362,11 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
       <div style={{ ...css.card, marginBottom: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, alignItems: "flex-end" }}>
         <div style={{ gridColumn: "1 / -1", width: "100%", boxSizing: "border-box" }}>
           <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>SELECT EMPLOYEES</div>
-          <div style={{ ...css.input, width: "100%", height: 200, overflowY: "auto", overflowX: "hidden", padding: 8, boxSizing: "border-box", display: "flex", flexDirection: "column", gap: 6, background: C.panel }}>
+          <div style={{ ...css.input, width: "100%", height: 200, overflowY: "auto", overflowX: "hidden", padding: "8px", boxSizing: "border-box", display: "flex", flexDirection: "column", gap: "6px", background: C.panel }}>
             {active.map(e => {
               const isSelected = form.empIds.includes(e.id);
               return (
-                <label key={e.id} style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: 12, padding: "12px", borderRadius: 6, border: `1px solid ${isSelected ? C.accent : C.border}`, background: isSelected ? C.accentDim : C.bg, cursor: "pointer", width: "100%", boxSizing: "border-box", margin: 0, overflow: "hidden" }}>
+                <label key={e.id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 12px", borderRadius: "6px", border: `1px solid ${isSelected ? C.accent : C.border}`, background: isSelected ? C.accentDim : C.bg, cursor: "pointer", width: "100%", boxSizing: "border-box", margin: 0 }}>
                   <input 
                     type="checkbox" 
                     checked={isSelected} 
@@ -377,9 +377,11 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
                         empIds: checked ? [...prev.empIds, e.id] : prev.empIds.filter(id => id !== e.id)
                       }));
                     }} 
-                    style={{ margin: 0, cursor: "pointer", transform: "scale(1.2)", flexShrink: 0, flexGrow: 0 }}
+                    style={{ margin: 0, cursor: "pointer", width: "18px", height: "18px", flexShrink: 0 }}
                   />
-                  <span style={{ fontSize: 14, fontWeight: isSelected ? 700 : 500, color: isSelected ? C.accent : C.text, textAlign: "left", flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.name}</span>
+                  <span style={{ fontSize: 14, fontWeight: isSelected ? 700 : 500, color: isSelected ? C.accent : C.text, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {e.name}
+                  </span>
                 </label>
               )
             })}
