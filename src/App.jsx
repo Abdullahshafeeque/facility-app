@@ -271,15 +271,12 @@ function AlertBanner({ alerts }) {
 
 // ─── OVERTIME ─────────────────────────────────────────────────────────────────
 function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRole }) {
-  const [form, setForm] = useState({ empId: "", startDate: todayStr, endDate: todayStr, start: "", end: "", post: "" });
+  const [form, setForm] = useState({ empIds: [], startDate: todayStr, endDate: todayStr, start: "", end: "", post: "" });
   const [saving, setSaving] = useState(false);
   const active = employees.filter(e => e.status === "active");
 
   const handleAddOT = async () => {
-    if (!form.empId || !form.startDate || !form.endDate || !form.start || !form.end || !form.post) return alert("Please fill all fields.");
-    
-    const emp = employees.find(e => String(e.id) === String(form.empId));
-    if (!emp) return alert("Error: Employee could not be matched.");
+    if (!form.empIds || form.empIds.length === 0 || !form.startDate || !form.endDate || !form.start || !form.end || !form.post) return alert("Please fill all fields and select at least one employee.");
 
     // Append :00 to time to guarantee strict browser parsing
     const dStart = new Date(`${form.startDate}T${form.start}:00`);
@@ -291,45 +288,63 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
     const hours = (dEnd - dStart) / 3600000;
     if (hours > 12) return alert("Error: Overtime cannot exceed 12 hours.");
 
-    if (emp.post === form.post) {
-      const otPostData = posts.find(p => p.name === emp.post) || {};
-      const mStart = otPostData.morning_start || "06:00:00";
-      const nStart = otPostData.night_start || "18:00:00";
-      const shiftStartStr = emp.shift === "Morning" ? mStart : nStart;
+    const entriesToInsert = [];
+    let overlapErrors = [];
 
-      const checkOverlap = (s1, e1, s2, e2) => Math.max(s1, s2) < Math.min(e1, e2);
-      const isOverlap = [-1, 0, 1].some(offset => {
-        const shiftStartDt = new Date(`${form.startDate}T${shiftStartStr}`);
-        shiftStartDt.setDate(shiftStartDt.getDate() + offset);
-        const shiftEndDt = new Date(shiftStartDt);
-        shiftEndDt.setHours(shiftStartDt.getHours() + 12);
-        return checkOverlap(dStart, dEnd, shiftStartDt, shiftEndDt);
+    for (const id of form.empIds) {
+      const emp = employees.find(e => String(e.id) === String(id));
+      if (!emp) continue;
+
+      if (emp.post === form.post) {
+        const otPostData = posts.find(p => p.name === emp.post) || {};
+        const mStart = otPostData.morning_start || "06:00:00";
+        const nStart = otPostData.night_start || "18:00:00";
+        const shiftStartStr = emp.shift === "Morning" ? mStart : nStart;
+
+        const checkOverlap = (s1, e1, s2, e2) => Math.max(s1, s2) < Math.min(e1, e2);
+        const isOverlap = [-1, 0, 1].some(offset => {
+          const shiftStartDt = new Date(`${form.startDate}T${shiftStartStr}`);
+          shiftStartDt.setDate(shiftStartDt.getDate() + offset);
+          const shiftEndDt = new Date(shiftStartDt);
+          shiftEndDt.setHours(shiftStartDt.getHours() + 12);
+          return checkOverlap(dStart, dEnd, shiftStartDt, shiftEndDt);
+        });
+
+        if (isOverlap) {
+          overlapErrors.push(emp.name);
+          continue;
+        }
+      }
+      
+      entriesToInsert.push({
+        employee_id: emp.id, 
+        date: form.startDate, 
+        end_date: form.endDate,
+        start_time: form.start, 
+        end_time: form.end, 
+        hours: Number(hours.toFixed(2)), 
+        post: form.post
       });
-
-      if (isOverlap) return alert(`Overlap Error: ${emp.name} is scheduled for a regular ${emp.shift} shift during this time.`);
     }
+
+    if (overlapErrors.length > 0) {
+      return alert(`Overlap Error: The following employees are scheduled for a regular shift during this time:\n${overlapErrors.join(", ")}`);
+    }
+
+    if (entriesToInsert.length === 0) return;
 
     setSaving(true);
     
-    const { data, error } = await supabase.from("overtime_entries").insert({
-      employee_id: emp.id, 
-      date: form.startDate, 
-      end_date: form.endDate,
-      start_time: form.start, 
-      end_time: form.end, 
-      hours: Number(hours.toFixed(2)), 
-      post: form.post
-    }).select().single();
+    // Use .select() without .single() for bulk insert
+    const { data, error } = await supabase.from("overtime_entries").insert(entriesToInsert).select();
 
     setSaving(false);
 
     if (error) return alert("Database Error: " + error.message);
     
-    setOvertime(prev => [data, ...prev]);
-    setForm({ ...form, start: "", end: "" });
-    setOvertime(prev => [data, ...prev]);
-    setForm({ ...form, start: "", end: "" });
-    if (logAction) logAction("Overtime Logged", `Added ${Number(hours).toFixed(1)}h for ${emp.name} on ${form.startDate}`);
+    setOvertime(prev => [...data, ...prev]);
+    setForm({ ...form, start: "", end: "", empIds: [] });
+    if (logAction) logAction("Overtime Logged", `Added ${Number(hours).toFixed(1)}h for ${entriesToInsert.length} employee(s) on ${form.startDate}`);
   };
 
   const deleteOT = async (id) => {
@@ -345,9 +360,8 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
     <div style={css.page}>
       <div style={css.sectionTitle}>Log Overtime</div>
       <div style={{ ...css.card, marginBottom: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, alignItems: "flex-end" }}>
-        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>EMPLOYEE</div>
-          <select style={{...css.input, width: "100%"}} value={form.empId} onChange={e => setForm({...form, empId: e.target.value})}>
-            <option value="">-- Select --</option>
+        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>EMPLOYEES (Hold Ctrl/Cmd for multiple)</div>
+          <select multiple style={{...css.input, width: "100%", height: 75}} value={form.empIds} onChange={e => setForm({...form, empIds: Array.from(e.target.selectedOptions, option => option.value)})}>
             {active.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>
         </div>
