@@ -376,7 +376,7 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
             <option value="">-- Tap to select and add an employee --</option>
             {active.filter(e => !form.empIds.includes(e.id)).map(e => (
               <option key={e.id} value={e.id}>
-                {e.name} - {e.employee_code} 
+                {e.name} - {e.emp_code} 
               </option>
             ))}
           </select>
