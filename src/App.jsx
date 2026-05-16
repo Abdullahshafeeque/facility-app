@@ -2452,6 +2452,88 @@ function LogsView({ logs, setLogs }) {
     </div>
   );
 }
+// ─── TRANSACTIONS ─────────────────────────────────────────────────────────────
+function TransactionsView({ ledger, employees }) {
+  const now = new Date();
+  const monthStart = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), "01"].join("-");
+  const [start, setStart] = useState(monthStart);
+  const [end, setEnd] = useState(todayStr);
+  const [empFilter, setEmpFilter] = useState("All");
+  const [typeFilter, setTypeFilter] = useState("All");
+
+  // Filter logic
+  const filteredLedger = ledger.filter(l => {
+    if (l.date < start || l.date > end) return false;
+    if (empFilter !== "All") {
+      if (empFilter === "CONTRACTOR" && l.employee_id !== null) return false;
+      if (empFilter !== "CONTRACTOR" && String(l.employee_id) !== empFilter) return false;
+    }
+    if (typeFilter !== "All" && l.transaction_type !== typeFilter) return false;
+    return true;
+  }).sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const totalAmount = filteredLedger.reduce((sum, l) => sum + Number(l.amount), 0);
+
+  // Auto-generate unique transaction types from the ledger data
+  const uniqueTypes = Array.from(new Set(ledger.map(l => l.transaction_type))).sort();
+
+  return (
+    <div style={css.page}>
+      <div style={css.sectionTitle}>Financial Ledger History</div>
+      <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 20 }}>Transactions Explorer</div>
+
+      <div style={{ ...css.card, marginBottom: 20, background: "#f8fafc", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, alignItems: "flex-end" }}>
+        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={{ ...css.input, width: "100%" }} value={start} onChange={e => setStart(e.target.value)} /></div>
+        <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={{ ...css.input, width: "100%" }} value={end} onChange={e => setEnd(e.target.value)} /></div>
+        <div>
+          <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>EMPLOYEE / PAYEE</div>
+          <select style={{ ...css.input, width: "100%" }} value={empFilter} onChange={e => setEmpFilter(e.target.value)}>
+            <option value="All">All Payees</option>
+            <option value="CONTRACTOR">🏢 Contractor</option>
+            {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TRANSACTION TYPE</div>
+          <select style={{ ...css.input, width: "100%" }} value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
+            <option value="All">All Types</option>
+            {uniqueTypes.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div style={{ overflowX: "auto" }}>
+        <table style={css.table}>
+          <thead><tr>{["Date", "Payee / Staff", "Type", "Amount", "Remarks"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+          <tbody>
+            {filteredLedger.length === 0 && <tr><td colSpan={5} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No transactions found for these filters.</td></tr>}
+            {filteredLedger.map(l => {
+              const emp = employees.find(e => e.id === l.employee_id);
+              const isDeduction = ["Advance", "Fine", "Loan Repayment"].includes(l.transaction_type);
+              return (
+                <tr key={l.id} style={{ background: C.panel }}>
+                  <td style={{...css.td, fontSize: 12}}>{fDate(l.date)}</td>
+                  <td style={css.td}><strong>{l.employee_id ? emp?.name || "Unknown" : "Contractor"}</strong></td>
+                  <td style={{...css.td, fontSize: 12}}>{l.transaction_type}</td>
+                  <td style={{ ...css.td, color: isDeduction ? C.red : C.green, fontWeight: 700 }}>₹{Number(l.amount).toLocaleString("en-IN")}</td>
+                  <td style={{...css.td, fontSize: 11, color: C.textDim}}>{l.notes || l.note || "-"}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+          {filteredLedger.length > 0 && (
+            <tfoot>
+              <tr style={{ background: C.bg }}>
+                <td colSpan={3} style={{ ...css.td, textAlign: "right", fontWeight: 700 }}>FILTERED TOTAL:</td>
+                <td colSpan={2} style={{ ...css.td, fontWeight: 700, fontSize: 14 }}>₹{totalAmount.toLocaleString("en-IN")}</td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    </div>
+  );
+}
 // ─── APP ROOT ─────────────────────────────────────────────────────────────────
 // ─── USER MANAGEMENT (DIRECTOR ONLY) ──────────────────────────────────────────
 function UserManagementView({ users, setUsers, employees }) {
@@ -2780,7 +2862,7 @@ export default function App() {
     { id: "dashboard", label: "Dashboard" },
     ...(myRole !== "viewer" ? [{ id: "attendance", label: "Attendance" }, { id: "overtime", label: "Overtime" }] : []),
     ...(myRole === "director" || myRole === "manager" ? [{ id: "staff", label: "Staff" }] : []),
-    ...(myRole === "director" || myRole === "manager" ? [{ id: "payroll", label: "Payroll" }, { id: "reports", label: "📊 Reports" }] : []),
+    ...(myRole === "director" || myRole === "manager" ? [{ id: "payroll", label: "Payroll" }, { id: "transactions", label: "Transactions" }, { id: "reports", label: "📊 Reports" }] : []),
     ...(myRole === "director" ? [{ id: "settings", label: "⚙ Settings" }, { id: "logs", label: "📋 Logs" }, { id: "users", label: "🔐 Users" }] : []),
   ];
 
@@ -2872,6 +2954,7 @@ export default function App() {
           {tab === "overtime" && myRole !== "viewer" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} logAction={logAction} myRole={myRole} />}
           {tab === "staff" && (myRole === "director" || myRole === "manager") && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
           {tab === "payroll" && myRole !== "viewer" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
+          {tab === "transactions" && (myRole === "director" || myRole === "manager") && <TransactionsView ledger={ledger} employees={employees} />}
           {tab === "reports" && (myRole === "director" || myRole === "manager") && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} logAction={logAction} />}
           {tab === "settings" && myRole === "director" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} logAction={logAction} />}
           {tab === "logs" && myRole === "director" && <LogsView logs={logs} setLogs={setLogs} />} {/* <-- NEW RENDER LINE */}
