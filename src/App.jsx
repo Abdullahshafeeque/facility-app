@@ -1615,7 +1615,8 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
       
       // TRAP: Check if the function actually reached this page
       if (typeof logAction === "function") {
-        const targetName = isContractor ? "Contractor" : (employees.find(e => e.id === form.empId)?.name || "Unknown");
+        // FIXED: Force both IDs to strings so they match perfectly, preventing "Unknown" logs
+        const targetName = isContractor ? "Contractor" : (employees.find(e => String(e.id) === String(form.empId))?.name || "Unknown");
         const actualType = isContractor ? "Contractor Payout" : form.type;
         logAction(`Registered ${actualType}`, `₹${payoutAmt} for ${targetName}`);
       } else {
