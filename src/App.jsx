@@ -434,20 +434,42 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
           <tbody>
             {overtime.length === 0 && <tr><td colSpan={7} style={{...css.td, textAlign: "center"}}>No OT entries found.</td></tr>}
             {overtime.slice(0, 50).map(o => {
-              const emp = employees.find(e => e.id === o.employee_id);
-              return (
-                <tr key={o.id}>
-                  <td style={css.td}>{fDate(o.date)}</td>
-                  <td style={css.td}>{fDate(o.end_date || o.date)}</td>
-                  <td style={css.td}><strong>{emp?.name || "Unknown"}</strong></td>
-                  <td style={css.td}>{o.post}</td>
-                  <td style={css.td}>{o.start_time}</td>
-                  <td style={css.td}>{o.end_time}</td>
-                  <td style={{...css.td, color: C.green, fontWeight: "bold"}}>{Number(o.hours).toFixed(1)}h</td>
-                  <td style={css.td}>{myRole === "director" && <button style={{...css.btn(C.red), padding: "4px 8px"}} onClick={() => deleteOT(o.id)}>✕</button>}</td>
-                </tr>
-              )
-            })}
+                  // Robust ID matching in case of database object nesting or string mismatch
+                  const rawId = typeof o.employee_id === "object" && o.employee_id !== null ? o.employee_id.id : o.employee_id;
+                  const emp = employees.find(e => String(e.id) === String(rawId));
+                  
+                  return (
+                    <tr key={o.id}>
+                      <td style={css.td}>{fDate(o.date)}</td>
+                      <td style={css.td}>{fDate(o.end_date || o.date)}</td>
+                      <td style={css.td}>
+                        <strong>{emp?.name || "Unknown"}</strong>
+                        {!emp && myRole === "director" && (
+                          <div style={{ marginTop: 4 }}>
+                            <select 
+                              style={{ ...css.input, fontSize: 10, padding: "2px", borderColor: C.red, width: 120 }}
+                              onChange={async (e) => {
+                                if (!e.target.value) return;
+                                await supabase.from("overtime_entries").update({ employee_id: e.target.value }).eq("id", o.id);
+                                setOvertime(prev => prev.map(x => x.id === o.id ? { ...x, employee_id: e.target.value } : x));
+                              }}
+                            >
+                              <option value="">-- Link Staff --</option>
+                              {employees.filter(e => e.status === "active").map(activeEmp => (
+                                <option key={activeEmp.id} value={activeEmp.id}>{activeEmp.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </td>
+                      <td style={css.td}>{o.post}</td>
+                      <td style={css.td}>{o.start_time}</td>
+                      <td style={css.td}>{o.end_time}</td>
+                      <td style={{...css.td, color: C.green, fontWeight: "bold"}}>{Number(o.hours).toFixed(1)}h</td>
+                      <td style={css.td}>{myRole === "director" && <button style={{...css.btn(C.red), padding: "4px 8px"}} onClick={() => deleteOT(o.id)}>✕</button>}</td>
+                    </tr>
+                  )
+                })}
           </tbody>
         </table>
       </div>
