@@ -2508,18 +2508,25 @@ function TransactionsView({ ledger, employees }) {
           <tbody>
             {filteredLedger.length === 0 && <tr><td colSpan={5} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No transactions found for these filters.</td></tr>}
             {filteredLedger.map(l => {
-              // Ultra-robust matching: handles plain strings, numbers, AND Supabase nested objects
-              const rawId = typeof l.employee_id === "object" && l.employee_id !== null ? l.employee_id.id : l.employee_id;
-              const emp = employees.find(e => String(e.id) === String(rawId));
+              const rawId = l.employee_id !== undefined ? l.employee_id : (l.emp_id !== undefined ? l.emp_id : l.empId);
+              const parsedId = typeof rawId === "object" && rawId !== null ? rawId.id : rawId;
+              
+              // Failsafe matching: Checks if the database saved their ID, their Name, or their EMP-CODE by mistake
+              const emp = employees.find(e => 
+                String(e.id) === String(parsedId) || 
+                String(e.name).toLowerCase() === String(parsedId).toLowerCase() || 
+                String(e.emp_code).toLowerCase() === String(parsedId).toLowerCase()
+              );
+              
               const isDeduction = ["Advance", "Fine", "Loan Repayment"].includes(l.transaction_type);
-              const isContractor = !rawId || String(l.transaction_type).includes("Contractor");
+              const isContractor = parsedId === null || String(parsedId) === "null" || String(l.transaction_type).includes("Contractor");
 
               return (
                 <tr key={l.id} style={{ background: C.panel }}>
                   <td style={{...css.td, fontSize: 12}}>{fDate(l.date)}</td>
                   <td style={css.td}>
-                    <strong>{isContractor ? "🏢 Contractor" : (emp?.name || l.employee_id?.name || "Unknown")}</strong>
-                    {!isContractor && !emp && !l.employee_id?.name && <div style={{ fontSize: 9, color: C.textDim, marginTop: 2 }}>Unlinked ID: {String(rawId)}</div>}
+                    <strong>{isContractor ? "🏢 Contractor" : (emp?.name || "Unknown Staff")}</strong>
+                    {!isContractor && !emp && <div style={{ fontSize: 9, color: C.textDim, marginTop: 2 }}>[Logged DB Value: {String(parsedId)}]</div>}
                   </td>
                   <td style={{...css.td, fontSize: 12}}>{l.transaction_type}</td>
                   <td style={{ ...css.td, color: isDeduction ? C.red : C.green, fontWeight: 700 }}>₹{Number(l.amount).toLocaleString("en-IN")}</td>
