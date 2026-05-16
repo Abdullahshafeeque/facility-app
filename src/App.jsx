@@ -1573,6 +1573,11 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
     
     const isContractor = form.empId === "CONTRACTOR";
     const payoutAmt = Number(form.amount);
+    // Capture name BEFORE any async calls or state resets
+    const capturedEmpId = form.empId;
+    const capturedType = form.type;
+    const capturedTargetEmp = employees.find(e => String(e.id).trim() === String(form.empId).trim());
+    const capturedTargetName = isContractor ? "Contractor" : (capturedTargetEmp?.name || `ID:${form.empId}`);
     
     const { data, error } = await supabase.from("financial_ledger").insert({ 
       employee_id: isContractor ? null : form.empId, 
@@ -1616,9 +1621,8 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
       // TRAP: Check if the function actually reached this page
       if (typeof logAction === "function") {
         // FIXED: Force both IDs to strings so they match perfectly, preventing "Unknown" logs
-        const targetName = isContractor ? "Contractor" : (employees.find(e => String(e.id) === String(form.empId))?.name || "Unknown");
-        const actualType = isContractor ? "Contractor Payout" : form.type;
-        logAction(`Registered ${actualType}`, `₹${payoutAmt} for ${targetName}`);
+        const targetEmp = employees.find(e => String(e.id).trim() === String(form.empId).trim());
+logAction(`Registered ${isContractor ? "Contractor Payout" : capturedType}`, `₹${payoutAmt} for ${capturedTargetName}`);
       } else {
         alert("⚠️ Developer Warning: The logAction function is not connected to the PayrollView component! Check your App tab renders.");
       }
