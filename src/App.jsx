@@ -2453,7 +2453,7 @@ function LogsView({ logs, setLogs }) {
   );
 }
 // ─── TRANSACTIONS ─────────────────────────────────────────────────────────────
-function TransactionsView({ ledger, employees }) {
+function TransactionsView({ ledger, setLedger, employees, myRole }) {
   const now = new Date();
   const monthStart = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), "01"].join("-");
   const [start, setStart] = useState(monthStart);
@@ -2530,7 +2530,22 @@ function TransactionsView({ ledger, employees }) {
                   </td>
                   <td style={{...css.td, fontSize: 12}}>{l.transaction_type}</td>
                   <td style={{ ...css.td, color: isDeduction ? C.red : C.green, fontWeight: 700 }}>₹{Number(l.amount).toLocaleString("en-IN")}</td>
-                  <td style={{...css.td, fontSize: 11, color: C.textDim}}>{l.notes || l.note || "-"}</td>
+                  <td style={{...css.td, fontSize: 11, color: C.textDim}}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span>{l.notes || l.note || "-"}</span>
+                      {myRole === "director" && (
+                        <button 
+                          style={{ background: "transparent", border: "none", color: C.red, cursor: "pointer", fontSize: 14, padding: "0 6px" }} 
+                          title="Delete Transaction"
+                          onClick={async () => {
+                            if (!window.confirm("Delete this transaction permanently?")) return;
+                            await supabase.from("financial_ledger").delete().eq("id", l.id);
+                            setLedger(prev => prev.filter(x => x.id !== l.id));
+                          }}
+                        >✕</button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               )
             })}
@@ -2968,7 +2983,7 @@ export default function App() {
           {tab === "overtime" && myRole !== "viewer" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} logAction={logAction} myRole={myRole} />}
           {tab === "staff" && (myRole === "director" || myRole === "manager") && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
           {tab === "payroll" && myRole !== "viewer" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
-          {tab === "transactions" && (myRole === "director" || myRole === "manager") && <TransactionsView ledger={ledger} employees={employees} />}
+          {tab === "transactions" && (myRole === "director" || myRole === "manager") && <TransactionsView ledger={ledger} setLedger={setLedger} employees={employees} myRole={myRole} />}
           {tab === "reports" && (myRole === "director" || myRole === "manager") && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} logAction={logAction} />}
           {tab === "settings" && myRole === "director" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} logAction={logAction} />}
           {tab === "logs" && myRole === "director" && <LogsView logs={logs} setLogs={setLogs} />} {/* <-- NEW RENDER LINE */}
