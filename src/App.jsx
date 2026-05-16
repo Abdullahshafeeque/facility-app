@@ -2510,23 +2510,44 @@ function TransactionsView({ ledger, setLedger, employees, myRole }) {
             {filteredLedger.map(l => {
               const rawId = l.employee_id !== undefined ? l.employee_id : (l.emp_id !== undefined ? l.emp_id : l.empId);
               const parsedId = typeof rawId === "object" && rawId !== null ? rawId.id : rawId;
+              const safeId = String(parsedId).trim().toLowerCase();
               
-              // Failsafe matching: Checks if the database saved their ID, their Name, or their EMP-CODE by mistake
               const emp = employees.find(e => 
-                String(e.id) === String(parsedId) || 
-                String(e.name).toLowerCase() === String(parsedId).toLowerCase() || 
-                String(e.emp_code).toLowerCase() === String(parsedId).toLowerCase()
+                String(e.id).trim().toLowerCase() === safeId || 
+                String(e.name).trim().toLowerCase() === safeId || 
+                String(e.emp_code).trim().toLowerCase() === safeId
               );
               
               const isDeduction = ["Advance", "Fine", "Loan Repayment"].includes(l.transaction_type);
-              const isContractor = parsedId === null || String(parsedId) === "null" || String(l.transaction_type).includes("Contractor");
+              const isContractor = parsedId === null || safeId === "null" || String(l.transaction_type).includes("Contractor");
 
               return (
                 <tr key={l.id} style={{ background: C.panel }}>
                   <td style={{...css.td, fontSize: 12}}>{fDate(l.date)}</td>
                   <td style={css.td}>
                     <strong>{isContractor ? "🏢 Contractor" : (emp?.name || "Unknown Staff")}</strong>
-                    {!isContractor && !emp && <div style={{ fontSize: 9, color: C.textDim, marginTop: 2 }}>[Logged DB Value: {String(parsedId)}]</div>}
+                    {!isContractor && !emp && (
+                      <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 6 }}>
+                        <span style={{ fontSize: 9, color: C.textDim }}>ID: {String(parsedId)}</span>
+                        {myRole === "director" && (
+                          <button 
+                            style={{ ...css.btn(C.blue), padding: "4px 8px", fontSize: 9, width: "fit-content" }}
+                            onClick={async () => {
+                              const code = window.prompt("Broken Link Fix\nEnter the EXACT EMP CODE (e.g. EMP-001) to link this transaction to:");
+                              if (!code) return;
+                              
+                              const target = employees.find(e => String(e.emp_code).toLowerCase() === code.trim().toLowerCase());
+                              if (!target) return alert("❌ Employee Code not found. Check the exact spelling in the Staff tab.");
+                              
+                              await supabase.from("financial_ledger").update({ employee_id: target.id }).eq("id", l.id);
+                              setLedger(prev => prev.map(x => x.id === l.id ? { ...x, employee_id: target.id } : x));
+                            }}
+                          >
+                            🔗 Fix Link
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td style={{...css.td, fontSize: 12}}>{l.transaction_type}</td>
                   <td style={{ ...css.td, color: isDeduction ? C.red : C.green, fontWeight: 700 }}>₹{Number(l.amount).toLocaleString("en-IN")}</td>
