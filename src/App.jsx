@@ -2508,12 +2508,19 @@ function TransactionsView({ ledger, employees }) {
           <tbody>
             {filteredLedger.length === 0 && <tr><td colSpan={5} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No transactions found for these filters.</td></tr>}
             {filteredLedger.map(l => {
-              const emp = employees.find(e => String(e.id) === String(l.employee_id));
+              // Ultra-robust matching: handles plain strings, numbers, AND Supabase nested objects
+              const rawId = typeof l.employee_id === "object" && l.employee_id !== null ? l.employee_id.id : l.employee_id;
+              const emp = employees.find(e => String(e.id) === String(rawId));
               const isDeduction = ["Advance", "Fine", "Loan Repayment"].includes(l.transaction_type);
+              const isContractor = !rawId || String(l.transaction_type).includes("Contractor");
+
               return (
                 <tr key={l.id} style={{ background: C.panel }}>
                   <td style={{...css.td, fontSize: 12}}>{fDate(l.date)}</td>
-                  <td style={css.td}><strong>{l.employee_id ? emp?.name || "Unknown" : "Contractor"}</strong></td>
+                  <td style={css.td}>
+                    <strong>{isContractor ? "🏢 Contractor" : (emp?.name || l.employee_id?.name || "Unknown")}</strong>
+                    {!isContractor && !emp && !l.employee_id?.name && <div style={{ fontSize: 9, color: C.textDim, marginTop: 2 }}>Unlinked ID: {String(rawId)}</div>}
+                  </td>
                   <td style={{...css.td, fontSize: 12}}>{l.transaction_type}</td>
                   <td style={{ ...css.td, color: isDeduction ? C.red : C.green, fontWeight: 700 }}>₹{Number(l.amount).toLocaleString("en-IN")}</td>
                   <td style={{...css.td, fontSize: 11, color: C.textDim}}>{l.notes || l.note || "-"}</td>
