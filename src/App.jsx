@@ -2508,7 +2508,7 @@ function TransactionsView({ ledger, employees }) {
           <tbody>
             {filteredLedger.length === 0 && <tr><td colSpan={5} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No transactions found for these filters.</td></tr>}
             {filteredLedger.map(l => {
-              const emp = employees.find(e => e.id === l.employee_id);
+              const emp = employees.find(e => String(e.id) === String(l.employee_id));
               const isDeduction = ["Advance", "Fine", "Loan Repayment"].includes(l.transaction_type);
               return (
                 <tr key={l.id} style={{ background: C.panel }}>
