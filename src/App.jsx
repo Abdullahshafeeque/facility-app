@@ -290,10 +290,28 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
 
     const entriesToInsert = [];
     let overlapErrors = [];
+    let duplicateOTErrors = []; // Track existing OT overlaps
 
     for (const id of form.empIds) {
       const emp = employees.find(e => String(e.id) === String(id));
       if (!emp) continue;
+
+      // Prevent duplicate/overlapping Overtime entries for this specific person
+      const hasDuplicateOT = overtime.some(existingOT => {
+        const rawExistingId = typeof existingOT.employee_id === "object" && existingOT.employee_id !== null ? existingOT.employee_id.id : existingOT.employee_id;
+        if (String(rawExistingId) !== String(id)) return false;
+        
+        const exStart = new Date(`${existingOT.date}T${existingOT.start_time}:00`);
+        const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.end_time}:00`);
+        
+        // Checks if the two timeframes overlap at any point
+        return Math.max(dStart, exStart) < Math.min(dEnd, exEnd);
+      });
+
+      if (hasDuplicateOT) {
+        duplicateOTErrors.push(emp.name);
+        continue;
+      }
 
       if (emp.post === form.post) {
         const otPostData = posts.find(p => p.name === emp.post) || {};
@@ -329,6 +347,10 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
 
     if (overlapErrors.length > 0) {
       return alert(`Overlap Error: The following employees are scheduled for a regular shift during this time:\n${overlapErrors.join(", ")}`);
+    }
+
+    if (duplicateOTErrors.length > 0) {
+      return alert(`Duplicate OT Error: The following employees already have Overtime registered during this exact time period:\n${duplicateOTErrors.join(", ")}`);
     }
 
     if (entriesToInsert.length === 0) return;
