@@ -301,8 +301,8 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
         const rawExistingId = typeof existingOT.employee_id === "object" && existingOT.employee_id !== null ? existingOT.employee_id.id : existingOT.employee_id;
         if (String(rawExistingId) !== String(id)) return false;
         
-        const exStart = new Date(`${existingOT.date}T${existingOT.start_time}:00`);
-        const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.end_time}:00`);
+        const exStart = new Date(`${existingOT.date}T${existingOT.start_time.slice(0,5)}:00`);
+const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.end_time.slice(0,5)}:00`);
         
         // Checks if the two timeframes overlap at any point (using <= to catch exact boundary matches)
         return dStart < exEnd && dEnd > exStart;
