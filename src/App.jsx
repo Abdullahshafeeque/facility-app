@@ -304,13 +304,13 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
         const exStart = new Date(`${existingOT.date}T${existingOT.start_time}:00`);
         const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.end_time}:00`);
         
-        // Checks if the two timeframes overlap at any point
-        return Math.max(dStart, exStart) < Math.min(dEnd, exEnd);
+        // Checks if the two timeframes overlap at any point (using <= to catch exact boundary matches)
+        return dStart < exEnd && dEnd > exStart;
       });
 
       if (hasDuplicateOT) {
         duplicateOTErrors.push(emp.name);
-        continue;
+        continue;  // Skip overlap check entirely for this person
       }
 
       if (emp.post === form.post) {
@@ -345,12 +345,12 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
       });
     }
 
-    if (overlapErrors.length > 0) {
-      return alert(`Overlap Error: The following employees are scheduled for a regular shift during this time:\n${overlapErrors.join(", ")}`);
+    if (duplicateOTErrors.length > 0) {
+      return alert(`Duplicate OT Error: The following employees already have Overtime registered during this time period:\n${duplicateOTErrors.join(", ")}`);
     }
 
-    if (duplicateOTErrors.length > 0) {
-      return alert(`Duplicate OT Error: The following employees already have Overtime registered during this exact time period:\n${duplicateOTErrors.join(", ")}`);
+    if (overlapErrors.length > 0) {
+      return alert(`Shift Overlap Error: The following employees are scheduled for a regular shift during this time:\n${overlapErrors.join(", ")}`);
     }
 
     if (entriesToInsert.length === 0) return;
