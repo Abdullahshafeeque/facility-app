@@ -1284,7 +1284,32 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
       </div>
 
       {/* Staff profile modal */}
-      {viewing && (
+      {viewing && myRole === "supervisor" && (
+        <div style={css.modal}>
+          <div style={{ ...css.card, maxWidth: 380, width: "100%", border: `2px solid ${C.accent}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: C.accent }}>Change Shift</div>
+              <button onClick={() => setViewing(null)} style={{ background: C.red, color: "white", border: "none", borderRadius: 4, padding: "6px 14px", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>CLOSE ✕</button>
+            </div>
+            <div style={{ textAlign: "center", marginBottom: 16, paddingBottom: 14, borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 20, fontWeight: 700 }}>{viewing.name}</div>
+              <div style={{ fontSize: 12, color: C.textDim, marginTop: 4 }}>{viewing.post}</div>
+              <div style={{ marginTop: 8 }}><span style={css.badge(shiftColor(viewing.shift))}>{viewing.shift} Shift</span></div>
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 10, color: C.textDim, marginBottom: 8, fontWeight: 700 }}>SELECT NEW SHIFT</div>
+              <div style={{ display: "flex", gap: 10 }}>
+                {["Morning", "Night"].map(s => (
+                  <button key={s} style={{ ...css.btn(shiftColor(s)), flex: 1, opacity: viewing.shift === s ? 0.4 : 1 }} disabled={viewing.shift === s} onClick={async () => { await updateEmployeeShift(viewing.id, s); setViewing(null); }}>
+                    {s} Shift
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {viewing && myRole !== "supervisor" && (
         <div style={css.modal}>
           <div style={{ ...css.card, maxWidth: 520, width: "100%", border: `2px solid ${C.accent}`, maxHeight: "90vh", overflowY: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -1470,7 +1495,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
                     </div>
                     <div style={{ overflowX: "auto" }}>
                       <table style={css.table}>
-                        <thead><tr>{["Code", "Name", "Type", "Joined", "Salary", ""].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+                        <thead><tr>{["Code", "Name", "Type", "Joined", ...(myRole !== "supervisor" ? ["Salary"] : []), ""].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
                         <tbody>
                           {shiftStaff.map(emp => (
                             <tr key={emp.id} style={{ cursor: "pointer" }} onClick={() => { setViewing(emp); setConfirmLeave(false); }}>
@@ -1478,7 +1503,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
                               <td style={css.td}><span style={{ color: C.accent, fontWeight: 700, textDecoration: "underline" }}>{emp.name}</span></td>
                               <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
                               <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{fDate(emp.joining_date)}</span></td>
-                              <td style={css.td}><span style={{ color: C.green }}>₹{Number(emp.base_salary).toLocaleString("en-IN")}</span></td>
+                              {myRole !== "supervisor" && <td style={css.td}><span style={{ color: C.green }}>₹{Number(emp.base_salary).toLocaleString("en-IN")}</span></td>}
                               <td style={css.td}><span style={{ fontSize: 11, color: C.accent }}>View →</span></td>
                             </tr>
                           ))}
@@ -2968,7 +2993,7 @@ export default function App() {
   const TABS = [
     { id: "dashboard", label: "Dashboard" },
     ...(myRole !== "viewer" ? [{ id: "attendance", label: "Attendance" }, { id: "overtime", label: "Overtime" }] : []),
-    ...(myRole === "director" || myRole === "manager" ? [{ id: "staff", label: "Staff" }] : []),
+    ...(myRole === "director" || myRole === "manager" || myRole === "supervisor" ? [{ id: "staff", label: "Staff" }] : []),
     ...(myRole === "director" || myRole === "manager" ? [{ id: "payroll", label: "Payroll" }, { id: "transactions", label: "Transactions" }, { id: "reports", label: "📊 Reports" }] : []),
     ...(myRole === "director" ? [{ id: "settings", label: "⚙ Settings" }, { id: "logs", label: "📋 Logs" }, { id: "users", label: "🔐 Users" }] : []),
   ];
@@ -3059,7 +3084,7 @@ export default function App() {
         {tab === "dashboard" && myRole !== "viewer" && <DashboardView employees={employees} attendance={attendance} posts={posts} trackingStartDate={trackingStartDate} />}
           {tab === "attendance" && myRole !== "viewer" && <AttendanceView employees={employees} logAction={logAction} myRole={myRole} />}
           {tab === "overtime" && myRole !== "viewer" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} logAction={logAction} myRole={myRole} />}
-          {tab === "staff" && (myRole === "director" || myRole === "manager") && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
+          {tab === "staff" && (myRole === "director" || myRole === "manager" || myRole === "supervisor") && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
           {tab === "payroll" && myRole !== "viewer" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
           {tab === "transactions" && (myRole === "director" || myRole === "manager") && <TransactionsView ledger={ledger} setLedger={setLedger} employees={employees} myRole={myRole} />}
           {tab === "reports" && (myRole === "director" || myRole === "manager") && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} logAction={logAction} />}
