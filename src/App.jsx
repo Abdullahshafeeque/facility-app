@@ -1451,7 +1451,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
           
           return (
             <div key={postName} style={{ marginBottom: 20, borderRadius: 6, overflow: "hidden", border: `1px solid ${C.border}` }}>
-              <div style={{ background: C.accent, color: "white", padding: "10px 14px", fontWeight: 700, fontSize: 14 }}>
+              <div style={{ background: postStaff.length > totalReq ? C.red : C.accent, color: "white", padding: "10px 14px", fontWeight: 700, fontSize: 14 }}>
                 {postName} ({postStaff.length}/{totalReq})
               </div>
               
