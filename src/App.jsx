@@ -46,7 +46,11 @@ function getCoverage(employees, attendance, posts) {
     posts.forEach(post => {
       const required = shift === "Morning" ? post.required_morning : post.required_night;
       // FIXED: Count staff as available to fill the post unless explicitly marked Absent or Leave
-      const present = employees.filter(e => e.shift === shift && e.post === post.name && attendance[e.id]?.status !== "Absent" && attendance[e.id]?.status !== "Leave").length;
+      const present = employees.filter(e => {
+        if (e.shift !== shift || e.post !== post.name) return false;
+        const status = attendance[e.id]?.status;
+        return status !== "Absent" && status !== "Leave";
+      }).length;
       if (present < required) alerts.push({ shift, post: post.name, present, required, shortage: required - present });
     });
   });
@@ -583,7 +587,11 @@ function DashboardView({ employees, attendance, posts, trackingStartDate }) {
                   {posts.map(post => {
                     const req = shift === "Morning" ? post.required_morning : post.required_night;
                     // FIXED: Progress bar reflects expected roster availability rather than strictly 'Present'
-                    const pres = sEmp.filter(e => e.post === post.name && attendance[e.id]?.status !== "Absent" && attendance[e.id]?.status !== "Leave").length;
+                    const pres = sEmp.filter(e => {
+                      if (e.post !== post.name) return false;
+                      const status = attendance[e.id]?.status;
+                      return status !== "Absent" && status !== "Leave";
+                    }).length;
                     const pct = req > 0 ? Math.min(100, (pres / req) * 100) : 100;
                     const col = pres >= req ? C.green : pres > 0 ? C.accent : C.red;
                     return (
