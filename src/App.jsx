@@ -1465,7 +1465,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
                 
                 return (
                   <div key={shiftName} style={{ borderTop: `1px solid ${C.border}`, background: C.panel }}>
-                    <div style={{ background: C.bg, padding: "6px 14px", fontSize: 11, fontWeight: 700, color: shiftName === "Morning" ? C.accent : C.blue, borderBottom: `1px solid ${C.border}` }}>
+                    <div style={{ background: (shiftReq > 0 && shiftStaff.length > shiftReq) ? C.red + "15" : C.bg, padding: "6px 14px", fontSize: 11, fontWeight: 700, color: (shiftReq > 0 && shiftStaff.length > shiftReq) ? C.red : shiftName === "Morning" ? C.accent : C.blue, borderBottom: `1px solid ${C.border}` }}>
                       {shiftName.toUpperCase()} SHIFT ({shiftStaff.length}/{shiftReq})
                     </div>
                     <div style={{ overflowX: "auto" }}>
