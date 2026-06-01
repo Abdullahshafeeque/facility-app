@@ -2409,6 +2409,98 @@ const printRoster = () => {
     });
   };
 
+  // --- NEW: Monthly Salary Cost Projection Logic ---
+  const downloadMonthlyCostReport = () => {
+    // Prompt the user for bonus inclusion right before generating
+    const includeBonus = window.confirm("Would you like to include a 12-month trailing average of past bonuses in this monthly cost projection?");
+
+    import("jspdf").then(({ jsPDF }) => {
+      import("jspdf-autotable").then(({ default: autoTable }) => {
+        const doc = new jsPDF();
+        
+        // Use C.purple for this distinct report (RGB: 124, 58, 237)
+        doc.setFontSize(18); doc.setTextColor(124, 58, 237);
+        doc.text("Estimated Monthly Salary Cost Projection", 14, 20);
+        doc.setFontSize(11); doc.setTextColor(100);
+        doc.text(`Generated: ${fDate(todayStr)}`, 14, 28);
+        if (includeBonus) {
+          doc.text(`* Includes 12-month trailing average of past bonuses`, 14, 34);
+        }
+
+        // Calculate a strict 12-month window
+        const today = new Date();
+        const lastYear = new Date();
+        lastYear.setFullYear(today.getFullYear() - 1);
+        const lastYearStr = lastYear.toISOString().split("T")[0];
+
+        // Process Active Staff
+        const rows = activeStaff.map(emp => {
+          // 1. Get Base Pay
+          const base = emp.staff_type === "contract"
+            ? (posts.find(p => p.name === emp.post)?.contract_salary || 0)
+            : (Number(emp.base_salary) || 0);
+
+          // 2. Get Food Allowance
+          const allowance = emp.has_food_allowance ? (Number(emp.food_allowance_amount) || 0) : 0;
+
+          // 3. Optional: 12-Month Average Bonus
+          let avgBonus = 0;
+          if (includeBonus) {
+            const pastYearBonuses = ledger.filter(l =>
+              String(l.employee_id) === String(emp.id) &&
+              l.transaction_type === "Bonus" &&
+              l.date >= lastYearStr &&
+              l.date <= todayStr
+            );
+            const totalBonus = pastYearBonuses.reduce((sum, l) => sum + Number(l.amount), 0);
+            avgBonus = totalBonus / 12;
+          }
+
+          const total = base + allowance + avgBonus;
+
+          return {
+            name: emp.name,
+            post: emp.post,
+            type: emp.staff_type === "company" ? "Company" : "Contract",
+            base,
+            allowance,
+            avgBonus: Math.round(avgBonus),
+            total: Math.round(total)
+          };
+        }).sort((a, b) => b.total - a.total); // Sort highest cost to lowest
+
+        const totalCost = rows.reduce((sum, r) => sum + r.total, 0);
+
+        // Dynamically build the table based on the user's bonus selection
+        const tableHead = includeBonus
+          ? [["Name", "Post", "Type", "Base (Rs)", "Food Allow.", "Avg Bonus/mo", "Total Cost/mo"]]
+          : [["Name", "Post", "Type", "Base Salary (Rs)", "Food Allowance", "Total Cost/mo"]];
+
+        const tableBody = rows.map(r => includeBonus
+          ? [r.name, r.post, r.type, r.base.toLocaleString("en-IN"), r.allowance.toLocaleString("en-IN"), r.avgBonus.toLocaleString("en-IN"), "Rs. " + r.total.toLocaleString("en-IN")]
+          : [r.name, r.post, r.type, r.base.toLocaleString("en-IN"), r.allowance.toLocaleString("en-IN"), "Rs. " + r.total.toLocaleString("en-IN")]
+        );
+
+        autoTable(doc, {
+          startY: includeBonus ? 40 : 35,
+          head: tableHead,
+          body: tableBody,
+          foot: [
+            includeBonus
+              ? ["TOTAL ESTIMATED COST", "", "", "", "", "", "Rs. " + totalCost.toLocaleString("en-IN")]
+              : ["TOTAL ESTIMATED COST", "", "", "", "", "Rs. " + totalCost.toLocaleString("en-IN")]
+          ],
+          theme: "grid",
+          headStyles: { fillColor: [124, 58, 237] },
+          footStyles: { fillColor: [243, 232, 255], textColor: [124, 58, 237], fontStyle: "bold" },
+          styles: { fontSize: 10 }
+        });
+
+        doc.save(`PRFM_Monthly_Cost_Projection_${todayStr}.pdf`);
+      });
+    });
+  };
+
   return (
     <div style={css.page}>
       <div style={{ marginBottom: 20 }}>
@@ -2495,6 +2587,18 @@ const printRoster = () => {
           <button style={{ ...css.btn(C.textDim), flex: "1 1 200px", color: C.text, borderColor: C.border }} onClick={downloadAttritionReport} disabled={loading}>📥 Monthly Attrition & New Hires</button>
         </div>
       </div>
+
+      {/* --- CARD 5: MONTHLY COST PROJECTION (NEW) --- */}
+      <div style={{ ...css.card, marginBottom: 20, borderLeft: `3px solid ${C.purple}` }}></div>
+      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>5. Estimated Monthly Salary Cost</div>
+      <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>
+          Project your fixed monthly labor cost based on active staff salaries, food allowances, and an optional 12-month bonus average.
+        </div>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <button style={{ ...css.btn(C.purple), flex: "1 1 200px" }} onClick={downloadMonthlyCostReport} disabled={loading}>
+            📥 Generate Monthly Cost Report
+          </button>
+        </div>
 
     </div>
   );
