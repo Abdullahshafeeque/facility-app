@@ -2139,6 +2139,7 @@ function SettingsView({ posts, setPosts, employees, setEmployees, trackingStartD
   );
 }
 // ─── REPORTS & DATA EXTRACTION ────────────────────────────────────────────────
+// ─── REPORTS & DATA EXTRACTION ────────────────────────────────────────────────
 function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
   const now = new Date();
   const monthStart = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), "01"].join("-");
@@ -2179,7 +2180,8 @@ function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
     link.click();
     document.body.removeChild(link);
   };
-// --- Operations Data ---
+
+  // --- Operations Data ---
   const tomorrowDt = new Date();
   tomorrowDt.setDate(tomorrowDt.getDate() + 1);
   const tomorrowStr = tomorrowDt.toISOString().split("T")[0];
@@ -2192,7 +2194,8 @@ function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
     const fin = calcFinances(emp, posts, rangeAttendance, ledger, start, end, postHistory, overtime);
     return { name: emp.name, post: emp.post, hours: fin.totalOTHours };
   }).filter(e => e.hours > 0).sort((a, b) => b.hours - a.hours).slice(0, 5);
-const printRoster = () => {
+
+  const printRoster = () => {
     import("jspdf").then(({ jsPDF }) => {
       import("jspdf-autotable").then(({ default: autoTable }) => {
         const doc = new jsPDF();
@@ -2225,7 +2228,7 @@ const printRoster = () => {
           head: [["Name", "Post", "Staff Type"]],
           body: nightStaff.map(e => [e.name, e.post, e.staff_type === "company" ? "Company" : "Contract"]),
           theme: "grid",
-          headStyles: { fillColor: [22, 163, 74] }, // Green header for night shift to distinguish
+          headStyles: { fillColor: [22, 163, 74] },
           styles: { fontSize: 10 }
         });
 
@@ -2233,19 +2236,19 @@ const printRoster = () => {
       });
     });
   };
+
   const downloadOTReport = () => {
     import("jspdf").then(({ jsPDF }) => {
       import("jspdf-autotable").then(({ default: autoTable }) => {
         const doc = new jsPDF();
         doc.setFontSize(18);
-        doc.setTextColor(234, 88, 12); // Orange theme
+        doc.setTextColor(234, 88, 12);
         doc.text("Overtime Analysis Report", 14, 20);
         doc.setFontSize(11);
         doc.setTextColor(100);
         doc.text(`Period: ${fDate(start)} to ${fDate(end)}`, 14, 28);
         doc.text(`Generated: ${fDate(todayStr)}`, 14, 34);
 
-        // Fetch and rank everyone who did OT in this specific period
         const allOT = employees.map(emp => {
           const fin = calcFinances(emp, posts, rangeAttendance, ledger, start, end, postHistory, overtime);
           return { name: emp.name, post: emp.post, type: emp.staff_type, hours: fin.totalOTHours, earnings: Math.round(fin.otEarnings) };
@@ -2304,7 +2307,6 @@ const printRoster = () => {
            let totalCost = 0;
            staff.forEach(emp => {
                const fin = calcFinances(emp, posts, rangeAttendance, ledger, start, end, postHistory, overtime);
-               // Gross labor cost before personal deductions
                totalCost += (fin.proratedSalary + fin.otEarnings + fin.totalBonuses + (fin.foodAllowance || 0) - fin.attendanceDeduction); 
            });
            return { post: p.name, count: staff.length, cost: Math.round(totalCost) };
@@ -2338,9 +2340,9 @@ const printRoster = () => {
         autoTable(doc, {
           startY: 35, head: [["Metric", "Amount"]],
           body: [
-             ["Total Lump Sum Paid to Contractor", "Rs. " + totalPaid.toLocaleString("en-IN")],
-             ["Total Distributed to Contract Staff", "Rs. " + totalDist.toLocaleString("en-IN")],
-             ["Unassigned Pool Remaining", "Rs. " + (totalPaid - totalDist).toLocaleString("en-IN")]
+              ["Total Lump Sum Paid to Contractor", "Rs. " + totalPaid.toLocaleString("en-IN")],
+              ["Total Distributed to Contract Staff", "Rs. " + totalDist.toLocaleString("en-IN")],
+              ["Unassigned Pool Remaining", "Rs. " + (totalPaid - totalDist).toLocaleString("en-IN")]
           ], theme: "grid", headStyles: { fillColor: [30, 111, 219] }, styles: { fontSize: 12, cellPadding: 8 }
         });
         doc.save(`PRFM_Contractor_Reconciliation_${end}.pdf`);
@@ -2359,9 +2361,8 @@ const printRoster = () => {
         
         const sDt = new Date(start); const eDt = new Date(end);
         const days = Math.max(1, Math.round((eDt - sDt) / 86400000) + 1);
-        const active = employees.filter(e => e.status === "active");
         
-        const rows = active.map(emp => {
+        const rows = activeStaff.map(emp => {
            const fin = calcFinances(emp, posts, rangeAttendance, ledger, start, end, postHistory, overtime);
            const present = Math.max(0, days - fin.absentDays - fin.leaveDays);
            const pct = (present / days) * 100;
@@ -2521,7 +2522,7 @@ const printRoster = () => {
       </div>
 
       {/* --- CARD 2: OPERATIONS ROSTER --- */}
-      <div style={{ ...css.card, borderLeft: `3px solid ${C.blue}` }}>
+      <div style={{ ...css.card, marginBottom: 20, borderLeft: `3px solid ${C.blue}` }}>
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>2. Operations & Shift Roster</div>
         <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>Live overview for supervisors to manage upcoming shifts and monitor employee overtime fatigue.</div>
         
@@ -2530,7 +2531,7 @@ const printRoster = () => {
           <div style={{ background: C.bg, padding: 16, borderRadius: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: C.textDim, marginBottom: 10, letterSpacing: 1 }}>TOMORROW'S ROSTER ({fDate(tomorrowStr)})</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-  <div style={{ borderRight: `1px solid ${C.border}`, paddingRight: 10 }}>
+              <div style={{ borderRight: `1px solid ${C.border}`, paddingRight: 10 }}>
                 <div style={{ color: C.accent, fontWeight: 700, fontSize: 13, marginBottom: 6 }}>Morning Shift</div>
                 <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>{morningStaff.length}</div>
                 <div style={{ fontSize: 10, color: C.textDim }}>Expected Staff</div>
@@ -2579,7 +2580,7 @@ const printRoster = () => {
       </div>
 
       {/* --- CARD 4: HR & DISCIPLINE --- */}
-      <div style={{ ...css.card, borderLeft: `3px solid ${C.orange}` }}>
+      <div style={{ ...css.card, marginBottom: 20, borderLeft: `3px solid ${C.orange}` }}>
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>4. HR & Discipline Reports</div>
         <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>Track workforce stability, identify chronic absenteeism, and monitor monthly turnover.</div>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -2589,16 +2590,17 @@ const printRoster = () => {
       </div>
 
       {/* --- CARD 5: MONTHLY COST PROJECTION (NEW) --- */}
-      <div style={{ ...css.card, marginBottom: 20, borderLeft: `3px solid ${C.purple}` }}></div>
-      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>5. Estimated Monthly Salary Cost</div>
-      <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>
+      <div style={{ ...css.card, marginBottom: 20, borderLeft: `3px solid ${C.purple}` }}>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>5. Estimated Monthly Salary Cost</div>
+        <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>
           Project your fixed monthly labor cost based on active staff salaries, food allowances, and an optional 12-month bonus average.
         </div>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <button style={{ ...css.btn(C.purple), flex: "1 1 200px" }} onClick={downloadMonthlyCostReport} disabled={loading}>
             📥 Generate Monthly Cost Report
           </button>
         </div>
+      </div>
 
     </div>
   );
