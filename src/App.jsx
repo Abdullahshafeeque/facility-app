@@ -72,7 +72,8 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
   const periods = [];
 
   if (empHistory.length === 0) {
-    const salary = employee.staff_type === "contract" ? (posts.find(p => p.name === employee.post)?.contract_salary || 0) : (employee.base_salary || 0);
+    const p = posts.find(p => p.name === employee.post);
+    const salary = employee.staff_type === "contract" ? (p?.contract_salary || p?.base_salary || 0) : (Number(employee.base_salary) || 0);
     periods.push({ from: effectiveStart, to: effectiveEnd, post: employee.post, salary });
   } else {
     let cursor = effectiveStart;
@@ -84,7 +85,8 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
              const gapEndObj = new Date(gy, gm - 1, gd - 1);
              const gapEnd = [gapEndObj.getFullYear(), String(gapEndObj.getMonth() + 1).padStart(2, "0"), String(gapEndObj.getDate()).padStart(2, "0")].join("-");
              if (gapEnd >= cursor) {
-                const fallbackSalary = employee.staff_type === "contract" ? (posts.find(p => p.name === employee.post)?.contract_salary || 0) : (employee.base_salary || 0);
+                const p = posts.find(p => p.name === employee.post);
+                const fallbackSalary = employee.staff_type === "contract" ? (p?.contract_salary || p?.base_salary || 0) : (Number(employee.base_salary) || 0);
                 periods.push({ from: cursor, to: gapEnd, post: employee.post, salary: fallbackSalary });
              }
           }
@@ -92,14 +94,21 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
           const periodEnd = h.valid_to ? (h.valid_to < effectiveEnd ? h.valid_to : effectiveEnd) : effectiveEnd;
           const periodStart = h.valid_from > cursor ? h.valid_from : cursor;
           if (periodStart <= periodEnd && periodStart <= effectiveEnd) {
-            periods.push({ from: periodStart, to: periodEnd, post: h.post, salary: h.salary });
+            let pSal = Number(h.salary);
+            // BUG FIX: Force fallback to the live Post salary for contract staff if history saved as 0
+            if (h.staff_type === "contract" && (!pSal || pSal === 0)) {
+               const p = posts.find(p => p.name === h.post);
+               pSal = p?.contract_salary || p?.base_salary || 0;
+            }
+            periods.push({ from: periodStart, to: periodEnd, post: h.post, salary: pSal });
             const [py, pm, pd] = periodEnd.split('-').map(Number);
             const nextDayObj = new Date(py, pm - 1, pd + 1);
             cursor = [nextDayObj.getFullYear(), String(nextDayObj.getMonth() + 1).padStart(2, "0"), String(nextDayObj.getDate()).padStart(2, "0")].join("-");
           }
     }
     if (cursor <= effectiveEnd) {
-      const currentSalary = employee.staff_type === "contract" ? (posts.find(p => p.name === employee.post)?.contract_salary || 0) : (employee.base_salary || 0);
+      const p = posts.find(p => p.name === employee.post);
+      const currentSalary = employee.staff_type === "contract" ? (p?.contract_salary || p?.base_salary || 0) : (Number(employee.base_salary) || 0);
       periods.push({ from: cursor, to: effectiveEnd, post: employee.post, salary: currentSalary });
     }
   }
@@ -149,7 +158,8 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
       
       // Read the global Tracking Start Date to enforce attendance rules safely
       const now = new Date();
-      const defaultStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+      // BUG FIX: Manually stringify to prevent IST to UTC timezone shifts
+      const defaultStart = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), "01"].join("-");
       const trackingStartedStr = localStorage.getItem("trackingStartDate") || defaultStart;
 
       let proratedSalary = 0;
