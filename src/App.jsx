@@ -184,19 +184,23 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
     const attendanceDeduction = (absentDays + leaveDays) * dailyWorkingRate;
     
     // Dynamic OT Earnings: Pay by the specific post worked, fallback to their personal rate if post pay is 0
+    // --- ADD THIS REPLACEMENT BLOCK ---
     let otHours = 0;
     let otEarnings = 0;
     
     periodOT.forEach(o => {
       otHours += Number(o.hours);
-      let appliedHourlyRate = hourlyRate; // Fallback to their normal personal salary rate
+      let appliedHourlyRate = hourlyRate; // Default to their personal calculated salary rate
       
-      const otPost = posts.find(p => p.name === o.post);
-      if (otPost) {
-        // Find the salary set for this specific job
-        const jobSalary = Number(otPost.contract_salary) || Number(otPost.base_salary) || 0;
-        if (jobSalary > 0) {
-          appliedHourlyRate = Math.round((((jobSalary * 12) / 365) / 12) * 2) / 2;
+      // FIX: Only force the post's contract rate if they worked OT in a DIFFERENT post.
+      // Otherwise, company staff get unfairly downgraded to contract rates for their own job.
+      if (o.post && o.post !== period.post) {
+        const otPost = posts.find(p => p.name === o.post);
+        if (otPost) {
+          const jobSalary = Number(otPost.contract_salary) || 0;
+          if (jobSalary > 0) {
+            appliedHourlyRate = Math.round((((jobSalary * 12) / 365) / 12) * 2) / 2;
+          }
         }
       }
       
