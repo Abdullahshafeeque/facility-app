@@ -154,24 +154,15 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
     
     // FIXED MATH 1: Base Salary accounts for the exact number of days in the month.
       // This guarantees a full 28-day Feb or 31-day March equals exactly 100% of the monthly salary.
-      const periodAtt = rangeAttendance.filter(a => a.employee_id === employee.id && a.date >= period.from && a.date <= period.to);
+      const periodAtt = rangeAttendance.filter(a => String(a.employee_id) === String(employee.id) && a.date >= period.from && a.date <= period.to);
       
-      // Read the global Tracking Start Date to enforce attendance rules safely
-      const now = new Date();
-      // BUG FIX: Manually stringify to prevent IST to UTC timezone shifts
-      const defaultStart = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), "01"].join("-");
-      const trackingStartedStr = localStorage.getItem("trackingStartDate") || defaultStart;
-
+      // Always credit salary for every day in the effective period.
+      // Absent/Leave deductions are handled separately below.
       let proratedSalary = 0;
       let tempCurr = new Date(curr);
       while (tempCurr <= endDt) {
-        const dateStr = [tempCurr.getFullYear(), String(tempCurr.getMonth() + 1).padStart(2, "0"), String(tempCurr.getDate()).padStart(2, "0")].join("-");
-        
-        // Only credit base pay for historical days OR days where attendance was officially submitted
-        if (dateStr < trackingStartedStr || periodAtt.some(a => a.date === dateStr)) {
-          const daysInThisMonth = new Date(tempCurr.getFullYear(), tempCurr.getMonth() + 1, 0).getDate();
-          proratedSalary += period.salary / daysInThisMonth;
-        }
+        const daysInThisMonth = new Date(tempCurr.getFullYear(), tempCurr.getMonth() + 1, 0).getDate();
+        proratedSalary += period.salary / daysInThisMonth;
         tempCurr.setDate(tempCurr.getDate() + 1);
       }
       
