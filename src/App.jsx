@@ -516,7 +516,7 @@ function DashboardView({ employees, attendance, posts, trackingStartDate }) {
 
       const dateShifts = {};
       (data || []).forEach(d => {
-        const shift = empShiftMap[d.employee_id];
+        const shift = d.shift || empShiftMap[d.employee_id]; // Uses saved shift if it exists
         if (shift) {
           if (!dateShifts[d.date]) dateShifts[d.date] = new Set();
           dateShifts[d.date].add(shift);
@@ -626,9 +626,11 @@ function AttendanceView({ employees, logAction, myRole }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
+  const [historicalShifts, setHistoricalShifts] = useState({});
 
   const active = employees.filter(e => e.status === "active");
-  let filtered = active.filter(e => e.shift === activeShift);
+  // Filters based on past saved shift first, defaults to current shift if unrecorded
+  let filtered = active.filter(e => (historicalShifts[e.id] || e.shift) === activeShift);
   if (search.trim()) filtered = filtered.filter(e => e.name.toLowerCase().includes(search.toLowerCase()));
 
   useEffect(() => {
@@ -640,11 +642,16 @@ function AttendanceView({ employees, logAction, myRole }) {
       let shiftHasData = false;
           let shiftIsHoliday = false;
           
+          const pastShifts = {};
           if (attData) {
             attData.forEach(a => { 
               attMap[a.employee_id] = { status: a.status, ot_hours: a.ot_hours }; 
+              if (a.shift) pastShifts[a.employee_id] = a.shift;
+              
               const emp = active.find(e => e.id === a.employee_id);
-              if (emp && emp.shift === activeShift) {
+              const effShift = a.shift || (emp ? emp.shift : null);
+              
+              if (effShift === activeShift) {
                 shiftHasData = true;
                 if (a.status === "Holiday") shiftIsHoliday = true;
               }
@@ -654,6 +661,7 @@ function AttendanceView({ employees, logAction, myRole }) {
           setIsSubmitted(shiftHasData);
           setIsHoliday(shiftHasData && shiftIsHoliday);
       setDayAttendance(attMap);
+      setHistoricalShifts(pastShifts);
       setLoading(false);
     };
     loadDay();
@@ -670,7 +678,7 @@ function AttendanceView({ employees, logAction, myRole }) {
   const handleSubmit = async () => {
     if (selectedDate > todayStr) return alert("Cannot submit for future dates!");
     setSaving(true);
-    const insertData = filtered.map(emp => { const rec = dayAttendance[emp.id] || { status: "Present", ot_hours: 0 }; return { employee_id: emp.id, date: selectedDate, status: rec.status, ot_hours: rec.ot_hours || 0 }; });
+    const insertData = filtered.map(emp => { const rec = dayAttendance[emp.id] || { status: "Present", ot_hours: 0 }; return { employee_id: emp.id, date: selectedDate, status: rec.status, ot_hours: rec.ot_hours || 0, shift: activeShift }; });
     
     const empIds = filtered.map(e => e.id);
     if (empIds.length > 0) {
@@ -685,7 +693,7 @@ function AttendanceView({ employees, logAction, myRole }) {
 
   const handleHolidaySubmit = async () => {
     setSaving(true);
-    const insertData = filtered.map(emp => ({ employee_id: emp.id, date: selectedDate, status: "Holiday", ot_hours: 0 }));
+    const insertData = filtered.map(emp => ({ employee_id: emp.id, date: selectedDate, status: "Holiday", ot_hours: 0, shift: activeShift }));
     
     const empIds = filtered.map(e => e.id);
     if (empIds.length > 0) {
