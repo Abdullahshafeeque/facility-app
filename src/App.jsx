@@ -174,15 +174,17 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
       let absentDays = 0;
       let leaveDays = 0;
       periodAtt.forEach(a => {
-        const eff = getEffStatus(a.date);
-        if (eff === "Absent") absentDays++;
-        else if (eff === "Leave") leaveDays++;
-      });
+  const eff = getEffStatus(a.date);
+  if (eff === "Absent") absentDays++;
+});
       
     const periodOT = (overtime || []).filter(o => o.employee_id === employee.id && o.date >= period.from && o.date <= period.to);
     
     // Calculate the actual financial impact of attendance
-    const attendanceDeduction = (absentDays + leaveDays) * dailyWorkingRate;
+    // Only deduct if employee is "unpaid" type. "paid" leave employees get no cut.
+const attendanceDeduction = employee.leave_type === 'paid' 
+  ? 0 
+  : absentDays * dailyWorkingRate;
     
     let otHours = 0;
     let otEarnings = 0;
@@ -241,7 +243,7 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
   // The Final Logical Output
   const netPayable = (totalProratedSalary + totalBonuses + totalOTEarnings + totalRepayments + foodAllowance) - (totalAttendanceDeduction + totalAdvances + totalPaid + totalLoans + totalContractorDist);
 
-  return { periods: periodBreakdown, proratedSalary: totalProratedSalary, attendanceDeduction: totalAttendanceDeduction, otEarnings: totalOTEarnings, absentDays: totalAbsentDays, leaveDays: totalLeaveDays, totalOTHours, totalBonuses, foodAllowance, totalAdvances, totalPaid, totalContractorDist, totalLoans, totalRepayments, pendingLoan, netPayable, joiningDate: employee.joining_date || start, effectiveStart };
+  return { periods: periodBreakdown, proratedSalary: totalProratedSalary, attendanceDeduction: totalAttendanceDeduction, otEarnings: totalOTEarnings, absentDays: totalAbsentDays, leaveDays: 0, totalOTHours, totalBonuses, foodAllowance, totalAdvances, totalPaid, totalContractorDist, totalLoans, totalRepayments, pendingLoan, netPayable, joiningDate: employee.joining_date || start, effectiveStart };
 }
 
 function StatCard({ label, value, sub, accent }) {
@@ -724,7 +726,6 @@ function AttendanceView({ employees, logAction, myRole }) {
 
   const presentCount = filtered.filter(e => ["Present", "Holiday"].includes(dayAttendance[e.id]?.status || "Present")).length;
   const absentCount = filtered.filter(e => dayAttendance[e.id]?.status === "Absent").length;
-  const leaveCount = filtered.filter(e => dayAttendance[e.id]?.status === "Leave").length;
 
   return (
     <div style={css.page}>
@@ -743,7 +744,6 @@ function AttendanceView({ employees, logAction, myRole }) {
       <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
         <span style={css.badge(C.green)}>✓ {presentCount} Present</span>
         <span style={css.badge(C.red)}>✗ {absentCount} Absent</span>
-        <span style={css.badge(C.accent)}>⏸ {leaveCount} Leave</span>
       </div>
       <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
         <input placeholder="🔍 Search employee..." value={search} onChange={e => setSearch(e.target.value)} style={{ ...css.input, flex: 1, minWidth: 180 }} />
@@ -767,9 +767,9 @@ function AttendanceView({ employees, logAction, myRole }) {
                       <td style={css.td}><span style={css.badge(rec.status === "Holiday" ? C.orange : statusColor(rec.status))}>{rec.status === "Holiday" ? "⛱ HOLIDAY" : rec.status}</span></td>
                       <td style={css.td}>
                         <div style={{ display: "flex", gap: 4 }}>
-                          {["Present", "Absent", "Leave"].map(s => (
+                          {["Present", "Absent"].map(s => (
   <button key={s} disabled={isHoliday || (isSubmitted && myRole !== "director")} style={{ ...css.btn(statusColor(s)), opacity: rec.status === s ? 1 : 0.25, padding: "6px 8px", fontSize: 11, minWidth: 60 }} onClick={() => toggle(emp.id, "status", s)}>{s[0]}</button>
-                          ))}
+))}
                         </div>
                       </td>
                     </tr>
@@ -1013,7 +1013,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
   const [viewing, setViewing] = useState(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({ emp_code: "", name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company", joining_date: todayStr, has_food_allowance: false, food_allowance_amount: "" });
+  const [form, setForm] = useState({ emp_code: "", name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company", joining_date: todayStr, has_food_allowance: false, food_allowance_amount: "", leave_type: "unpaid" });
   const [viewingAtt, setViewingAtt] = useState([]);
   const [datePromptOpts, setDatePromptOpts] = useState(null);
   const askForDate = (msg) => new Promise(resolve => setDatePromptOpts({ msg, date: todayStr, resolve }));
@@ -1048,13 +1048,14 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
     setLoading(true);
     const salary = form.staff_type === "contract" ? getContractSalary(form.post) : +form.base_salary;
     const { data, error } = await supabase.from("employees").insert({
-      emp_code: form.emp_code, name: form.name, aadhar: form.aadhar, post: form.post, shift: form.shift,
-      base_salary: salary, staff_type: form.staff_type, status: "active", joining_date: form.joining_date,
-      has_food_allowance: form.has_food_allowance, food_allowance_amount: Number(form.food_allowance_amount) || 0
-    }).select().single();
+  emp_code: form.emp_code, name: form.name, aadhar: form.aadhar, post: form.post, shift: form.shift,
+  base_salary: salary, staff_type: form.staff_type, status: "active", joining_date: form.joining_date,
+  has_food_allowance: form.has_food_allowance, food_allowance_amount: Number(form.food_allowance_amount) || 0,
+  leave_type: form.leave_type
+}).select().single();
     if (!error && data) {
       setEmployees(prev => [...prev, data]);
-      setForm({ emp_code: "", name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company", joining_date: todayStr, has_food_allowance: false, food_allowance_amount: "" });
+      setForm({ emp_code: "", name: "", aadhar: "", post: "", shift: "Morning", base_salary: "", staff_type: "company", joining_date: todayStr, has_food_allowance: false, food_allowance_amount: "", leave_type: "unpaid" });
       setShowForm(false);
       
       if (typeof logAction === "function") {
@@ -1278,6 +1279,18 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
               )}
             </div>
 
+            <div style={{ gridColumn: "1 / -1", padding: 10, background: C.border + "44", borderRadius: 6, display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+  <div style={{ fontSize: 10, color: C.textDim, fontWeight: 700 }}>LEAVE PAY TYPE *</div>
+  <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12 }}>
+    <input type="radio" name="leave_type_add" value="unpaid" checked={form.leave_type === "unpaid"} onChange={e => setForm(f => ({ ...f, leave_type: e.target.value }))} />
+    Unpaid Leave (salary cut on absence)
+  </label>
+  <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 12 }}>
+    <input type="radio" name="leave_type_add" value="paid" checked={form.leave_type === "paid"} onChange={e => setForm(f => ({ ...f, leave_type: e.target.value }))} />
+    Paid Leave (no salary cut)
+  </label>
+</div>
+
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
             <button style={css.btn(C.green)} onClick={addEmp} disabled={loading}>{loading ? "Saving..." : "Save Employee"}</button>
@@ -1368,6 +1381,29 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
                 </div>
                 <div style={{ fontSize: 10, color: C.textDim, marginTop: 4 }}>ℹ Paid out only if month's attendance is ≥ 60%.</div>
               </div>
+
+              <div style={{ marginBottom: 16 }}>
+  <div style={{ fontSize: 10, color: C.textDim, marginBottom: 6, fontWeight: 700 }}>LEAVE PAY TYPE</div>
+  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+    <div style={{ ...css.input, flex: 1, display: "flex", alignItems: "center", background: C.bg, color: viewing.leave_type === "paid" ? C.green : C.red }}>
+      {viewing.leave_type === "paid" ? "✓ Paid Leave (no salary cut)" : "✗ Unpaid Leave (salary cut on absence)"}
+    </div>
+    {myRole === "director" && (
+      <button style={{ ...css.btn(C.blue), flex: 1 }} onClick={async () => {
+        const newType = viewing.leave_type === "paid" ? "unpaid" : "paid";
+        await supabase.from("employees").update({ leave_type: newType }).eq("id", viewing.id);
+        setEmployees(prev => prev.map(e => e.id === viewing.id ? { ...e, leave_type: newType } : e));
+        setViewing(prev => ({ ...prev, leave_type: newType }));
+        if (logAction) logAction("Leave Type Changed", `${viewing.name} → ${newType}`);
+      }}>
+        Toggle Leave Type
+      </button>
+    )}
+  </div>
+  <div style={{ fontSize: 10, color: C.textDim, marginTop: 4 }}>
+    {viewing.leave_type === "paid" ? "ℹ This employee keeps full salary regardless of absences." : "ℹ Salary is deducted for each absent day."}
+  </div>
+</div>
 
               {viewing.staff_type === "company" && (
                 <div style={{ marginBottom: 16 }}>
@@ -1706,7 +1742,7 @@ logAction(`Registered ${isContractor ? "Contractor Payout" : capturedType}`, `�
         doc.text(`Generated: ${fDate(todayStr)}`, 14, 32);
         autoTable(doc, {
           startY: 38,
-          head: [["Name", "Post", "Joined", "Base (Prorated)", "Absent", "Leave", "OT Hrs", "OT Earn", "Bonus", "Food Allow", "Adv/Fine", "Paid", "Net Payable"]],
+          head: [["Name", "Post", "Joined", "Base (Prorated)", "Absent", "OT Hrs", "OT Earn", "Bonus", "Food Allow", "Adv/Fine", "Paid", "Net Payable"]],
           body: rows.map(({ emp, fin }) => [emp.name, emp.post, fDate(fin.joiningDate), "Rs." + Math.round(fin.proratedSalary).toLocaleString("en-IN"), fin.absentDays + "d", fin.leaveDays + "d", fin.totalOTHours + "h", "Rs." + Math.round(fin.otEarnings).toLocaleString("en-IN"), "Rs." + fin.totalBonuses.toLocaleString("en-IN"), "Rs." + fin.foodAllowance.toLocaleString("en-IN"), "Rs." + fin.totalAdvances.toLocaleString("en-IN"), "Rs." + fin.totalPaid.toLocaleString("en-IN"), "Rs." + Math.round(fin.netPayable).toLocaleString("en-IN")]),
           theme: "grid",
           headStyles: { fillColor: [30, 111, 219], fontSize: 8 },
@@ -1809,7 +1845,6 @@ logAction(`Registered ${isContractor ? "Contractor Payout" : capturedType}`, `�
                     <td style={css.td}><strong>[{emp.emp_code || "—"}] {emp.name}</strong><br /><small style={{ color: C.textDim }}>{emp.post}</small>{fin.periods.length > 1 && <div style={{ ...css.badge(C.orange), display: "inline-block", marginTop: 4, fontSize: 9 }}>SPLIT</div>}</td>
                     <td style={css.td}>₹{Math.round(fin.proratedSalary).toLocaleString("en-IN")}<br /><small style={{ color: C.textDim }}>joined {fDate(fin.joiningDate)}</small></td>
                     <td style={{ ...css.td, color: fin.absentDays > 0 ? C.red : C.textDim }}>{fin.absentDays}d<br /><small>-₹{Math.round(fin.attendanceDeduction).toLocaleString()}</small></td>
-                    <td style={{ ...css.td, color: fin.leaveDays > 0 ? C.accent : C.textDim }}>{fin.leaveDays}d</td>
                     <td style={{ ...css.td, color: C.green }}>{fin.totalOTHours}h<br /><small>+₹{Math.round(fin.otEarnings).toLocaleString()}</small></td>
                     <td style={{ ...css.td, color: C.green }}>+₹{fin.totalBonuses.toLocaleString()}</td>
                     <td style={{ ...css.td, color: C.green }}>+₹{fin.foodAllowance.toLocaleString()}</td>
@@ -1823,7 +1858,6 @@ logAction(`Registered ${isContractor ? "Contractor Payout" : capturedType}`, `�
                     <tr key={i} style={{ background: C.accent + "08" }}>
                       <td style={{ ...css.td, paddingLeft: 30 }} colSpan={2}><small style={{ color: C.accent }}>📌 {p.post} · {fDate(p.from)} → {fDate(p.to)}</small><br /><small style={{ color: C.textDim }}>₹{p.salary.toLocaleString()}/month · {p.daysInPeriod} days</small></td>
                       <td style={{ ...css.td, color: C.red }}><small>{p.absentDays}d · -₹{Math.round(p.attendanceDeduction).toLocaleString()}</small></td>
-                      <td style={{ ...css.td, color: C.accent }}><small>{p.leaveDays}d</small></td>
                       <td style={{ ...css.td, color: C.green }}><small>{p.otHours}h · +₹{Math.round(p.otEarnings).toLocaleString()}</small></td>
                       <td colSpan={5} style={css.td}><small style={{ color: C.textDim }}>Period subtotal: ₹{Math.round(p.proratedSalary - p.attendanceDeduction + p.otEarnings).toLocaleString()}</small></td>
                       <td style={css.td}></td>
