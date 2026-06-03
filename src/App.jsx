@@ -184,27 +184,35 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
     // Calculate the actual financial impact of attendance
     const attendanceDeduction = (absentDays + leaveDays) * dailyWorkingRate;
     
-    // Dynamic OT Earnings: Pay by the specific post worked, fallback to their personal rate if post pay is 0
-    // --- ADD THIS REPLACEMENT BLOCK ---
     let otHours = 0;
     let otEarnings = 0;
-    
+
     periodOT.forEach(o => {
       otHours += Number(o.hours);
-      let appliedHourlyRate = hourlyRate; // Default to their personal calculated salary rate
-      
-      // FIX: Only force the post's contract rate if they worked OT in a DIFFERENT post.
-      // Otherwise, company staff get unfairly downgraded to contract rates for their own job.
-      if (o.post && o.post !== period.post) {
+      let appliedHourlyRate = hourlyRate; // Default: salary-based rate
+
+      if (employee.staff_type === "contract") {
+        // Contract staff: use the explicit OT hourly rate set for the post they worked in
         const otPost = posts.find(p => p.name === o.post);
-        if (otPost) {
-          const jobSalary = Number(otPost.contract_salary) || 0;
-          if (jobSalary > 0) {
-            appliedHourlyRate = Math.round((((jobSalary * 12) / 365) / 12) * 2) / 2;
+        if (otPost && Number(otPost.ot_hourly_rate) > 0) {
+          appliedHourlyRate = Number(otPost.ot_hourly_rate);
+        } else if (otPost && Number(otPost.contract_salary) > 0) {
+          // Fallback: derive from contract salary if no OT rate is explicitly set
+          appliedHourlyRate = Math.round((((Number(otPost.contract_salary) * 12) / 365) / 12) * 2) / 2;
+        }
+      } else {
+        // Company staff: use their salary rate unless OT was worked in a different post
+        if (o.post && o.post !== period.post) {
+          const otPost = posts.find(p => p.name === o.post);
+          if (otPost) {
+            const jobSalary = Number(otPost.contract_salary) || 0;
+            if (jobSalary > 0) {
+              appliedHourlyRate = Math.round((((jobSalary * 12) / 365) / 12) * 2) / 2;
+            }
           }
         }
       }
-      
+
       otEarnings += Number(o.hours) * appliedHourlyRate;
     });
     
@@ -1992,7 +2000,7 @@ logAction(`Registered ${isContractor ? "Contractor Payout" : capturedType}`, `�
 // ─── SETTINGS ─────────────────────────────────────────────────────────────────
 function SettingsView({ posts, setPosts, employees, setEmployees, trackingStartDate, setTrackingStartDate, logAction }) {
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: "", required_morning: 1, required_night: 1, contract_salary: 0, morning_start: "06:00", night_start: "18:00" });
+  const [form, setForm] = useState({ name: "", required_morning: 1, required_night: 1, contract_salary: 0, ot_hourly_rate: 0, morning_start: "06:00", night_start: "18:00" });
   const [loading, setLoading] = useState(false);
   
   // NEW: Password Change State
@@ -2013,13 +2021,19 @@ function SettingsView({ posts, setPosts, employees, setEmployees, trackingStartD
   const addPost = async () => {
     if (!form.name.trim()) return;
     setLoading(true);
-    const { data, error } = await supabase.from("posts").insert({ name: form.name, required_morning: +form.required_morning, required_night: +form.required_night, contract_salary: +form.contract_salary, morning_start: form.morning_start, night_start: form.night_start }).select().single();
-    if (!error && data) { setPosts(prev => [...prev, data]); setForm({ name: "", required_morning: 1, required_night: 1, contract_salary: 0, morning_start: "06:00", night_start: "18:00" }); setShowForm(false); }
-    setLoading(false);
-  if (!error && data) { 
-      setPosts(prev => [...prev, data]); 
-      setForm({ name: "", required_morning: 1, required_night: 1, contract_salary: 0, morning_start: "06:00", night_start: "18:00" }); 
-      setShowForm(false); 
+    const { data, error } = await supabase.from("posts").insert({
+      name: form.name,
+      required_morning: +form.required_morning,
+      required_night: +form.required_night,
+      contract_salary: +form.contract_salary,
+      ot_hourly_rate: +form.ot_hourly_rate,
+      morning_start: form.morning_start,
+      night_start: form.night_start
+    }).select().single();
+    if (!error && data) {
+      setPosts(prev => [...prev, data]);
+      setForm({ name: "", required_morning: 1, required_night: 1, contract_salary: 0, ot_hourly_rate: 0, morning_start: "06:00", night_start: "18:00" });
+      setShowForm(false);
       if (logAction) logAction("Post Created", `Added new role: ${form.name}`);
     }
     setLoading(false);
@@ -2113,7 +2127,7 @@ function SettingsView({ posts, setPosts, employees, setEmployees, trackingStartD
         <div style={{ ...css.card, marginBottom: 20, borderColor: C.green + "44" }}>
           <div style={css.sectionTitle}>New Post / Role</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 12 }}>
-            {[["POST NAME", "name", "text", "e.g. Machine Operator"], ["REQ. MORNING", "required_morning", "number", ""], ["REQ. NIGHT", "required_night", "number", ""], ["CONTRACT SALARY (₹)", "contract_salary", "number", "e.g. 18000"], ["MORNING SHIFT START", "morning_start", "time", ""], ["NIGHT SHIFT START", "night_start", "time", ""]].map(([label, field, type, ph]) => (
+            {[["POST NAME", "name", "text", "e.g. Machine Operator"], ["REQ. MORNING", "required_morning", "number", ""], ["REQ. NIGHT", "required_night", "number", ""], ["CONTRACT SALARY (₹)", "contract_salary", "number", "e.g. 18000"], ["OT HOURLY RATE (₹/hr)", "ot_hourly_rate", "number", "e.g. 75"], ["MORNING SHIFT START", "morning_start", "time", ""], ["NIGHT SHIFT START", "night_start", "time", ""]].map(([label, field, type, ph]) => (
               <div key={field}><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>{label}</div><input type={type} style={{ ...css.input, width: "100%", boxSizing: "border-box" }} value={form[field]} placeholder={ph} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))} /></div>
             ))}
           </div>
@@ -2131,7 +2145,7 @@ function SettingsView({ posts, setPosts, employees, setEmployees, trackingStartD
       {posts.length > 0 && (
         <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
-            <thead><tr>{["Post Name", "Req. Morning", "Req. Night", "Contract Salary", "Morn Start", "Night Start", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+            <thead><tr>{["Post Name", "Req. Morning", "Req. Night", "Contract Salary", "OT Rate (₹/hr)", "Morn Start", "Night Start", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
             <tbody>
               {posts.map(post => (
                 <tr key={post.id}>
@@ -2139,6 +2153,7 @@ function SettingsView({ posts, setPosts, employees, setEmployees, trackingStartD
                   <td style={css.td}><input type="number" defaultValue={post.required_morning} onBlur={e => updatePost(post, "required_morning", e.target.value)} style={{ ...css.input, width: 70, textAlign: "center" }} /></td>
                   <td style={css.td}><input type="number" defaultValue={post.required_night} onBlur={e => updatePost(post, "required_night", e.target.value)} style={{ ...css.input, width: 70, textAlign: "center" }} /></td>
                   <td style={css.td}><input type="number" defaultValue={post.contract_salary || 0} onBlur={e => updatePost(post, "contract_salary", e.target.value)} style={{ ...css.input, width: 110, textAlign: "center" }} /></td>
+                  <td style={css.td}><input type="number" defaultValue={post.ot_hourly_rate || 0} onBlur={e => updatePost(post, "ot_hourly_rate", e.target.value)} style={{ ...css.input, width: 90, textAlign: "center" }} /></td>
                   <td style={css.td}><input type="time" defaultValue={post.morning_start || "06:00"} onBlur={e => updatePost(post, "morning_start", e.target.value)} style={{ ...css.input, width: 100 }} /></td>
                   <td style={css.td}><input type="time" defaultValue={post.night_start || "18:00"} onBlur={e => updatePost(post, "night_start", e.target.value)} style={{ ...css.input, width: 100 }} /></td>
                   <td style={css.td}><button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => deletePost(post)}>Remove</button></td>
@@ -2947,8 +2962,14 @@ function ViewerDashboardView({ userEmail, appUsers, employees, posts, ledger, po
                 let hrRate = fallbackHourly;
                 const p = (posts || []).find(x => x.name === o.post);
                 if (p) {
-                  const pSal = Number(p.contract_salary) || Number(p.base_salary) || 0;
-                  if (pSal > 0) hrRate = Math.round((((pSal * 12) / 365) / 12) * 2) / 2;
+                  if (myEmp.staff_type === "contract" && Number(p.ot_hourly_rate) > 0) {
+                    hrRate = Number(p.ot_hourly_rate);
+                  } else if (myEmp.staff_type === "contract" && Number(p.contract_salary) > 0) {
+                    hrRate = Math.round((((Number(p.contract_salary) * 12) / 365) / 12) * 2) / 2;
+                  } else {
+                    const pSal = Number(p.contract_salary) || Number(p.base_salary) || 0;
+                    if (pSal > 0) hrRate = Math.round((((pSal * 12) / 365) / 12) * 2) / 2;
+                  }
                 }
                 const earned = Math.round(Number(o.hours) * hrRate);
                 return [o.date, o.post, `${o.start_time} - ${o.end_time}`, `${o.hours}h`, `Rs. ${earned.toLocaleString("en-IN")}`];
