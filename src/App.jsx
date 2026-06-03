@@ -189,10 +189,10 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
 
     periodOT.forEach(o => {
       otHours += Number(o.hours);
-      let appliedHourlyRate = hourlyRate; // Default: salary-based rate
+      let appliedHourlyRate = hourlyRate; // Default: always salary-based
 
       if (employee.staff_type === "contract") {
-        // Contract staff: use the explicit OT hourly rate set for the post they worked in
+        // Contract staff only: use the explicit OT hourly rate set for the post they worked in
         const otPost = posts.find(p => p.name === o.post);
         if (otPost && Number(otPost.ot_hourly_rate) > 0) {
           appliedHourlyRate = Number(otPost.ot_hourly_rate);
@@ -200,18 +200,8 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
           // Fallback: derive from contract salary if no OT rate is explicitly set
           appliedHourlyRate = Math.round((((Number(otPost.contract_salary) * 12) / 365) / 12) * 2) / 2;
         }
-      } else {
-        // Company staff: use their salary rate unless OT was worked in a different post
-        if (o.post && o.post !== period.post) {
-          const otPost = posts.find(p => p.name === o.post);
-          if (otPost) {
-            const jobSalary = Number(otPost.contract_salary) || 0;
-            if (jobSalary > 0) {
-              appliedHourlyRate = Math.round((((jobSalary * 12) / 365) / 12) * 2) / 2;
-            }
-          }
-        }
       }
+      // Company staff: appliedHourlyRate stays as hourlyRate (their salary-based rate) always
 
       otEarnings += Number(o.hours) * appliedHourlyRate;
     });
