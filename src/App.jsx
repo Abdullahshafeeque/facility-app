@@ -208,7 +208,23 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
             const jobSalary = Number(otPost.contract_salary) || 0;
             if (jobSalary > 0) {
               appliedHourlyRate = Math.round((((jobSalary * 12) / 365) / 12) * 2) / 2;
-            }
+        periodOT.forEach(o => {
+      otHours += Number(o.hours);
+      let appliedHourlyRate = hourlyRate; // Company staff: always stays as their salary rate
+
+      if (employee.staff_type === "contract") {
+        const otPost = posts.find(p => p.name === o.post);
+        if (otPost && Number(otPost.ot_hourly_rate) > 0) {
+          appliedHourlyRate = Number(otPost.ot_hourly_rate);
+        } else if (otPost && Number(otPost.contract_salary) > 0) {
+          appliedHourlyRate = Math.round((((Number(otPost.contract_salary) * 12) / 365) / 12) * 2) / 2;
+        }
+      }
+
+      otEarnings += Number(o.hours) * appliedHourlyRate;
+    });
+  
+  }
           }
         }
       }
