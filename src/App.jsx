@@ -119,7 +119,12 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
 
   // --- SANDWICH LEAVE LOGIC PREP ---
   const empAttMap = {};
-  (rangeAttendance || []).filter(a => a.employee_id === employee.id).forEach(a => empAttMap[a.date] = a.status);
+(rangeAttendance || []).filter(a => String(a.employee_id) === String(employee.id)).forEach(a => {
+  const existing = empAttMap[a.date];
+  if (!existing || a.status === "Absent") {
+    empAttMap[a.date] = a.status;
+  }
+});
   
   const getEffStatus = (dateStr) => {
     if (empAttMap[dateStr] !== "Holiday") return empAttMap[dateStr];
