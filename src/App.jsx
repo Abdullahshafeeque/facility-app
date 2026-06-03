@@ -189,28 +189,7 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
 
     periodOT.forEach(o => {
       otHours += Number(o.hours);
-      let appliedHourlyRate = hourlyRate; // Default: salary-based rate
-
-      if (employee.staff_type === "contract") {
-        // Contract staff: use the explicit OT hourly rate set for the post they worked in
-        const otPost = posts.find(p => p.name === o.post);
-        if (otPost && Number(otPost.ot_hourly_rate) > 0) {
-          appliedHourlyRate = Number(otPost.ot_hourly_rate);
-        } else if (otPost && Number(otPost.contract_salary) > 0) {
-          // Fallback: derive from contract salary if no OT rate is explicitly set
-          appliedHourlyRate = Math.round((((Number(otPost.contract_salary) * 12) / 365) / 12) * 2) / 2;
-        }
-      } else {
-        // Company staff: use their salary rate unless OT was worked in a different post
-        if (o.post && o.post !== period.post) {
-          const otPost = posts.find(p => p.name === o.post);
-          if (otPost) {
-            const jobSalary = Number(otPost.contract_salary) || 0;
-            if (jobSalary > 0) {
-              appliedHourlyRate = Math.round((((jobSalary * 12) / 365) / 12) * 2) / 2;
-        periodOT.forEach(o => {
-      otHours += Number(o.hours);
-      let appliedHourlyRate = hourlyRate; // Company staff: always stays as their salary rate
+      let appliedHourlyRate = hourlyRate; // Company staff: always uses their own salary rate
 
       if (employee.staff_type === "contract") {
         const otPost = posts.find(p => p.name === o.post);
@@ -218,14 +197,6 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
           appliedHourlyRate = Number(otPost.ot_hourly_rate);
         } else if (otPost && Number(otPost.contract_salary) > 0) {
           appliedHourlyRate = Math.round((((Number(otPost.contract_salary) * 12) / 365) / 12) * 2) / 2;
-        }
-      }
-
-      otEarnings += Number(o.hours) * appliedHourlyRate;
-    });
-  
-  }
-          }
         }
       }
 
@@ -405,8 +376,6 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
   const deleteOT = async (id) => {
     if (!window.confirm("Delete this Overtime entry?")) return;
     await supabase.from("overtime_entries").delete().eq("id", id);
-    setOvertime(prev => prev.filter(o => o.id !== id));
-  await supabase.from("overtime_entries").delete().eq("id", id);
     setOvertime(prev => prev.filter(o => o.id !== id));
     if (logAction) logAction("Overtime Deleted", `Removed an OT entry`);
   };
@@ -997,11 +966,16 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
                 startY: finalY,
                 head: [["Date", "Overtime Post", "Time", "Hours", "Amount Earned"]],
                 body: empOT.map(o => {
-                  let hrRate = fallbackHourly;
-                  const p = (posts || []).find(x => x.name === o.post);
-                  if (p) {
-                    const pSal = Number(p.contract_salary) || Number(p.base_salary) || 0;
-                    if (pSal > 0) hrRate = Math.round((((pSal * 12) / 365) / 12) * 2) / 2;
+                  let hrRate = fallbackHourly; // Company staff: always salary-based, never overridden
+                  if (emp.staff_type === "contract") {
+                    const p = (posts || []).find(x => x.name === o.post);
+                    if (p) {
+                      if (Number(p.ot_hourly_rate) > 0) {
+                        hrRate = Number(p.ot_hourly_rate);
+                      } else if (Number(p.contract_salary) > 0) {
+                        hrRate = Math.round((((Number(p.contract_salary) * 12) / 365) / 12) * 2) / 2;
+                      }
+                    }
                   }
                   const earned = Math.round(Number(o.hours) * hrRate);
                   return [o.date, o.post, `${o.start_time} - ${o.end_time}`, `${o.hours}h`, `Rs. ${earned.toLocaleString("en-IN")}`];
@@ -2977,14 +2951,11 @@ function ViewerDashboardView({ userEmail, appUsers, employees, posts, ledger, po
               body: myOT.map(o => {
                 let hrRate = fallbackHourly;
                 const p = (posts || []).find(x => x.name === o.post);
-                if (p) {
-                  if (myEmp.staff_type === "contract" && Number(p.ot_hourly_rate) > 0) {
+                if (p && myEmp.staff_type === "contract") {
+                  if (Number(p.ot_hourly_rate) > 0) {
                     hrRate = Number(p.ot_hourly_rate);
-                  } else if (myEmp.staff_type === "contract" && Number(p.contract_salary) > 0) {
+                  } else if (Number(p.contract_salary) > 0) {
                     hrRate = Math.round((((Number(p.contract_salary) * 12) / 365) / 12) * 2) / 2;
-                  } else {
-                    const pSal = Number(p.contract_salary) || Number(p.base_salary) || 0;
-                    if (pSal > 0) hrRate = Math.round((((pSal * 12) / 365) / 12) * 2) / 2;
                   }
                 }
                 const earned = Math.round(Number(o.hours) * hrRate);
