@@ -1743,7 +1743,7 @@ logAction(`Registered ${isContractor ? "Contractor Payout" : capturedType}`, `�
         autoTable(doc, {
           startY: 38,
           head: [["Name", "Post", "Joined", "Base (Prorated)", "Absent", "OT Hrs", "OT Earn", "Bonus", "Food Allow", "Adv/Fine", "Paid", "Net Payable"]],
-          body: rows.map(({ emp, fin }) => [emp.name, emp.post, fDate(fin.joiningDate), "Rs." + Math.round(fin.proratedSalary).toLocaleString("en-IN"), fin.absentDays + "d", fin.leaveDays + "d", fin.totalOTHours + "h", "Rs." + Math.round(fin.otEarnings).toLocaleString("en-IN"), "Rs." + fin.totalBonuses.toLocaleString("en-IN"), "Rs." + fin.foodAllowance.toLocaleString("en-IN"), "Rs." + fin.totalAdvances.toLocaleString("en-IN"), "Rs." + fin.totalPaid.toLocaleString("en-IN"), "Rs." + Math.round(fin.netPayable).toLocaleString("en-IN")]),
+body: rows.map(({ emp, fin }) => [emp.name, emp.post, fDate(fin.joiningDate), "Rs." + Math.round(fin.proratedSalary).toLocaleString("en-IN"), fin.absentDays + "d", fin.totalOTHours + "h", "Rs." + Math.round(fin.otEarnings).toLocaleString("en-IN"), "Rs." + fin.totalBonuses.toLocaleString("en-IN"), "Rs." + fin.foodAllowance.toLocaleString("en-IN"), "Rs." + fin.totalAdvances.toLocaleString("en-IN"), "Rs." + fin.totalPaid.toLocaleString("en-IN"), "Rs." + Math.round(fin.netPayable).toLocaleString("en-IN")]),
           theme: "grid",
           headStyles: { fillColor: [30, 111, 219], fontSize: 8 },
           bodyStyles: { fontSize: 8 },
@@ -1836,7 +1836,7 @@ logAction(`Registered ${isContractor ? "Contractor Payout" : capturedType}`, `�
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
-            <thead><tr style={{ background: C.bg }}>{["Name / Post", "Prorated Base", "Absent", "Leave", "OT", "Bonus", "Food", "Adv/Fine", isContract ? "Paid by Contr." : "Paid", "Period Net", "Actual Payable", ""].map(h => <th key={h} style={{ ...css.th, whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
+            <thead><tr style={{ background: C.bg }}>{["Name / Post", "Prorated Base", "Absent", "OT", "Bonus", "Food", "Adv/Fine", isContract ? "Paid by Contr." : "Paid", "Period Net", "Actual Payable", ""].map(h => <th key={h} style={{ ...css.th, whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
             <tbody>
               {rows.length === 0 && <tr><td colSpan={11} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No staff.</td></tr>}
               {rows.map(({ emp, fin, finLifetime }) => (
@@ -1858,9 +1858,9 @@ logAction(`Registered ${isContractor ? "Contractor Payout" : capturedType}`, `�
                     <tr key={i} style={{ background: C.accent + "08" }}>
                       <td style={{ ...css.td, paddingLeft: 30 }} colSpan={2}><small style={{ color: C.accent }}>📌 {p.post} · {fDate(p.from)} → {fDate(p.to)}</small><br /><small style={{ color: C.textDim }}>₹{p.salary.toLocaleString()}/month · {p.daysInPeriod} days</small></td>
                       <td style={{ ...css.td, color: C.red }}><small>{p.absentDays}d · -₹{Math.round(p.attendanceDeduction).toLocaleString()}</small></td>
-                      <td style={{ ...css.td, color: C.green }}><small>{p.otHours}h · +₹{Math.round(p.otEarnings).toLocaleString()}</small></td>
-                      <td colSpan={5} style={css.td}><small style={{ color: C.textDim }}>Period subtotal: ₹{Math.round(p.proratedSalary - p.attendanceDeduction + p.otEarnings).toLocaleString()}</small></td>
-                      <td style={css.td}></td>
+<td style={{ ...css.td, color: C.green }}><small>{p.otHours}h · +₹{Math.round(p.otEarnings).toLocaleString()}</small></td>
+<td colSpan={4} style={css.td}><small style={{ color: C.textDim }}>Period subtotal: ₹{Math.round(p.proratedSalary - p.attendanceDeduction + p.otEarnings).toLocaleString()}</small></td>
+<td style={css.td}></td>
                     </tr>
                   ))}
                 </React.Fragment>
