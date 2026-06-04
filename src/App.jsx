@@ -521,19 +521,24 @@ function DashboardView({ employees, attendance, posts, trackingStartDate }) {
 
       const dateShifts = {};
       (data || []).forEach(d => {
-        const shift = d.shift || empShiftMap[d.employee_id]; // Uses saved shift if it exists
+        const shift = d.shift || empShiftMap[d.employee_id];
         if (shift) {
           if (!dateShifts[d.date]) dateShifts[d.date] = new Set();
           dateShifts[d.date].add(shift);
         }
       });
 
+      // Work out which shifts actually have employees assigned
+      const morningHasStaff = employees.some(e => e.shift === "Morning" && e.status === "active");
+      const nightHasStaff = employees.some(e => e.shift === "Night" && e.status === "active");
+
       const missing = [];
       let currStr = trackingStartDate;
       while (currStr <= todayStr) {
         const shifts = dateShifts[currStr];
-        // Flag as missing if NO data, or if either Morning or Night is missing
-        if (!shifts || !shifts.has("Morning") || !shifts.has("Night")) {
+        const morningOk = !morningHasStaff || (shifts && shifts.has("Morning"));
+        const nightOk = !nightHasStaff || (shifts && shifts.has("Night"));
+        if (!morningOk || !nightOk) {
           missing.push(currStr);
         }
         const [y, m, d] = currStr.split("-").map(Number);
@@ -690,9 +695,13 @@ function AttendanceView({ employees, logAction, myRole }) {
       await supabase.from("attendance").delete().eq("date", selectedDate).in("employee_id", empIds);
       await supabase.from("attendance").insert(insertData);
     }
-    
+    // Even if shift has zero employees, record a sentinel so the dashboard knows it was submitted
+    if (empIds.length === 0) {
+      await supabase.from("attendance").delete().eq("date", selectedDate).eq("shift", activeShift).eq("employee_id", null).maybeSingle();
+      await supabase.from("attendance").insert({ employee_id: null, date: selectedDate, status: "Present", ot_hours: 0, shift: activeShift });
+    }
+
     setIsSubmitted(true); setIsHoliday(false); setSaving(false);
-  setIsSubmitted(true); setIsHoliday(false); setSaving(false);
     if (logAction) logAction("Attendance Submitted", `Marked ${activeShift} shift for ${selectedDate}`);
   };
 
@@ -1034,10 +1043,19 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
   // Run the lifetime calculation engine for the popup
   const fin = viewing ? calcFinances(viewing, posts, viewingAtt, ledger, viewing.joining_date || "2020-01-01", todayStr, postHistory, overtime) : null;
 
-  const active = employees.filter(e => e.status === "active");
-  const inactive = employees.filter(e => e.status === "inactive");
-  let filtered = filterPost === "All" ? active : active.filter(e => e.post === filterPost);
-  if (search.trim()) filtered = filtered.filter(e => e.name.toLowerCase().includes(search.toLowerCase()) || (e.aadhar || "").includes(search) || (e.emp_code || "").toLowerCase().includes(search.toLowerCase()));
+  const [filterType, setFilterType] = useState("All");
+const [sortBy, setSortBy] = useState("name");
+const active = employees.filter(e => e.status === "active");
+const inactive = employees.filter(e => e.status === "inactive");
+let filtered = filterPost === "All" ? active : active.filter(e => e.post === filterPost);
+if (filterType !== "All") filtered = filtered.filter(e => e.staff_type === filterType);
+if (search.trim()) filtered = filtered.filter(e => e.name.toLowerCase().includes(search.toLowerCase()) || (e.aadhar || "").includes(search) || (e.emp_code || "").toLowerCase().includes(search.toLowerCase()));
+filtered = [...filtered].sort((a, b) => {
+  if (sortBy === "salary") return Number(b.base_salary) - Number(a.base_salary);
+  if (sortBy === "joining_date") return (a.joining_date || "").localeCompare(b.joining_date || "");
+  if (sortBy === "post") return (a.post || "").localeCompare(b.post || "");
+  return (a.name || "").localeCompare(b.name || "");
+});
 
   const getContractSalary = (postName) => posts.find(p => p.name === postName)?.contract_salary || 0;
   const handlePostChange = (postName) => setForm(f => ({ ...f, post: postName, base_salary: f.staff_type === "contract" ? getContractSalary(postName) : f.base_salary }));
@@ -1309,6 +1327,17 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
         <select style={css.input} value={filterPost} onChange={e => setFilterPost(e.target.value)}>
           <option value="All">All Posts</option>
           {posts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+        </select>
+        <select style={css.input} value={filterType} onChange={e => setFilterType(e.target.value)}>
+          <option value="All">All Types</option>
+          <option value="company">Company Staff</option>
+          <option value="contract">Contract Staff</option>
+        </select>
+        <select style={css.input} value={sortBy} onChange={e => setSortBy(e.target.value)}>
+          <option value="name">Sort: Name</option>
+          <option value="salary">Sort: Salary</option>
+          <option value="joining_date">Sort: Date Joined</option>
+          <option value="post">Sort: Post / Role</option>
         </select>
       </div>
 
@@ -2262,7 +2291,8 @@ function PayrollView({ employees, setEmployees, posts, ledger, setLedger, postHi
                   <select style={{ ...css.input, width: "100%" }} value={form.empId} onChange={e => setForm({ ...form, empId: e.target.value })}>
                     <option value="">-- Select Person --</option>
                     <option value="CONTRACTOR">🏢 Pay Contractor Bill</option>
-                    <optgroup label="Active Staff">{active.map(e => <option key={e.id} value={e.id}>[{e.emp_code || "—"}] {e.name}</option>)}</optgroup>
+                    <optgroup label="Company Staff (Active)">{active.filter(e => e.staff_type === "company").map(e => <option key={e.id} value={e.id}>[{e.emp_code || "—"}] {e.name}</option>)}</optgroup>
+                    <optgroup label="Contract Staff (Active)">{active.filter(e => e.staff_type === "contract").map(e => <option key={e.id} value={e.id}>[{e.emp_code || "—"}] {e.name}</option>)}</optgroup>
                     <optgroup label="Former Staff">{inactive.map(e => <option key={e.id} value={e.id}>[{e.emp_code || "—"}] {e.name} (left)</option>)}</optgroup>
                   </select>
                 </div>
