@@ -1649,16 +1649,38 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
 // ─── PAYROLL ──────────────────────────────────────────────────────────────────
 function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab, overtime, logAction, myRole }) {
   const now = new Date();
-  const monthStart = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), "01"].join("-");
-  const [start, setStart] = useState(monthStart);
-  const [end, setEnd] = useState(todayStr);
-  const [rangeAttendance, setRangeAttendance] = useState([]);
-  const [activeTab, setActiveTab] = useState("company");
+  const currentMonthStr = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0")].join("-");
+  
+  // Generate list of months from earliest ledger entry or joining date up to current month
+  const getAvailableMonths = () => {
+    const months = new Set();
+    // Add months from ledger
+    ledger.forEach(l => { if (l.pay_month) months.add(l.pay_month); });
+    // Add current and last 12 months always
+    for (let i = 0; i < 13; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.add([d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0")].join("-"));
+    }
+    return Array.from(months).sort().reverse();
+  };
+
+  const availableMonths = getAvailableMonths();
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthStr);
+  const [staffTab, setStaffTab] = useState("company");
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ type: "Advance", amount: "", notes: "", date: todayStr, empId: "" });
+  const [form, setForm] = useState({ type: "Advance", amount: "", notes: "", date: todayStr, empId: "", pay_month: currentMonthStr });
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [expandedRow, setExpandedRow] = useState(null);
+  const [rangeAttendance, setRangeAttendance] = useState([]);
+
+  // Derive start/end from selectedMonth
+  const [selYear, selMonthNum] = selectedMonth.split("-").map(Number);
+  const monthStart = `${selectedMonth}-01`;
+  const lastDay = new Date(selYear, selMonthNum, 0).getDate();
+  const monthEnd = `${selectedMonth}-${String(lastDay).padStart(2, "0")}`;
+  // Cap end at today if current month
+  const effectiveEnd = selectedMonth === currentMonthStr ? todayStr : monthEnd;
 
   const active = employees.filter(e => e.status === "active");
   const inactive = employees.filter(e => e.status === "inactive");
@@ -1667,72 +1689,46 @@ function PayrollView({ employees, posts, ledger, setLedger, postHistory, setTab,
 
   useEffect(() => {
     const fetch = async () => {
-      // Fetches full history so the "Actual Payable" can accurately calculate past absences/OT
       const { data } = await supabase.from("attendance").select("*");
       if (data) setRangeAttendance(data);
     };
     fetch();
   }, []);
 
+  // Month label helper
+  const monthLabel = (m) => {
+    const [y, mo] = m.split("-");
+    return new Date(Number(y), Number(mo) - 1, 1).toLocaleString("en-IN", { month: "long", year: "numeric" });
+  };
+
   const handleTransaction = async () => {
     if (!form.empId || !form.amount || Number(form.amount) <= 0) return alert("Select staff/contractor and enter a valid amount.");
+    if (!form.pay_month) return alert("Please select which month this payment belongs to.");
     setSaving(true);
-    
+
     const isContractor = form.empId === "CONTRACTOR";
     const payoutAmt = Number(form.amount);
-    // Capture name BEFORE any async calls or state resets
-    const capturedEmpId = form.empId;
     const capturedType = form.type;
     const capturedTargetEmp = employees.find(e => String(e.id).trim() === String(form.empId).trim());
     const capturedTargetName = isContractor ? "Contractor" : (capturedTargetEmp?.name || `ID:${form.empId}`);
-    
-    const { data, error } = await supabase.from("financial_ledger").insert({ 
-      employee_id: isContractor ? null : form.empId, 
-      date: form.date, 
-      transaction_type: isContractor ? "Contractor Payout" : form.type, 
-      amount: payoutAmt, 
-      notes: form.notes 
+
+    const { data, error } = await supabase.from("financial_ledger").insert({
+      employee_id: isContractor ? null : form.empId,
+      date: form.date,
+      transaction_type: isContractor ? "Contractor Payout" : form.type,
+      amount: payoutAmt,
+      notes: form.notes,
+      pay_month: form.pay_month
     }).select().single();
 
-    let newEntries = data ? [data] : [];
-
-    // Auto-clear inactive contract staff dues immediately
-    if (isContractor && !error) {
-      let remainingPayout = payoutAmt;
-      const leftContractStaff = inactive.filter(e => e.staff_type === "contract" && !e.settlement_done);
-      const autoClearEntries = [];
-      
-      for (const emp of leftContractStaff) {
-        if (remainingPayout <= 0) break;
-        const fin = calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || "2020-01-01", todayStr, postHistory, overtime);
-        if (fin.netPayable > 0) {
-          const clearAmt = Math.floor(Math.min(fin.netPayable, remainingPayout));
-          autoClearEntries.push({ employee_id: emp.id, date: form.date, transaction_type: "Contractor Distribution", amount: clearAmt, notes: "Auto-cleared from contractor payout" });
-          remainingPayout -= clearAmt;
-        }
-      }
-
-      if (autoClearEntries.length > 0) {
-        const { data: clearedData } = await supabase.from("financial_ledger").insert(autoClearEntries).select();
-        if (clearedData) newEntries = [...clearedData, ...newEntries];
-      }
-    }
-    
     setSaving(false);
-    if (error) { alert("Database Error: " + error.message); } 
-    else { 
-      setLedger(prev => [...newEntries, ...prev]); 
-      setShowModal(false); 
-      setForm({ type: "Advance", amount: "", notes: "", date: todayStr, empId: "" }); 
-      
-      // TRAP: Check if the function actually reached this page
-      if (typeof logAction === "function") {
-        // FIXED: Force both IDs to strings so they match perfectly, preventing "Unknown" logs
-        const targetEmp = employees.find(e => String(e.id).trim() === String(form.empId).trim());
-logAction(`Registered ${isContractor ? "Contractor Payout" : capturedType}`, `₹${payoutAmt} for ${capturedTargetName}`);
-      } else {
-        alert("⚠️ Developer Warning: The logAction function is not connected to the PayrollView component! Check your App tab renders.");
-      }
+    if (error) { alert("Database Error: " + error.message); return; }
+
+    setLedger(prev => [data, ...prev]);
+    setShowModal(false);
+    setForm({ type: "Advance", amount: "", notes: "", date: todayStr, empId: "", pay_month: currentMonthStr });
+    if (typeof logAction === "function") {
+      logAction(`Registered ${isContractor ? "Contractor Payout" : capturedType}`, `₹${payoutAmt} for ${capturedTargetName} [${form.pay_month}]`);
     }
   };
 
@@ -1743,161 +1739,282 @@ logAction(`Registered ${isContractor ? "Contractor Payout" : capturedType}`, `�
         doc.setFontSize(16);
         doc.text("PRFM HR Portal — " + label, 14, 18);
         doc.setFontSize(10);
-        doc.text(`Period: ${fDate(start)} to ${fDate(end)}`, 14, 26);
+        doc.text(`Month: ${monthLabel(selectedMonth)}`, 14, 26);
         doc.text(`Generated: ${fDate(todayStr)}`, 14, 32);
         autoTable(doc, {
           startY: 38,
-          head: [["Name", "Post", "Joined", "Base (Prorated)", "Absent", "OT Hrs", "OT Earn", "Bonus", "Food Allow", "Adv/Fine", "Paid", "Net Payable"]],
-body: rows.map(({ emp, fin }) => [emp.name, emp.post, fDate(fin.joiningDate), "Rs." + Math.round(fin.proratedSalary).toLocaleString("en-IN"), fin.absentDays + "d", fin.totalOTHours + "h", "Rs." + Math.round(fin.otEarnings).toLocaleString("en-IN"), "Rs." + fin.totalBonuses.toLocaleString("en-IN"), "Rs." + fin.foodAllowance.toLocaleString("en-IN"), "Rs." + fin.totalAdvances.toLocaleString("en-IN"), "Rs." + fin.totalPaid.toLocaleString("en-IN"), "Rs." + Math.round(fin.netPayable).toLocaleString("en-IN")]),
+          head: [["Name", "Post", "Joined", "Base (Prorated)", "Absent", "OT Hrs", "OT Earn", "Bonus", "Food Allow", "Adv/Fine", "Paid", "Period Net", "Lifetime Payable"]],
+          body: rows.map(({ emp, fin, finLifetime }) => [
+            emp.name, emp.post, fDate(fin.joiningDate),
+            "Rs." + Math.round(fin.proratedSalary).toLocaleString("en-IN"),
+            fin.absentDays + "d",
+            fin.totalOTHours + "h",
+            "Rs." + Math.round(fin.otEarnings).toLocaleString("en-IN"),
+            "Rs." + fin.totalBonuses.toLocaleString("en-IN"),
+            "Rs." + fin.foodAllowance.toLocaleString("en-IN"),
+            "Rs." + fin.totalAdvances.toLocaleString("en-IN"),
+            "Rs." + fin.totalPaid.toLocaleString("en-IN"),
+            "Rs." + Math.round(fin.netPayable).toLocaleString("en-IN"),
+            "Rs." + Math.round(finLifetime.netPayable).toLocaleString("en-IN")
+          ]),
           theme: "grid",
           headStyles: { fillColor: [30, 111, 219], fontSize: 8 },
           bodyStyles: { fontSize: 8 },
-          foot: [["", "", "TOTAL", "", "", "", "", "", "", "", "", "Rs." + Math.round(rows.reduce((s, r) => s + r.fin.netPayable, 0)).toLocaleString("en-IN")]],
+          foot: [["", "", "TOTAL", "", "", "", "", "", "", "", "",
+            "Rs." + Math.round(rows.reduce((s, r) => s + r.fin.netPayable, 0)).toLocaleString("en-IN"),
+            "Rs." + Math.round(rows.reduce((s, r) => s + r.finLifetime.netPayable, 0)).toLocaleString("en-IN")
+          ]],
           footStyles: { fillColor: [240, 245, 255], textColor: [30, 111, 219], fontStyle: "bold" },
         });
-        doc.save(`PRFM_${label.replace(/ /g, "_")}_${start}_to_${end}.pdf`);
+        doc.save(`PRFM_${label.replace(/ /g, "_")}_${selectedMonth}.pdf`);
       });
     });
   };
 
+  // ── MONTHLY CONTRACTOR POOL LOGIC ──────────────────────────────────────────
+  // Only looks at ledger entries for the selectedMonth
+  const monthLedger = (month) => ledger.filter(l => l.pay_month === month);
+
+  const getMonthContractorStats = (month) => {
+    const ml = monthLedger(month);
+    const paid = ml.filter(l => l.transaction_type === "Contractor Payout").reduce((s, l) => s + Number(l.amount), 0);
+    const distributed = ml.filter(l => l.transaction_type === "Contractor Distribution").reduce((s, l) => s + Number(l.amount), 0);
+    return { paid, distributed, available: paid - distributed };
+  };
+
+  const handleDistribute = async () => {
+    const { available } = getMonthContractorStats(selectedMonth);
+    if (available <= 0) return alert(`No undistributed contractor funds for ${monthLabel(selectedMonth)}.`);
+    if (!window.confirm(`Distribute ₹${available.toLocaleString("en-IN")} among active contract staff for ${monthLabel(selectedMonth)}?`)) return;
+
+    let activeContract = contractStaff.map(emp => ({
+      emp,
+      fin: calcFinances(emp, posts, rangeAttendance, ledger, monthStart, effectiveEnd, postHistory, overtime)
+    })).filter(r => r.fin.netPayable > 0);
+
+    if (activeContract.length === 0) return alert("No active contract staff have pending dues this month.");
+
+    let remainingPool = available;
+    const distMap = {};
+
+    while (remainingPool > 0 && activeContract.length > 0) {
+      const totalOwed = activeContract.reduce((sum, r) => sum + r.fin.netPayable, 0);
+      if (totalOwed <= 0) break;
+
+      const poolForRound = Math.min(remainingPool, totalOwed);
+      let roundRemaining = poolForRound;
+      let distributedThisRound = 0;
+
+      for (let i = 0; i < activeContract.length; i++) {
+        if (roundRemaining <= 0) break;
+        const r = activeContract[i];
+        let share = Math.floor(poolForRound * (r.fin.netPayable / totalOwed));
+        if (i === activeContract.length - 1) share = roundRemaining;
+        const amountToGive = Math.floor(Math.min(share, r.fin.netPayable, roundRemaining));
+        if (amountToGive > 0) {
+          distMap[r.emp.id] = (distMap[r.emp.id] || 0) + amountToGive;
+          r.fin.netPayable -= amountToGive;
+          roundRemaining -= amountToGive;
+          remainingPool -= amountToGive;
+          distributedThisRound += amountToGive;
+        }
+      }
+      if (distributedThisRound === 0) break;
+      activeContract = activeContract.filter(r => r.fin.netPayable >= 1);
+    }
+
+    const newEntries = Object.entries(distMap).map(([empId, amount]) => ({
+      employee_id: empId,
+      date: todayStr,
+      transaction_type: "Contractor Distribution",
+      amount,
+      notes: `Distributed for ${monthLabel(selectedMonth)}`,
+      pay_month: selectedMonth
+    }));
+
+    if (newEntries.length > 0) {
+      const { data } = await supabase.from("financial_ledger").insert(newEntries).select();
+      if (data) setLedger(prev => [...data, ...prev]);
+      alert(`Funds distributed for ${monthLabel(selectedMonth)}!`);
+    }
+  };
+
+  // ── PAYROLL TABLE COMPONENT ────────────────────────────────────────────────
   const PayrollTable = ({ staffList, label, color, isContract }) => {
     let filteredList = staffList;
     if (search.trim()) filteredList = filteredList.filter(e => e.name.toLowerCase().includes(search.toLowerCase()));
-    
-    // Calculate both Period Net and Lifetime Actual Net
-    const rows = filteredList.map(emp => ({ 
-      emp, 
-      fin: calcFinances(emp, posts, rangeAttendance, ledger, start, end, postHistory, overtime),
-      finLifetime: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || "2020-01-01", end, postHistory, overtime)
+
+    const rows = filteredList.map(emp => ({
+      emp,
+      // Period net = this month only
+      fin: calcFinances(emp, posts, rangeAttendance, ledger, monthStart, effectiveEnd, postHistory, overtime),
+      // Actual payable = lifetime balance
+      finLifetime: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || "2020-01-01", effectiveEnd, postHistory, overtime)
     }));
-    
+
     const totalNet = rows.reduce((s, r) => s + r.fin.netPayable, 0);
     const totalActual = rows.reduce((s, r) => s + r.finLifetime.netPayable, 0);
 
-    const lifetimeContractorPaid = isContract ? ledger.filter(l => l.transaction_type === "Contractor Payout" && l.date <= end).reduce((s, l) => s + Number(l.amount), 0) : 0;
-    const lifetimeContractorDistributed = isContract ? ledger.filter(l => l.transaction_type === "Contractor Distribution" && l.date <= end).reduce((s, l) => s + Number(l.amount), 0) : 0;
-    const availableToDistribute = lifetimeContractorPaid - lifetimeContractorDistributed;
-
-    const handleDistribute = async () => {
-      if (availableToDistribute <= 0) return alert("No undistributed contractor funds available.");
-      if (!window.confirm(`Distribute ₹${availableToDistribute.toLocaleString("en-IN")} proportionally among active contract staff?`)) return;
-      
-      let activeContract = staffList.map(emp => ({ emp, fin: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || "2020-01-01", todayStr, postHistory, overtime) })).filter(r => r.fin.netPayable > 0);
-      if (activeContract.length === 0) return alert("No active contract staff have pending dues.");
-
-      let remainingPool = availableToDistribute;
-      const distMap = {}; 
-
-      // Sweeper Loop: Distributes exact ratios, checks limits, and re-distributes leftovers instantly
-      while (remainingPool > 0 && activeContract.length > 0) {
-        const totalOwed = activeContract.reduce((sum, r) => sum + r.fin.netPayable, 0);
-        if (totalOwed <= 0) break;
-
-        const poolForRound = Math.min(remainingPool, totalOwed);
-        let roundRemaining = poolForRound;
-        let distributedThisRound = 0; // Failsafe tracker
-
-        for (let i = 0; i < activeContract.length; i++) {
-          if (roundRemaining <= 0) break;
-          const r = activeContract[i];
-          
-          let share = Math.floor(poolForRound * (r.fin.netPayable / totalOwed));
-          if (i === activeContract.length - 1) share = roundRemaining; 
-          
-          const amountToGive = Math.floor(Math.min(share, r.fin.netPayable, roundRemaining));
-          
-          if (amountToGive > 0) {
-            distMap[r.emp.id] = (distMap[r.emp.id] || 0) + amountToGive;
-            r.fin.netPayable -= amountToGive;
-            roundRemaining -= amountToGive;
-            remainingPool -= amountToGive;
-            distributedThisRound += amountToGive;
-          }
-        }
-        
-        // Failsafe: If decimals cause 0 money to move, kill the loop so the browser doesn't freeze
-        if (distributedThisRound === 0) break; 
-
-        // Filter out anyone fully paid off (ignoring sub-rupee decimals)
-        activeContract = activeContract.filter(r => r.fin.netPayable >= 1);
-      }
-
-      const newEntries = Object.entries(distMap).map(([empId, amount]) => ({
-        employee_id: empId, date: todayStr, transaction_type: "Contractor Distribution", amount, notes: "Distributed proportionally"
-      }));
-
-      if (newEntries.length > 0) {
-        const { data } = await supabase.from("financial_ledger").insert(newEntries).select();
-        if (data) setLedger(prev => [...data, ...prev]);
-        alert("Funds perfectly distributed!");
-      }
-    };
+    // Monthly-scoped contractor stats
+    const { paid: monthPaid, distributed: monthDist, available: monthAvailable } = getMonthContractorStats(selectedMonth);
 
     return (
       <div style={{ marginBottom: 30 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={css.sectionTitle}>{label} ({filteredList.length})</div>
+          <div style={css.sectionTitle}>{label} ({filteredList.length}) — {monthLabel(selectedMonth)}</div>
           <button style={css.btn(C.textDim)} onClick={() => exportPDF(rows, label)}>📥 Export PDF</button>
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
-            <thead><tr style={{ background: C.bg }}>{["Name / Post", "Prorated Base", "Absent", "OT", "Bonus", "Food", "Adv/Fine", isContract ? "Paid by Contr." : "Paid", "Period Net", "Actual Payable", ""].map(h => <th key={h} style={{ ...css.th, whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
+            <thead>
+              <tr style={{ background: C.bg }}>
+                {["Name / Post", "Prorated Base", "Absent", "OT", "Bonus", "Food", "Adv/Fine",
+                  isContract ? "Paid (Month)" : "Paid", "Month Net", "Lifetime Payable", ""].map(h =>
+                  <th key={h} style={{ ...css.th, whiteSpace: "nowrap" }}>{h}</th>
+                )}
+              </tr>
+            </thead>
             <tbody>
               {rows.length === 0 && <tr><td colSpan={11} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No staff.</td></tr>}
               {rows.map(({ emp, fin, finLifetime }) => (
                 <React.Fragment key={emp.id}>
                   <tr style={{ background: expandedRow === emp.id ? color + "08" : "transparent" }}>
-                    <td style={css.td}><strong>[{emp.emp_code || "—"}] {emp.name}</strong><br /><small style={{ color: C.textDim }}>{emp.post}</small>{fin.periods.length > 1 && <div style={{ ...css.badge(C.orange), display: "inline-block", marginTop: 4, fontSize: 9 }}>SPLIT</div>}</td>
+                    <td style={css.td}>
+                      <strong>[{emp.emp_code || "—"}] {emp.name}</strong>
+                      <br /><small style={{ color: C.textDim }}>{emp.post}</small>
+                      {fin.periods.length > 1 && <div style={{ ...css.badge(C.orange), display: "inline-block", marginTop: 4, fontSize: 9 }}>SPLIT</div>}
+                    </td>
                     <td style={css.td}>₹{Math.round(fin.proratedSalary).toLocaleString("en-IN")}<br /><small style={{ color: C.textDim }}>joined {fDate(fin.joiningDate)}</small></td>
                     <td style={{ ...css.td, color: fin.absentDays > 0 ? C.red : C.textDim }}>{fin.absentDays}d<br /><small>-₹{Math.round(fin.attendanceDeduction).toLocaleString()}</small></td>
                     <td style={{ ...css.td, color: C.green }}>{fin.totalOTHours}h<br /><small>+₹{Math.round(fin.otEarnings).toLocaleString()}</small></td>
                     <td style={{ ...css.td, color: C.green }}>+₹{fin.totalBonuses.toLocaleString()}</td>
                     <td style={{ ...css.td, color: C.green }}>+₹{fin.foodAllowance.toLocaleString()}</td>
                     <td style={{ ...css.td, color: C.red }}>-₹{fin.totalAdvances.toLocaleString()}</td>
-                    <td style={{ ...css.td, color: C.textDim }}>₹{isContract ? Math.round(fin.totalContractorDist).toLocaleString("en-IN") : fin.totalPaid.toLocaleString("en-IN")}</td>
-                    <td style={{ ...css.td, background: color + "11" }}><strong style={{ color: fin.netPayable < 0 ? C.red : color, fontSize: 14 }}>₹{Math.round(fin.netPayable).toLocaleString("en-IN")}</strong></td>
-                    <td style={{ ...css.td, background: C.orange + "15", borderLeft: `2px solid ${C.orange}44` }}><strong style={{ color: finLifetime.netPayable < 0 ? C.red : C.orange, fontSize: 15 }}>₹{Math.round(finLifetime.netPayable).toLocaleString("en-IN")}</strong></td>
-                    <td style={css.td}>{fin.periods.length > 1 && <button style={{ ...css.btn(C.accent), padding: "3px 8px", fontSize: 10 }} onClick={() => setExpandedRow(expandedRow === emp.id ? null : emp.id)}>{expandedRow === emp.id ? "▲" : "▼"}</button>}</td>
+                    <td style={{ ...css.td, color: C.textDim }}>
+                      ₹{isContract ? Math.round(fin.totalContractorDist).toLocaleString("en-IN") : fin.totalPaid.toLocaleString("en-IN")}
+                    </td>
+                    <td style={{ ...css.td, background: color + "11" }}>
+                      <strong style={{ color: fin.netPayable < 0 ? C.red : color, fontSize: 14 }}>₹{Math.round(fin.netPayable).toLocaleString("en-IN")}</strong>
+                    </td>
+                    <td style={{ ...css.td, background: C.orange + "15", borderLeft: `2px solid ${C.orange}44` }}>
+                      <strong style={{ color: finLifetime.netPayable < 0 ? C.red : C.orange, fontSize: 15 }}>₹{Math.round(finLifetime.netPayable).toLocaleString("en-IN")}</strong>
+                    </td>
+                    <td style={css.td}>
+                      {fin.periods.length > 1 &&
+                        <button style={{ ...css.btn(C.accent), padding: "3px 8px", fontSize: 10 }} onClick={() => setExpandedRow(expandedRow === emp.id ? null : emp.id)}>
+                          {expandedRow === emp.id ? "▲" : "▼"}
+                        </button>
+                      }
+                    </td>
                   </tr>
                   {expandedRow === emp.id && fin.periods.map((p, i) => (
                     <tr key={i} style={{ background: C.accent + "08" }}>
-                      <td style={{ ...css.td, paddingLeft: 30 }} colSpan={2}><small style={{ color: C.accent }}>📌 {p.post} · {fDate(p.from)} → {fDate(p.to)}</small><br /><small style={{ color: C.textDim }}>₹{p.salary.toLocaleString()}/month · {p.daysInPeriod} days</small></td>
+                      <td style={{ ...css.td, paddingLeft: 30 }} colSpan={2}>
+                        <small style={{ color: C.accent }}>📌 {p.post} · {fDate(p.from)} → {fDate(p.to)}</small>
+                        <br /><small style={{ color: C.textDim }}>₹{p.salary.toLocaleString()}/month · {p.daysInPeriod} days</small>
+                      </td>
                       <td style={{ ...css.td, color: C.red }}><small>{p.absentDays}d · -₹{Math.round(p.attendanceDeduction).toLocaleString()}</small></td>
-<td style={{ ...css.td, color: C.green }}><small>{p.otHours}h · +₹{Math.round(p.otEarnings).toLocaleString()}</small></td>
-<td colSpan={4} style={css.td}><small style={{ color: C.textDim }}>Period subtotal: ₹{Math.round(p.proratedSalary - p.attendanceDeduction + p.otEarnings).toLocaleString()}</small></td>
-<td style={css.td}></td>
+                      <td style={{ ...css.td, color: C.green }}><small>{p.otHours}h · +₹{Math.round(p.otEarnings).toLocaleString()}</small></td>
+                      <td colSpan={4} style={css.td}><small style={{ color: C.textDim }}>Period subtotal: ₹{Math.round(p.proratedSalary - p.attendanceDeduction + p.otEarnings).toLocaleString()}</small></td>
+                      <td style={css.td}></td>
+                      <td style={css.td}></td>
+                      <td style={css.td}></td>
                     </tr>
                   ))}
                 </React.Fragment>
               ))}
             </tbody>
             <tfoot>
-              <tr style={{ borderTop: `2px solid ${C.border}` }}><td colSpan={8} style={{ ...css.td, textAlign: "right", fontWeight: 700 }}>TOTAL STAFF PAYABLE</td><td style={css.td}><strong style={{ color, fontSize: 16 }}>₹{Math.round(totalNet).toLocaleString("en-IN")}</strong></td><td style={{...css.td, borderLeft: `2px solid ${C.orange}44`}}><strong style={{ color: C.orange, fontSize: 16 }}>₹{Math.round(totalActual).toLocaleString("en-IN")}</strong></td><td style={css.td}></td></tr>
+              <tr style={{ borderTop: `2px solid ${C.border}` }}>
+                <td colSpan={8} style={{ ...css.td, textAlign: "right", fontWeight: 700 }}>TOTAL STAFF PAYABLE</td>
+                <td style={css.td}><strong style={{ color, fontSize: 16 }}>₹{Math.round(totalNet).toLocaleString("en-IN")}</strong></td>
+                <td style={{ ...css.td, borderLeft: `2px solid ${C.orange}44` }}><strong style={{ color: C.orange, fontSize: 16 }}>₹{Math.round(totalActual).toLocaleString("en-IN")}</strong></td>
+                <td style={css.td}></td>
+              </tr>
               {isContract && (
                 <>
-                  <tr><td colSpan={8} style={{ ...css.td, textAlign: "right", color: C.red, fontSize: 12 }}>(-) UNASSIGNED CONTRACTOR FUNDS</td><td style={{ ...css.td, color: C.red }}>—</td><td style={{...css.td, color: C.red, borderLeft: `2px solid ${C.orange}44`}}>-₹{Math.round(availableToDistribute).toLocaleString("en-IN")}</td><td style={css.td}></td></tr>
-                  <tr style={{ background: C.orange + "15" }}><td colSpan={8} style={{ ...css.td, textAlign: "right", fontWeight: 700, color: C.orange }}>NET BALANCE OWED TO CONTRACTOR</td><td style={css.td}><strong style={{ color: C.orange, fontSize: 18 }}>—</strong></td><td style={{...css.td, borderLeft: `2px solid ${C.orange}44`}}><strong style={{ color: C.orange, fontSize: 18 }}>₹{Math.round(totalActual - availableToDistribute).toLocaleString("en-IN")}</strong></td><td style={css.td}></td></tr>
+                  <tr>
+                    <td colSpan={8} style={{ ...css.td, textAlign: "right", color: C.textDim, fontSize: 12 }}>
+                      CONTRACTOR PAID THIS MONTH
+                    </td>
+                    <td style={{ ...css.td, color: C.green }}>+₹{monthPaid.toLocaleString("en-IN")}</td>
+                    <td style={{ ...css.td, borderLeft: `2px solid ${C.orange}44` }}></td>
+                    <td style={css.td}></td>
+                  </tr>
+                  <tr>
+                    <td colSpan={8} style={{ ...css.td, textAlign: "right", color: C.red, fontSize: 12 }}>
+                      DISTRIBUTED TO STAFF THIS MONTH
+                    </td>
+                    <td style={{ ...css.td, color: C.red }}>-₹{monthDist.toLocaleString("en-IN")}</td>
+                    <td style={{ ...css.td, borderLeft: `2px solid ${C.orange}44` }}></td>
+                    <td style={css.td}></td>
+                  </tr>
+                  <tr style={{ background: monthAvailable < 0 ? C.red + "15" : C.orange + "15" }}>
+                    <td colSpan={8} style={{ ...css.td, textAlign: "right", fontWeight: 700, color: monthAvailable < 0 ? C.red : C.orange }}>
+                      UNDISTRIBUTED POOL ({monthLabel(selectedMonth)})
+                    </td>
+                    <td style={css.td}>
+                      <strong style={{ color: monthAvailable < 0 ? C.red : C.orange, fontSize: 16 }}>
+                        ₹{monthAvailable.toLocaleString("en-IN")}
+                      </strong>
+                      {monthAvailable < 0 && (
+                        <div style={{ fontSize: 10, color: C.red, marginTop: 2 }}>⚠ Over-distributed this month</div>
+                      )}
+                    </td>
+                    <td style={{ ...css.td, borderLeft: `2px solid ${C.orange}44` }}></td>
+                    <td style={css.td}></td>
+                  </tr>
+                  <tr style={{ background: C.green + "08" }}>
+                    <td colSpan={8} style={{ ...css.td, textAlign: "right", fontWeight: 700, color: C.green }}>
+                      NET BALANCE OWED TO CONTRACTOR ({monthLabel(selectedMonth)})
+                    </td>
+                    <td style={css.td}>
+                      <strong style={{ color: C.green, fontSize: 18 }}>
+                        ₹{Math.max(0, totalNet - monthPaid).toLocaleString("en-IN")}
+                      </strong>
+                    </td>
+                    <td style={{ ...css.td, borderLeft: `2px solid ${C.orange}44` }}></td>
+                    <td style={css.td}></td>
+                  </tr>
                 </>
               )}
             </tfoot>
           </table>
         </div>
-        {isContract && ledger.filter(l => l.transaction_type === "Contractor Payout").length > 0 && (
+
+        {/* Contractor month payout log */}
+        {isContract && (
           <div style={{ marginTop: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
-              <div style={{ ...css.sectionTitle, marginBottom: 0 }}>Recent Lump Sum Payouts Log</div>
+              <div style={{ ...css.sectionTitle, marginBottom: 0 }}>
+                Lump Sum Payouts — {monthLabel(selectedMonth)}
+              </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 12, color: C.textDim }}>Undistributed: <strong style={{ color: C.orange }}>₹{Math.round(availableToDistribute).toLocaleString("en-IN")}</strong></span>
-                <button style={{ ...css.btn(C.orange), padding: "4px 12px", fontSize: 10 }} onClick={handleDistribute}>➗ Distribute to Staff</button>
+                <span style={{ fontSize: 12, color: C.textDim }}>
+                  Undistributed: <strong style={{ color: monthAvailable < 0 ? C.red : C.orange }}>₹{monthAvailable.toLocaleString("en-IN")}</strong>
+                </span>
+                <button style={{ ...css.btn(C.orange), padding: "4px 12px", fontSize: 10 }} onClick={handleDistribute}>
+                  ➗ Distribute to Staff
+                </button>
               </div>
             </div>
-            <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 8 }}>
-              {ledger.filter(l => l.transaction_type === "Contractor Payout").slice(0, 8).map(l => (
-                <div key={l.id} style={{ ...css.badge(C.orange), display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-                  {fDate(l.date)}: ₹{l.amount.toLocaleString("en-IN")}
-                  {myRole === "director" && <button style={{ background: "transparent", border: "none", color: C.red, cursor: "pointer", marginLeft: 4 }} onClick={async () => { if(!window.confirm("Delete this contractor payout?")) return; await supabase.from("financial_ledger").delete().eq("id", l.id); setLedger(prev => prev.filter(x => x.id !== l.id)); }}>✕</button>}
-                </div>
-              ))}
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", paddingBottom: 8 }}>
+              {ledger.filter(l => l.transaction_type === "Contractor Payout" && l.pay_month === selectedMonth).length === 0
+                ? <div style={{ fontSize: 12, color: C.textDim }}>No contractor payouts recorded for {monthLabel(selectedMonth)}.</div>
+                : ledger.filter(l => l.transaction_type === "Contractor Payout" && l.pay_month === selectedMonth).map(l => (
+                  <div key={l.id} style={{ ...css.badge(C.orange), display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+                    {fDate(l.date)}: ₹{l.amount.toLocaleString("en-IN")}
+                    {myRole === "director" && (
+                      <button style={{ background: "transparent", border: "none", color: C.red, cursor: "pointer", marginLeft: 4 }}
+                        onClick={async () => {
+                          if (!window.confirm("Delete this contractor payout?")) return;
+                          await supabase.from("financial_ledger").delete().eq("id", l.id);
+                          setLedger(prev => prev.filter(x => x.id !== l.id));
+                        }}>✕</button>
+                    )}
+                  </div>
+                ))
+              }
             </div>
           </div>
         )}
@@ -1905,15 +2022,18 @@ body: rows.map(({ emp, fin }) => [emp.name, emp.post, fDate(fin.joiningDate), "R
     );
   };
 
+  // ── SETTLEMENT VIEW ────────────────────────────────────────────────────────
   const SettlementView = () => {
     const unsettled = inactive.filter(e => !e.settlement_done);
-    const rows = unsettled.map(emp => ({ emp, fin: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || start, emp.left_date || end, postHistory, overtime) }));
+    const rows = unsettled.map(emp => ({
+      emp,
+      fin: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || "2020-01-01", emp.left_date || todayStr, postHistory, overtime)
+    }));
 
     const markSettled = async (emp) => {
       await supabase.from("employees").update({ settlement_done: true }).eq("id", emp.id);
       setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, settlement_done: true } : e));
     };
-
     const markAllSettled = async () => {
       for (const { emp } of rows) {
         await supabase.from("employees").update({ settlement_done: true }).eq("id", emp.id);
@@ -1921,12 +2041,12 @@ body: rows.map(({ emp, fin }) => [emp.name, emp.post, fDate(fin.joiningDate), "R
       setEmployees(prev => prev.map(e => unsettled.find(u => u.id === e.id) ? { ...e, settlement_done: true } : e));
     };
 
-    if (rows.length === 0) return <div style={{ ...css.card, textAlign: "center", padding: 40, color: C.textDim }}>✓ No pending settlements. All former staff are cleared.</div>;
+    if (rows.length === 0) return <div style={{ ...css.card, textAlign: "center", padding: 40, color: C.textDim }}>✓ No pending settlements.</div>;
 
     return (
       <div>
         <div style={{ marginBottom: 12, padding: "10px 14px", background: C.orange + "15", border: `1px solid ${C.orange}44`, borderRadius: 6, fontSize: 12, color: C.orange, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-          <span>⚠ Former employees with pending dues. Record their final payout using "+ Register Transaction".</span>
+          <span>⚠ Former employees with pending dues.</span>
           <button style={css.btn(C.green)} onClick={markAllSettled}>✓ Mark All Settled</button>
         </div>
         <div style={{ overflowX: "auto" }}>
@@ -1945,7 +2065,10 @@ body: rows.map(({ emp, fin }) => [emp.name, emp.post, fDate(fin.joiningDate), "R
                   <td style={css.td}>
                     <div style={{ display: "flex", gap: 8 }}>
                       {emp.staff_type === "company" && (
-                        <button style={css.btn(C.blue)} onClick={() => { setForm(f => ({ ...f, empId: emp.id, type: "Payout", amount: Math.round(Math.abs(fin.netPayable)) })); setShowModal(true); }}>Record Payout</button>
+                        <button style={css.btn(C.blue)} onClick={() => {
+                          setForm(f => ({ ...f, empId: emp.id, type: "Payout", amount: Math.round(Math.abs(fin.netPayable)), pay_month: currentMonthStr }));
+                          setShowModal(true);
+                        }}>Record Payout</button>
                       )}
                       <button style={css.btn(C.green)} onClick={() => markSettled(emp)}>✓ Settled</button>
                     </div>
@@ -1959,28 +2082,59 @@ body: rows.map(({ emp, fin }) => [emp.name, emp.post, fDate(fin.joiningDate), "R
     );
   };
 
+  // ── RENDER ─────────────────────────────────────────────────────────────────
   return (
     <div style={css.page}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-        <div><div style={css.sectionTitle}>Financial Overview</div><div style={{ fontSize: 22, fontWeight: 700 }}>Payroll & Ledger</div></div>
+        <div>
+          <div style={css.sectionTitle}>Financial Overview</div>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>Payroll & Ledger</div>
+        </div>
         <button style={css.btn(C.blue)} onClick={() => setShowModal(true)}>+ Register Transaction</button>
       </div>
+
+      {/* Month selector */}
       <div style={{ ...css.card, marginBottom: 20, background: "#f8fafc" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, alignItems: "flex-end" }}>
-          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={{ ...css.input, width: "100%" }} value={start} onChange={e => setStart(e.target.value)} /></div>
-          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={{ ...css.input, width: "100%" }} value={end} onChange={e => setEnd(e.target.value)} /></div>
-          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>SEARCH</div><input placeholder="Name..." style={{ ...css.input, width: "100%" }} value={search} onChange={e => setSearch(e.target.value)} /></div>
+        <div style={{ fontSize: 10, color: C.textDim, marginBottom: 8, fontWeight: 700 }}>SELECT PAYROLL MONTH</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <select
+            style={{ ...css.input, fontSize: 14, fontWeight: 700, padding: "8px 12px", border: `2px solid ${C.accent}44`, minWidth: 200 }}
+            value={selectedMonth}
+            onChange={e => setSelectedMonth(e.target.value)}
+          >
+            {availableMonths.map(m => (
+              <option key={m} value={m}>{monthLabel(m)}{m === currentMonthStr ? " (Current)" : ""}</option>
+            ))}
+          </select>
+          <div style={{ fontSize: 11, color: C.textDim }}>
+            Period: {fDate(monthStart)} → {fDate(effectiveEnd)}
+            {selectedMonth === currentMonthStr && <span style={{ color: C.orange }}> (month in progress)</span>}
+          </div>
+          <input
+            placeholder="Search name..."
+            style={{ ...css.input, flex: 1, minWidth: 150 }}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
         </div>
       </div>
+
+      {/* Staff type tabs */}
       <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
         {[["company", "🏢 Company Staff", C.blue], ["contract", "📋 Contract Staff", C.green], ["settlement", "⚖ Final Settlement", C.orange]].map(([id, label, color]) => (
-          <button key={id} style={{ ...css.navBtn(activeTab === id), color: activeTab === id ? color : C.textDim, borderColor: activeTab === id ? color + "55" : "transparent", background: activeTab === id ? color + "15" : "transparent" }} onClick={() => setActiveTab(id)}>{label}</button>
+          <button key={id}
+            style={{ ...css.navBtn(staffTab === id), color: staffTab === id ? color : C.textDim, borderColor: staffTab === id ? color + "55" : "transparent", background: staffTab === id ? color + "15" : "transparent" }}
+            onClick={() => setStaffTab(id)}>
+            {label}
+          </button>
         ))}
       </div>
-      {activeTab === "company" && <PayrollTable staffList={companyStaff} label="Company Staff Payroll" color={C.blue} isContract={false} />}
-      {activeTab === "contract" && <PayrollTable staffList={contractStaff} label="Contract Staff Payroll" color={C.green} isContract={true} />}
-      {activeTab === "settlement" && <SettlementView />}
 
+      {staffTab === "company" && <PayrollTable staffList={companyStaff} label="Company Staff Payroll" color={C.blue} isContract={false} />}
+      {staffTab === "contract" && <PayrollTable staffList={contractStaff} label="Contract Staff Payroll" color={C.green} isContract={true} />}
+      {staffTab === "settlement" && <SettlementView />}
+
+      {/* Transaction Modal */}
       {showModal && (
         <div style={css.modal}>
           <div style={{ ...css.card, maxWidth: 440, width: "100%" }}>
@@ -1989,7 +2143,8 @@ body: rows.map(({ emp, fin }) => [emp.name, emp.post, fDate(fin.joiningDate), "R
               <button onClick={() => setShowModal(false)} style={{ background: C.red, color: "white", border: "none", borderRadius: 4, padding: "4px 12px", cursor: "pointer", fontWeight: 700 }}>✕</button>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>STAFF MEMBER / PAYEE</div>
+              <div>
+                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>STAFF MEMBER / PAYEE</div>
                 <select style={{ ...css.input, width: "100%" }} value={form.empId} onChange={e => setForm({ ...form, empId: e.target.value })}>
                   <option value="">-- Select Person --</option>
                   <option value="CONTRACTOR">🏢 Contractor (Lump Sum Payout)</option>
@@ -1997,23 +2152,54 @@ body: rows.map(({ emp, fin }) => [emp.name, emp.post, fDate(fin.joiningDate), "R
                   <optgroup label="Former Staff">{inactive.map(e => <option key={e.id} value={e.id}>[{e.emp_code || "—"}] {e.name} (left)</option>)}</optgroup>
                 </select>
               </div>
+
+              {/* PAY MONTH selector — the key new field */}
+              <div>
+                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>PAYMENT MONTH <span style={{ color: C.red }}>*</span></div>
+                <select style={{ ...css.input, width: "100%", border: `1px solid ${C.accent}55` }} value={form.pay_month} onChange={e => setForm({ ...form, pay_month: e.target.value })}>
+                  {availableMonths.map(m => (
+                    <option key={m} value={m}>{monthLabel(m)}{m === currentMonthStr ? " (Current)" : ""}</option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 10, color: C.textDim, marginTop: 3 }}>Which month does this payment belong to?</div>
+              </div>
+
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TYPE</div>
-                  <select disabled={form.empId === "CONTRACTOR"} style={{ ...css.input, width: "100%", opacity: form.empId === "CONTRACTOR" ? 0.5 : 1 }} value={form.empId === "CONTRACTOR" ? "Contractor Payout" : form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
+                <div>
+                  <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TYPE</div>
+                  <select
+                    disabled={form.empId === "CONTRACTOR"}
+                    style={{ ...css.input, width: "100%", opacity: form.empId === "CONTRACTOR" ? 0.5 : 1 }}
+                    value={form.empId === "CONTRACTOR" ? "Contractor Payout" : form.type}
+                    onChange={e => setForm({ ...form, type: e.target.value })}
+                  >
                     {form.empId === "CONTRACTOR" ? (
                       <option value="Contractor Payout">Contractor Payout</option>
                     ) : (
                       <>
-                        <option value="Advance">Advance</option><option value="Bonus">Bonus</option><option value="Fine">Fine</option><option value="Payout">Salary Payout</option>
-                        <option value="Loan Given">Loan Given</option><option value="Loan Repayment">Loan Repayment</option>
+                        <option value="Advance">Advance</option>
+                        <option value="Bonus">Bonus</option>
+                        <option value="Fine">Fine</option>
+                        <option value="Payout">Salary Payout</option>
+                        <option value="Loan Given">Loan Given</option>
+                        <option value="Loan Repayment">Loan Repayment</option>
                       </>
                     )}
                   </select>
                 </div>
-                <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>DATE</div><input type="date" style={{ ...css.input, width: "100%" }} value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
+                <div>
+                  <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>ACTUAL DATE</div>
+                  <input type="date" style={{ ...css.input, width: "100%" }} value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} />
+                </div>
               </div>
-              <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>AMOUNT (₹)</div><input type="number" style={{ ...css.input, width: "100%", fontSize: 18, fontWeight: 700 }} value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} /></div>
-              <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>REMARKS</div><input placeholder="Optional note..." style={{ ...css.input, width: "100%" }} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} /></div>
+              <div>
+                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>AMOUNT (₹)</div>
+                <input type="number" style={{ ...css.input, width: "100%", fontSize: 18, fontWeight: 700 }} value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} />
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>REMARKS</div>
+                <input placeholder="Optional note..." style={{ ...css.input, width: "100%" }} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
+              </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button style={{ ...css.btn(C.blue), flex: 1 }} onClick={handleTransaction} disabled={saving}>{saving ? "Saving..." : "Save Transaction"}</button>
                 <button style={{ ...css.btn(C.red), flex: 1 }} onClick={() => setShowModal(false)}>Cancel</button>
@@ -2705,10 +2891,12 @@ function TransactionsView({ ledger, setLedger, employees, myRole }) {
   const [end, setEnd] = useState(todayStr);
   const [empFilter, setEmpFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState("All");
+const [monthFilter, setMonthFilter] = useState("All");
 
   // Filter logic
   const filteredLedger = ledger.filter(l => {
     if (l.date < start || l.date > end) return false;
+    if (monthFilter !== "All" && l.pay_month !== monthFilter) return false;
     if (empFilter !== "All") {
       if (empFilter === "CONTRACTOR" && l.employee_id !== null) return false;
       if (empFilter !== "CONTRACTOR" && String(l.employee_id) !== empFilter) return false;
@@ -2739,6 +2927,15 @@ function TransactionsView({ ledger, setLedger, employees, myRole }) {
           </select>
         </div>
         <div>
+          <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>PAY MONTH</div>
+          <select style={{ ...css.input, width: "100%" }} value={monthFilter} onChange={e => setMonthFilter(e.target.value)}>
+            <option value="All">All Months</option>
+            {Array.from(new Set(ledger.map(l => l.pay_month).filter(Boolean))).sort().reverse().map(m => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+        </div>
+        <div>
           <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TRANSACTION TYPE</div>
           <select style={{ ...css.input, width: "100%" }} value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
             <option value="All">All Types</option>
@@ -2749,7 +2946,7 @@ function TransactionsView({ ledger, setLedger, employees, myRole }) {
 
       <div style={{ overflowX: "auto" }}>
         <table style={css.table}>
-          <thead><tr>{["Date", "Payee / Staff", "Type", "Amount", "Remarks"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+          <thead><tr>{["Date", "Pay Month", "Payee / Staff", "Type", "Amount", "Remarks"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
           <tbody>
             {filteredLedger.length === 0 && <tr><td colSpan={5} style={{ ...css.td, textAlign: "center", padding: 30, color: C.textDim }}>No transactions found for these filters.</td></tr>}
             {filteredLedger.map(l => {
@@ -2768,9 +2965,12 @@ function TransactionsView({ ledger, setLedger, employees, myRole }) {
 
               return (
                 <tr key={l.id} style={{ background: C.panel }}>
-                  <td style={{...css.td, fontSize: 12}}>{fDate(l.date)}</td>
-                  <td style={css.td}>
-                    <strong>{isContractor ? "🏢 Contractor" : (emp?.name || "Unknown Staff")}</strong>
+  <td style={{...css.td, fontSize: 12}}>{fDate(l.date)}</td>
+  <td style={{...css.td, fontSize: 11}}>
+    <span style={css.badge(C.purple)}>{l.pay_month || "—"}</span>
+  </td>
+  <td style={css.td}>
+    <strong>{isContractor ? "🏢 Contractor" : (emp?.name || "Unknown Staff")}</strong>
                     {!isContractor && !emp && (
                       <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 6 }}>
                         <span style={{ fontSize: 9, color: C.textDim }}>ID: {String(parsedId)}</span>
@@ -3251,7 +3451,7 @@ export default function App() {
           {tab === "attendance" && myRole !== "viewer" && <AttendanceView employees={employees} logAction={logAction} myRole={myRole} />}
           {tab === "overtime" && myRole !== "viewer" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} logAction={logAction} myRole={myRole} />}
           {tab === "staff" && (myRole === "director" || myRole === "manager" || myRole === "supervisor") && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
-          {tab === "payroll" && myRole !== "viewer" && <PayrollView employees={employees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
+          {tab === "payroll" && myRole !== "viewer" && <PayrollView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
           {tab === "transactions" && (myRole === "director" || myRole === "manager") && <TransactionsView ledger={ledger} setLedger={setLedger} employees={employees} myRole={myRole} />}
           {tab === "reports" && (myRole === "director" || myRole === "manager") && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} logAction={logAction} />}
           {tab === "settings" && myRole === "director" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} logAction={logAction} />}
