@@ -1463,7 +1463,7 @@ filtered = [...filtered].sort((a, b) => {
               </>
             )}
 
-            {fin && (
+            {fin && viewing.staff_type === "company" && (
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
                   <div style={{ ...css.sectionTitle, marginBottom: 0 }}>Lifetime Ledger Summary</div>
@@ -1498,8 +1498,20 @@ filtered = [...filtered].sort((a, b) => {
               </>
             )}
 
-            <div style={css.sectionTitle}>Recent Transactions</div>
-            <div style={{ maxHeight: 120, overflowY: "auto", background: C.bg, borderRadius: 6, padding: 10, marginBottom: 16 }}>
+            {fin && viewing.staff_type === "contract" && (
+              <div style={{ background: C.bg, padding: 14, borderRadius: 8, marginBottom: 16 }}>
+                <div style={{ ...css.sectionTitle, marginBottom: 12 }}>This Month's Work Summary</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, textAlign: "center" }}>
+                  <div><div style={{ fontSize: 10, color: C.textDim }}>DAYS ABSENT</div><strong style={{ color: fin.absentDays > 0 ? C.red : C.green }}>{fin.absentDays}d</strong></div>
+                  <div><div style={{ fontSize: 10, color: C.textDim }}>OT HOURS</div><strong style={{ color: C.accent }}>{fin.totalOTHours}h</strong></div>
+                  <div><div style={{ fontSize: 10, color: C.textDim }}>OT EARNED</div><strong style={{ color: C.green }}>+₹{Math.round(fin.otEarnings).toLocaleString("en-IN")}</strong></div>
+                  <div><div style={{ fontSize: 10, color: C.textDim }}>FINES</div><strong style={{ color: fin.totalAdvances > 0 ? C.red : C.textDim }}>-₹{fin.totalAdvances.toLocaleString("en-IN")}</strong></div>
+                </div>
+              </div>
+            )}
+
+            {viewing.staff_type === "company" && <div style={css.sectionTitle}>Recent Transactions</div>}
+            {viewing.staff_type === "company" && <div style={{ maxHeight: 120, overflowY: "auto", background: C.bg, borderRadius: 6, padding: 10, marginBottom: 16 }}>
               {(ledger || []).filter(l => l.employee_id === viewing.id).slice(0, 10).length === 0
                 ? <div style={{ fontSize: 11, color: C.textDim, textAlign: "center" }}>No transactions found.</div>
                 : (ledger || []).filter(l => l.employee_id === viewing.id).slice(0, 10).map(l => (
@@ -1513,7 +1525,7 @@ filtered = [...filtered].sort((a, b) => {
                   </div>
                 ))
               }
-            </div>
+            </div>}
 
             {/* Inline confirm instead of window.confirm */}
             {!confirmLeave ? (
@@ -2292,7 +2304,7 @@ function PayrollView({ employees, setEmployees, posts, ledger, setLedger, postHi
                     <option value="">-- Select Person --</option>
                     <option value="CONTRACTOR">🏢 Pay Contractor Bill</option>
                     <optgroup label="Company Staff (Active)">{active.filter(e => e.staff_type === "company").map(e => <option key={e.id} value={e.id}>[{e.emp_code || "—"}] {e.name}</option>)}</optgroup>
-                    <optgroup label="Contract Staff (Active)">{active.filter(e => e.staff_type === "contract").map(e => <option key={e.id} value={e.id}>[{e.emp_code || "—"}] {e.name}</option>)}</optgroup>
+                    <optgroup label="Contract Staff (Active — Fine only)">{active.filter(e => e.staff_type === "contract").map(e => <option key={e.id} value={e.id}>[{e.emp_code || "—"}] {e.name}</option>)}</optgroup>
                     <optgroup label="Former Staff">{inactive.map(e => <option key={e.id} value={e.id}>[{e.emp_code || "—"}] {e.name} (left)</option>)}</optgroup>
                   </select>
                 </div>
@@ -2302,17 +2314,33 @@ function PayrollView({ employees, setEmployees, posts, ledger, setLedger, postHi
                     {availableMonths.map(m => <option key={m} value={m}>{monthLabel(m)}{m === currentMonthStr ? " (Current)" : ""}</option>)}
                   </select>
                 </div>
+                {(() => {
+                  const selectedEmp = [...active, ...inactive].find(e => String(e.id) === String(form.empId));
+                  const isContract = selectedEmp?.staff_type === "contract";
+                  if (isContract && form.type !== "Fine") setTimeout(() => setForm(f => ({ ...f, type: "Fine" })), 0);
+                  return null;
+                })()}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div>
                     <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TYPE</div>
-                    <select style={{ ...css.input, width: "100%" }} value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
-                      <option value="Advance">Advance</option>
-                      <option value="Bonus">Bonus</option>
-                      <option value="Fine">Fine</option>
-                      <option value="Payout">Salary Payout</option>
-                      <option value="Loan Given">Loan Given</option>
-                      <option value="Loan Repayment">Loan Repayment</option>
-                    </select>
+                    {(() => {
+                      const selectedEmp = [...active, ...inactive].find(e => String(e.id) === String(form.empId));
+                      const isContract = selectedEmp?.staff_type === "contract";
+                      return isContract ? (
+                        <select style={{ ...css.input, width: "100%" }} value="Fine" disabled>
+                          <option value="Fine">Fine</option>
+                        </select>
+                      ) : (
+                        <select style={{ ...css.input, width: "100%" }} value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
+                          <option value="Advance">Advance</option>
+                          <option value="Bonus">Bonus</option>
+                          <option value="Fine">Fine</option>
+                          <option value="Payout">Salary Payout</option>
+                          <option value="Loan Given">Loan Given</option>
+                          <option value="Loan Repayment">Loan Repayment</option>
+                        </select>
+                      );
+                    })()}
                   </div>
                   <div>
                     <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>ACTUAL DATE</div>
