@@ -1745,10 +1745,11 @@ function PayrollView({ employees, setEmployees, posts, ledger, setLedger, postHi
 
   const active = employees.filter(e => e.status === "active");
   const inactive = employees.filter(e => e.status === "inactive");
-  const companyStaff = active.filter(e => e.staff_type === "company");
+  const companyStaff = active.filter(e => e.staff_type === "company" && (!e.joining_date || e.joining_date <= monthEnd));
   const contractStaff = employees.filter(e =>
   e.staff_type === "contract" &&
-  (e.status === "active" || (e.left_date && e.left_date >= monthStart))
+  (e.status === "active" || (e.left_date && e.left_date >= monthStart)) &&
+  (!e.joining_date || e.joining_date <= monthEnd)
 );
 
   useEffect(() => {
