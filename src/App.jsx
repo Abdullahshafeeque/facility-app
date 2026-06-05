@@ -1062,13 +1062,27 @@ filtered = [...filtered].sort((a, b) => {
   const handleTypeChange = (type) => setForm(f => ({ ...f, staff_type: type, base_salary: type === "contract" ? getContractSalary(f.post) : "" }));
 
   const addEmp = async () => {
-    if (!form.emp_code.trim()) return alert("Employee Code is required.");
-    if (!form.name.trim()) return alert("Name is required.");
-    if (!form.aadhar.trim() || form.aadhar.length !== 12) return alert("Valid 12-digit Aadhar is required.");
-    if (!form.post) return alert("Please select a post.");
-    if (form.staff_type === "company" && !form.base_salary) return alert("Salary is required for company staff.");
-    if (!form.joining_date) return alert("Joining date is required.");
-    setLoading(true);
+  if (!form.emp_code.trim()) return alert("Employee Code is required.");
+  if (!form.name.trim()) return alert("Name is required.");
+  if (!form.aadhar.trim() || form.aadhar.length !== 12) return alert("Valid 12-digit Aadhar is required.");
+  if (!form.post) return alert("Please select a post.");
+  if (form.staff_type === "company" && !form.base_salary) return alert("Salary is required for company staff.");
+  if (!form.joining_date) return alert("Joining date is required.");
+  setLoading(true);
+
+  const { data: dupCheck, error: dupErr } = await supabase
+    .from("employees")
+    .select("id, name, emp_code, aadhar")
+    .or(`emp_code.eq.${form.emp_code.trim()},aadhar.eq.${form.aadhar.trim()}`);
+
+  if (dupErr) { setLoading(false); return alert("Database Error: " + dupErr.message); }
+
+  if (dupCheck && dupCheck.length > 0) {
+    const codeMatch = dupCheck.find(e => e.emp_code?.toLowerCase() === form.emp_code.trim().toLowerCase());
+    const aadharMatch = dupCheck.find(e => e.aadhar === form.aadhar.trim());
+    if (codeMatch) { setLoading(false); return alert(`❌ Duplicate Employee Code!\n\n"${form.emp_code}" is already assigned to: ${codeMatch.name}\n\nPlease use a different code.`); }
+    if (aadharMatch) { setLoading(false); return alert(`❌ Duplicate Aadhar Number!\n\nThis Aadhar is already registered under: ${aadharMatch.name}\n\nPlease verify the details.`); }
+  }
     const salary = form.staff_type === "contract" ? getContractSalary(form.post) : +form.base_salary;
     const { data, error } = await supabase.from("employees").insert({
   emp_code: form.emp_code, name: form.name, aadhar: form.aadhar, post: form.post, shift: form.shift,
