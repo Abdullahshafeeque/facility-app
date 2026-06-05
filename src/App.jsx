@@ -571,15 +571,15 @@ function DashboardView({ employees, attendance, posts, trackingStartDate }) {
       </div>
       <div style={{ marginBottom: 20 }}>
         <div style={css.sectionTitle}>Coverage Alerts</div>
-        <AlertBanner alerts={alerts} />
         {missingDates.length > 0 && (
-          <div style={{ ...css.alert, background: C.orange + "15", border: `1px solid ${C.orange}44`, marginTop: 8, alignItems: "flex-start" }}>
+          <div style={{ ...css.alert, background: C.orange + "15", border: `1px solid ${C.orange}44`, marginBottom: 8, alignItems: "flex-start" }}>
             <span style={{ color: C.orange, fontSize: 16 }}>⚠</span>
             <span style={{ color: C.orange }}>
               <strong>Pending Attendance:</strong> {missingDates.map(fDate).join(", ")}
             </span>
           </div>
         )}
+        <AlertBanner alerts={alerts} />
       </div>
       {posts.length > 0 && (
         <div style={{ marginBottom: 20 }}>
