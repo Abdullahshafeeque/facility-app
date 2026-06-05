@@ -1070,19 +1070,27 @@ filtered = [...filtered].sort((a, b) => {
   if (!form.joining_date) return alert("Joining date is required.");
   setLoading(true);
 
-  const { data: dupCheck, error: dupErr } = await supabase
-    .from("employees")
-    .select("id, name, emp_code, aadhar")
-    .or(`emp_code.eq.${form.emp_code.trim()},aadhar.eq.${form.aadhar.trim()}`);
+  const { data: codeCheck } = await supabase
+  .from("employees")
+  .select("id, name, emp_code")
+  .ilike("emp_code", form.emp_code.trim())
+  .limit(1);
 
-  if (dupErr) { setLoading(false); return alert("Database Error: " + dupErr.message); }
+const { data: aadharCheck } = await supabase
+  .from("employees")
+  .select("id, name, aadhar")
+  .eq("aadhar", form.aadhar.trim())
+  .limit(1);
 
-  if (dupCheck && dupCheck.length > 0) {
-    const codeMatch = dupCheck.find(e => e.emp_code?.toLowerCase() === form.emp_code.trim().toLowerCase());
-    const aadharMatch = dupCheck.find(e => e.aadhar === form.aadhar.trim());
-    if (codeMatch) { setLoading(false); return alert(`❌ Duplicate Employee Code!\n\n"${form.emp_code}" is already assigned to: ${codeMatch.name}\n\nPlease use a different code.`); }
-    if (aadharMatch) { setLoading(false); return alert(`❌ Duplicate Aadhar Number!\n\nThis Aadhar is already registered under: ${aadharMatch.name}\n\nPlease verify the details.`); }
-  }
+if (codeCheck && codeCheck.length > 0) {
+  setLoading(false);
+  return alert(`❌ Duplicate Employee Code!\n\n"${form.emp_code}" is already assigned to: ${codeCheck[0].name}\n\nPlease use a different code.`);
+}
+if (aadharCheck && aadharCheck.length > 0) {
+  setLoading(false);
+  return alert(`❌ Duplicate Aadhar Number!\n\nThis Aadhar is already registered under: ${aadharCheck[0].name}\n\nPlease verify the details.`);
+}
+
     const salary = form.staff_type === "contract" ? getContractSalary(form.post) : +form.base_salary;
     const { data, error } = await supabase.from("employees").insert({
   emp_code: form.emp_code, name: form.name, aadhar: form.aadhar, post: form.post, shift: form.shift,
