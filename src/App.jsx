@@ -1844,20 +1844,19 @@ function PayrollView({ employees, setEmployees, posts, ledger, setLedger, postHi
         doc.text(`Generated: ${fDate(todayStr)}`, 14, 32);
         autoTable(doc, {
           startY: 38,
-          head: [["Name", "Post", "Joined", "Base (Prorated)", "Absent", "OT Hrs", "OT Earn", "Bonus", "Food", "Adv/Fine", "Paid", "Period Net", "Lifetime Payable"]],
-          body: rows.map(({ emp, fin, finLifetime }) => [
-            emp.name, emp.post, fDate(fin.joiningDate),
-            "Rs." + Math.round(fin.proratedSalary).toLocaleString("en-IN"),
-            fin.absentDays + "d",
-            fin.totalOTHours + "h",
-            "Rs." + Math.round(fin.otEarnings).toLocaleString("en-IN"),
-            "Rs." + fin.totalBonuses.toLocaleString("en-IN"),
-            "Rs." + fin.foodAllowance.toLocaleString("en-IN"),
-            "Rs." + fin.totalAdvances.toLocaleString("en-IN"),
-            "Rs." + fin.totalPaid.toLocaleString("en-IN"),
-            "Rs." + Math.round(fin.netPayable).toLocaleString("en-IN"),
-            "Rs." + Math.round(finLifetime.netPayable).toLocaleString("en-IN")
-          ]),
+          head: [["Name", "Post", "Joined", "Base (Prorated)", "Absent", "OT Hrs", "OT Earn", "Bonus", "Food", "Adv/Fine", "Paid", "Period Net"]],
+body: rows.map(({ emp, fin }) => [
+  emp.name, emp.post, fDate(fin.joiningDate),
+  "Rs." + Math.round(fin.proratedSalary).toLocaleString("en-IN"),
+  fin.absentDays + "d",
+  fin.totalOTHours + "h",
+  "Rs." + Math.round(fin.otEarnings).toLocaleString("en-IN"),
+  "Rs." + fin.totalBonuses.toLocaleString("en-IN"),
+  "Rs." + fin.foodAllowance.toLocaleString("en-IN"),
+  "Rs." + fin.totalAdvances.toLocaleString("en-IN"),
+  "Rs." + fin.totalPaid.toLocaleString("en-IN"),
+  "Rs." + Math.round(fin.netPayable).toLocaleString("en-IN")
+]),
           theme: "grid",
           headStyles: { fillColor: [30, 111, 219], fontSize: 8 },
           bodyStyles: { fontSize: 8 },
@@ -1873,13 +1872,11 @@ function PayrollView({ employees, setEmployees, posts, ledger, setLedger, postHi
     if (search.trim()) filteredList = filteredList.filter(e => e.name.toLowerCase().includes(search.toLowerCase()));
 
     const rows = filteredList.map(emp => ({
-      emp,
-      fin: calcFinances(emp, posts, rangeAttendance, ledger, monthStart, effectiveEnd, postHistory, overtime),
-      finLifetime: calcFinances(emp, posts, rangeAttendance, ledger, emp.joining_date || "2020-01-01", effectiveEnd, postHistory, overtime)
-    }));
+  emp,
+  fin: calcFinances(emp, posts, rangeAttendance, ledger, monthStart, effectiveEnd, postHistory, overtime)
+}));
 
     const totalNet = rows.reduce((s, r) => s + r.fin.netPayable, 0);
-    const totalActual = rows.reduce((s, r) => s + r.finLifetime.netPayable, 0);
 
     return (
       <div style={{ marginBottom: 30 }}>
@@ -1891,7 +1888,7 @@ function PayrollView({ employees, setEmployees, posts, ledger, setLedger, postHi
           <table style={css.table}>
             <thead>
               <tr style={{ background: C.bg }}>
-                {["Name / Post", "Prorated Base", "Absent", "OT", "Bonus", "Food", "Adv/Fine", "Paid This Month", "Period Net", "Lifetime Payable", "Pay"].map(h =>
+                {["Name / Post", "Prorated Base", "Absent", "OT", "Bonus", "Food", "Adv/Fine", "Paid This Month", "Period Net", "Pay"].map(h =>
   <th key={h} style={{ ...css.th, whiteSpace: "nowrap" }}>{h}</th>
 )}
               </tr>
@@ -1916,25 +1913,33 @@ function PayrollView({ employees, setEmployees, posts, ledger, setLedger, postHi
                     <td style={{ ...css.td, background: color + "11" }}>
                       <strong style={{ color: fin.netPayable < 0 ? C.red : color, fontSize: 14 }}>₹{Math.round(fin.netPayable).toLocaleString("en-IN")}</strong>
                     </td>
-                    <td style={{ ...css.td, background: C.orange + "15", borderLeft: `2px solid ${C.orange}44` }}>
-                      <strong style={{ color: finLifetime.netPayable < 0 ? C.red : C.orange, fontSize: 15 }}>₹{Math.round(finLifetime.netPayable).toLocaleString("en-IN")}</strong>
-                    </td>
-                    <td style={css.td}>
-  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-    {fin.periods.length > 1 &&
-      <button style={{ ...css.btn(C.accent), padding: "3px 8px", fontSize: 10 }} onClick={() => setExpandedRow(expandedRow === emp.id ? null : emp.id)}>
-        {expandedRow === emp.id ? "▲" : "▼"}
-      </button>
-    }
-    {(() => {
-      const monthPaid = ledger.filter(l =>
-        String(l.employee_id) === String(emp.id) &&
-        l.transaction_type === "Payout" &&
-        l.pay_month === selectedMonth
-      ).reduce((s, l) => s + Number(l.amount), 0);
-      const maxPayable = Math.max(0, Math.round(fin.proratedSalary) - monthPaid);
-      const isPaid = maxPayable <= 0;
-      return (
+                    {(() => {
+  const monthPaid = ledger.filter(l =>
+    String(l.employee_id) === String(emp.id) &&
+    l.transaction_type === "Payout" &&
+    l.pay_month === selectedMonth
+  ).reduce((s, l) => s + Number(l.amount), 0);
+
+  const grossOwed = Math.round(
+    fin.proratedSalary
+    + fin.otEarnings
+    + fin.totalBonuses
+    + fin.foodAllowance
+    - fin.attendanceDeduction
+    - fin.totalAdvances
+  );
+  const maxPayable = Math.max(0, grossOwed - monthPaid);
+  const isPaid = maxPayable <= 0;
+
+  return (
+    <td style={css.td}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {fin.periods.length > 1 &&
+          <button style={{ ...css.btn(C.accent), padding: "3px 8px", fontSize: 10 }}
+            onClick={() => setExpandedRow(expandedRow === emp.id ? null : emp.id)}>
+            {expandedRow === emp.id ? "▲" : "▼"}
+          </button>
+        }
         <button
           style={{ ...css.btn(isPaid ? C.textDim : C.green), padding: "3px 8px", fontSize: 10, opacity: isPaid ? 0.5 : 1 }}
           disabled={isPaid}
@@ -1945,10 +1950,13 @@ function PayrollView({ employees, setEmployees, posts, ledger, setLedger, postHi
         >
           {isPaid ? "✓ Paid" : `💳 Pay ₹${maxPayable.toLocaleString("en-IN")}`}
         </button>
-      );
-    })()}
-  </div>
-</td>
+        {!isPaid && monthPaid > 0 &&
+          <div style={{ fontSize: 9, color: C.textDim }}>₹{monthPaid.toLocaleString("en-IN")} paid</div>
+        }
+      </div>
+    </td>
+  );
+})()}
                   </tr>
                   {expandedRow === emp.id && fin.periods.map((p, i) => (
                     <tr key={i} style={{ background: C.accent + "08" }}>
@@ -1959,7 +1967,7 @@ function PayrollView({ employees, setEmployees, posts, ledger, setLedger, postHi
                       <td style={{ ...css.td, color: C.red }}><small>{p.absentDays}d · -₹{Math.round(p.attendanceDeduction).toLocaleString()}</small></td>
                       <td style={{ ...css.td, color: C.green }}><small>{p.otHours}h · +₹{Math.round(p.otEarnings).toLocaleString()}</small></td>
                       <td colSpan={5} style={css.td}><small style={{ color: C.textDim }}>Period subtotal: ₹{Math.round(p.proratedSalary - p.attendanceDeduction + p.otEarnings).toLocaleString()}</small></td>
-                      <td style={css.td}></td><td style={css.td}></td>
+                      <td style={css.td}></td>
                     </tr>
                   ))}
                 </React.Fragment>
@@ -1969,7 +1977,6 @@ function PayrollView({ employees, setEmployees, posts, ledger, setLedger, postHi
   <tr style={{ borderTop: `2px solid ${C.border}` }}>
     <td colSpan={8} style={{ ...css.td, textAlign: "right", fontWeight: 700 }}>TOTAL PAYABLE THIS MONTH</td>
     <td style={css.td}><strong style={{ color, fontSize: 16 }}>₹{Math.round(totalNet).toLocaleString("en-IN")}</strong></td>
-    <td style={{ ...css.td, borderLeft: `2px solid ${C.orange}44` }}><strong style={{ color: C.orange, fontSize: 16 }}>₹{Math.round(totalActual).toLocaleString("en-IN")}</strong></td>
     <td style={css.td}></td>
   </tr>
 </tfoot>
@@ -2387,21 +2394,35 @@ function PayrollView({ employees, setEmployees, posts, ledger, setLedger, postHi
       form.pay_month === currentMonthStr ? todayStr : `${form.pay_month}-${String(new Date(Number(form.pay_month.split("-")[0]), Number(form.pay_month.split("-")[1]), 0).getDate()).padStart(2,"0")}`,
       postHistory, overtime
     );
-    const maxPayable = Math.max(0, Math.round(empFin.proratedSalary) - monthPaid);
-    return (
-      <>
-        <input
-          type="number"
-          style={{ ...css.input, width: "100%", fontSize: 18, fontWeight: 700 }}
-          value={form.amount}
-          onChange={e => setForm({ ...form, amount: Math.min(Number(e.target.value), maxPayable) })}
-        />
-        <div style={{ fontSize: 10, color: C.textDim, marginTop: 3 }}>
-          Max allowed this month: <strong style={{ color: C.orange }}>₹{maxPayable.toLocaleString("en-IN")}</strong>
-          &nbsp;(Prorated base: ₹{Math.round(empFin.proratedSalary).toLocaleString("en-IN")} − Already paid: ₹{monthPaid.toLocaleString("en-IN")})
-        </div>
-      </>
-    );
+    const grossOwed = Math.round(
+  empFin.proratedSalary
+  + empFin.otEarnings
+  + empFin.totalBonuses
+  + empFin.foodAllowance
+  - empFin.attendanceDeduction
+  - empFin.totalAdvances
+);
+const maxPayable = Math.max(0, grossOwed - monthPaid);
+return (
+  <>
+    <input
+      type="number"
+      style={{ ...css.input, width: "100%", fontSize: 18, fontWeight: 700 }}
+      value={form.amount}
+      onChange={e => setForm({ ...form, amount: Math.min(Number(e.target.value), maxPayable) })}
+    />
+    <div style={{ fontSize: 10, color: C.textDim, marginTop: 3, lineHeight: 1.6 }}>
+      Max allowed: <strong style={{ color: C.orange }}>₹{maxPayable.toLocaleString("en-IN")}</strong><br />
+      <span style={{ color: C.green }}>Base ₹{Math.round(empFin.proratedSalary).toLocaleString("en-IN")}</span>
+      {empFin.otEarnings > 0 && <span style={{ color: C.green }}> + OT ₹{Math.round(empFin.otEarnings).toLocaleString("en-IN")}</span>}
+      {empFin.totalBonuses > 0 && <span style={{ color: C.green }}> + Bonus ₹{empFin.totalBonuses.toLocaleString("en-IN")}</span>}
+      {empFin.foodAllowance > 0 && <span style={{ color: C.green }}> + Food ₹{empFin.foodAllowance.toLocaleString("en-IN")}</span>}
+      {empFin.attendanceDeduction > 0 && <span style={{ color: C.red }}> − Absent ₹{Math.round(empFin.attendanceDeduction).toLocaleString("en-IN")}</span>}
+      {empFin.totalAdvances > 0 && <span style={{ color: C.red }}> − Adv ₹{empFin.totalAdvances.toLocaleString("en-IN")}</span>}
+      {monthPaid > 0 && <span style={{ color: C.red }}> − Already paid ₹{monthPaid.toLocaleString("en-IN")}</span>}
+    </div>
+  </>
+);
   }
   return <input type="number" style={{ ...css.input, width: "100%", fontSize: 18, fontWeight: 700 }} value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} />;
 })()}
