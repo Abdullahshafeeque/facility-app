@@ -120,10 +120,7 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
   // --- SANDWICH LEAVE LOGIC PREP ---
   const empAttMap = {};
 (rangeAttendance || []).filter(a => String(a.employee_id) === String(employee.id)).forEach(a => {
-  const existing = empAttMap[a.date];
-  if (!existing || a.status === "Absent") {
-    empAttMap[a.date] = a.status;
-  }
+  empAttMap[a.date] = a.status;
 });
   
   const getEffStatus = (dateStr) => {
@@ -1757,8 +1754,7 @@ function PayrollView({ employees, setEmployees, posts, ledger, setLedger, postHi
       const { data } = await supabase
         .from("attendance")
         .select("*")
-        .gte("date", "2020-01-01")
-        .limit(50000);
+        .gte("date", "2020-01-01");
       if (data) setRangeAttendance(data);
     };
     fetch();
