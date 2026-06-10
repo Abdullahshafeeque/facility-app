@@ -1754,7 +1754,11 @@ function PayrollView({ employees, setEmployees, posts, ledger, setLedger, postHi
 
   useEffect(() => {
     const fetch = async () => {
-      const { data } = await supabase.from("attendance").select("*");
+      const { data } = await supabase
+        .from("attendance")
+        .select("*")
+        .gte("date", "2020-01-01")
+        .limit(50000);
       if (data) setRangeAttendance(data);
     };
     fetch();
