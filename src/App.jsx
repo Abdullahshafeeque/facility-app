@@ -117,11 +117,14 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
   let totalAbsentDays = 0, totalLeaveDays = 0, totalOTHours = 0;
   const periodBreakdown = [];
 
-  // --- SANDWICH LEAVE LOGIC PREP ---
-  const empAttMap = {};
-(rangeAttendance || []).filter(a => String(a.employee_id) === String(employee.id)).forEach(a => {
-  empAttMap[a.date] = a.status;
-});
+  // ADD THIS BLOCK INSTEAD
+const empAttMap = {};
+(rangeAttendance || [])
+  .filter(a => String(a.employee_id) === String(employee.id))
+  .sort((a, b) => Number(a.id || 0) - Number(b.id || 0))
+  .forEach(a => {
+    empAttMap[a.date] = a.status;
+  });
   
   const getEffStatus = (dateStr) => {
     if (empAttMap[dateStr] !== "Holiday") return empAttMap[dateStr];
