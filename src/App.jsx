@@ -1759,6 +1759,8 @@ const [attTick, setAttTick] = useState(0);
     .from("attendance")
     .select("*")
     .gte("date", "2020-01-01")
+    .order("id", { ascending: true })
+    .range(0, 49999)
     .then(({ data }) => { if (data) setRangeAttendance(data); });
 }, [selectedMonth, attTick]);
 
