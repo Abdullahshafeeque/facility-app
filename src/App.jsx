@@ -1749,16 +1749,18 @@ function PayrollView({ employees, setEmployees, posts, ledger, setLedger, postHi
   (!e.joining_date || e.joining_date <= monthEnd)
 );
 
+  const [attRefresh, setAttRefresh] = useState(0);
+
   useEffect(() => {
-    const fetch = async () => {
+    const fetchAtt = async () => {
       const { data } = await supabase
         .from("attendance")
         .select("*")
         .gte("date", "2020-01-01");
       if (data) setRangeAttendance(data);
     };
-    fetch();
-  }, []);
+    fetchAtt();
+  }, [selectedMonth, attRefresh]);
 
   const monthLabel = (m) => {
     const [y, mo] = m.split("-");
@@ -2249,7 +2251,10 @@ body: rows.map(({ emp, fin }) => [
           <div style={css.sectionTitle}>Financial Overview</div>
           <div style={{ fontSize: 22, fontWeight: 700 }}>Payroll & Ledger</div>
         </div>
-        <button style={css.btn(C.blue)} onClick={() => setShowModal(true)}>+ Register Transaction</button>
+        <div style={{ display: "flex", gap: 8 }}>
+  <button style={css.btn(C.textDim)} onClick={() => setAttRefresh(r => r + 1)}>🔄 Refresh Attendance</button>
+  <button style={css.btn(C.blue)} onClick={() => setShowModal(true)}>+ Register Transaction</button>
+</div>
       </div>
 
       {/* Month selector */}
