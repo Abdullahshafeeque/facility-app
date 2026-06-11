@@ -1733,6 +1733,7 @@ function PayrollView({ employees, setEmployees, posts, ledger, setLedger, postHi
   const [search, setSearch] = useState("");
   const [expandedRow, setExpandedRow] = useState(null);
   const [rangeAttendance, setRangeAttendance] = useState([]);
+const [attTick, setAttTick] = useState(0);
 
   const [selYear, selMonthNum] = selectedMonth.split("-").map(Number);
   const monthStart = `${selectedMonth}-01`;
@@ -1751,15 +1752,12 @@ function PayrollView({ employees, setEmployees, posts, ledger, setLedger, postHi
 
 
   useEffect(() => {
-    const fetchAtt = async () => {
-      const { data } = await supabase
-        .from("attendance")
-        .select("*")
-        .gte("date", "2020-01-01");
-      if (data) setRangeAttendance(data);
-    };
-    fetchAtt();
-  }, [selectedMonth, attRefresh]);
+  supabase
+    .from("attendance")
+    .select("*")
+    .gte("date", "2020-01-01")
+    .then(({ data }) => { if (data) setRangeAttendance(data); });
+}, [selectedMonth, attTick]);
 
   const monthLabel = (m) => {
     const [y, mo] = m.split("-");
@@ -2251,7 +2249,7 @@ body: rows.map(({ emp, fin }) => [
           <div style={{ fontSize: 22, fontWeight: 700 }}>Payroll & Ledger</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-  <button style={css.btn(C.textDim)} onClick={fetchRangeAttendance}>🔄 Refresh Attendance</button>
+  <button style={css.btn(C.textDim)} onClick={() => setAttTick(t => t + 1)}>🔄 Refresh Attendance</button>
   <button style={css.btn(C.blue)} onClick={() => setShowModal(true)}>+ Register Transaction</button>
 </div>
       </div>
