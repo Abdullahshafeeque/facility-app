@@ -175,7 +175,10 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
       
       let absentDays = 0;
       let leaveDays = 0;
-      periodAtt.forEach(a => {
+      const countedDates = new Set();
+periodAtt.forEach(a => {
+  if (countedDates.has(a.date)) return;
+  countedDates.add(a.date);
   const eff = getEffStatus(a.date);
   if (eff === "Absent") absentDays++;
 });
@@ -2651,17 +2654,15 @@ function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
   const [rangeAttendance, setRangeAttendance] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  const fetchRangeAttendance = async () => {
-    const { data } = await supabase
-      .from("attendance")
-      .select("*")
-      .gte("date", "2020-01-01");
-    if (data) setRangeAttendance(data);
-  };
-
   useEffect(() => {
-    fetchRangeAttendance();
-  }, [selectedMonth]);
+    const fetchAtt = async () => {
+      setLoading(true);
+      const { data } = await supabase.from("attendance").select("*").gte("date", start).lte("date", end);
+      if (data) setRangeAttendance(data);
+      setLoading(false);
+    };
+    fetchAtt();
+  }, [start, end]);
 
   const downloadCSV = () => {
     const active = employees.filter(e => e.status === "active");
