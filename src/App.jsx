@@ -697,16 +697,15 @@ function AttendanceView({ employees, logAction, myRole }) {
     setSaving(true);
     const insertData = filtered.map(emp => { const rec = dayAttendance[emp.id] || { status: "Present", ot_hours: 0 }; return { employee_id: emp.id, date: selectedDate, status: rec.status, ot_hours: rec.ot_hours || 0, shift: activeShift }; });
     
-    const empIds = filtered.map(e => e.id);
-    if (empIds.length > 0) {
-      await supabase.from("attendance").delete().eq("date", selectedDate).in("employee_id", empIds);
-      await supabase.from("attendance").insert(insertData);
-    }
+    // Wipe the entire shift for this date to prevent any duplicates or ghost records
+  await supabase.from("attendance").delete().eq("date", selectedDate).eq("shift", activeShift);
+  
+  if (insertData.length > 0) {
+    await supabase.from("attendance").insert(insertData);
+  } else {
     // Even if shift has zero employees, record a sentinel so the dashboard knows it was submitted
-    if (empIds.length === 0) {
-      await supabase.from("attendance").delete().eq("date", selectedDate).eq("shift", activeShift).eq("employee_id", null).maybeSingle();
-      await supabase.from("attendance").insert({ employee_id: null, date: selectedDate, status: "Present", ot_hours: 0, shift: activeShift });
-    }
+    await supabase.from("attendance").insert({ employee_id: null, date: selectedDate, status: "Present", ot_hours: 0, shift: activeShift });
+  }
 
     setIsSubmitted(true); setIsHoliday(false); setSaving(false);
     if (logAction) logAction("Attendance Submitted", `Marked ${activeShift} shift for ${selectedDate}`);
