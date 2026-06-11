@@ -715,11 +715,12 @@ function AttendanceView({ employees, logAction, myRole }) {
     setSaving(true);
     const insertData = filtered.map(emp => ({ employee_id: emp.id, date: selectedDate, status: "Holiday", ot_hours: 0, shift: activeShift }));
     
-    const empIds = filtered.map(e => e.id);
-    if (empIds.length > 0) {
-      await supabase.from("attendance").delete().eq("date", selectedDate).in("employee_id", empIds);
-      await supabase.from("attendance").insert(insertData);
-    }
+    // Wipe the entire shift for this date to prevent any duplicates or ghost records
+  await supabase.from("attendance").delete().eq("date", selectedDate).eq("shift", activeShift);
+  
+  if (insertData.length > 0) {
+    await supabase.from("attendance").insert(insertData);
+  }
     
     setIsSubmitted(true); setIsHoliday(true);
     const newMap = { ...dayAttendance };
@@ -733,10 +734,8 @@ function AttendanceView({ employees, logAction, myRole }) {
 
   const handleUnsubmit = async () => { 
     setSaving(true);
-    const empIds = filtered.map(e => e.id);
-    if (empIds.length > 0) {
-      await supabase.from("attendance").delete().eq("date", selectedDate).in("employee_id", empIds);
-    }
+    // Wipe the entire shift for this date completely
+  await supabase.from("attendance").delete().eq("date", selectedDate).eq("shift", activeShift);
     setIsSubmitted(false); setIsHoliday(false); 
     setSaving(false);
     setIsSubmitted(false); setIsHoliday(false); 
