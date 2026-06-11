@@ -1749,7 +1749,6 @@ function PayrollView({ employees, setEmployees, posts, ledger, setLedger, postHi
   (!e.joining_date || e.joining_date <= monthEnd)
 );
 
-  const [attRefresh, setAttRefresh] = useState(0);
 
   useEffect(() => {
     const fetchAtt = async () => {
@@ -2252,7 +2251,7 @@ body: rows.map(({ emp, fin }) => [
           <div style={{ fontSize: 22, fontWeight: 700 }}>Payroll & Ledger</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-  <button style={css.btn(C.textDim)} onClick={() => setAttRefresh(r => r + 1)}>🔄 Refresh Attendance</button>
+  <button style={css.btn(C.textDim)} onClick={fetchRangeAttendance}>🔄 Refresh Attendance</button>
   <button style={css.btn(C.blue)} onClick={() => setShowModal(true)}>+ Register Transaction</button>
 </div>
       </div>
@@ -2654,15 +2653,17 @@ function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
   const [rangeAttendance, setRangeAttendance] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  const fetchRangeAttendance = async () => {
+    const { data } = await supabase
+      .from("attendance")
+      .select("*")
+      .gte("date", "2020-01-01");
+    if (data) setRangeAttendance(data);
+  };
+
   useEffect(() => {
-    const fetchAtt = async () => {
-      setLoading(true);
-      const { data } = await supabase.from("attendance").select("*").gte("date", start).lte("date", end);
-      if (data) setRangeAttendance(data);
-      setLoading(false);
-    };
-    fetchAtt();
-  }, [start, end]);
+    fetchRangeAttendance();
+  }, [selectedMonth]);
 
   const downloadCSV = () => {
     const active = employees.filter(e => e.status === "active");
