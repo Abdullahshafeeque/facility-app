@@ -1054,8 +1054,35 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
 
   // Fetch this specific person's historical attendance when their profile opens
   useEffect(() => {
-    if (viewing) supabase.from("attendance").select("*").eq("employee_id", viewing.id).then(({ data }) => setViewingAtt(data || []));
-    else setViewingAtt([]);
+    if (!viewing) { setViewingAtt([]); return; }
+
+    let cancelled = false;
+    const fetchAllAttendanceForEmployee = async () => {
+      let all = [];
+      let from = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from("attendance")
+          .select("*")
+          .eq("employee_id", viewing.id)
+          .order("date", { ascending: true })
+          .range(from, from + pageSize - 1);
+
+        if (error) {
+          console.error("Attendance fetch error:", error.message);
+          break;
+        }
+        if (!data || data.length === 0) break;
+
+        all = all.concat(data);
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+      if (!cancelled) setViewingAtt(all);
+    };
+    fetchAllAttendanceForEmployee();
+    return () => { cancelled = true; };
   }, [viewing]);
 
   // Run the lifetime calculation engine for the popup
