@@ -257,7 +257,11 @@ const attendanceDeduction = employee.leave_type === 'paid'
   // The Final Logical Output
   const netPayable = (totalProratedSalary + totalBonuses + totalOTEarnings + totalRepayments + foodAllowance) - (totalAttendanceDeduction + totalAdvances + totalPaid + totalLoans + totalContractorDist);
 
-  return { periods: periodBreakdown, proratedSalary: totalProratedSalary, attendanceDeduction: totalAttendanceDeduction, otEarnings: totalOTEarnings, absentDays: totalAbsentDays, leaveDays: 0, totalOTHours, totalBonuses, foodAllowance, totalAdvances, totalPaid, totalContractorDist, totalLoans, totalRepayments, pendingLoan, netPayable, joiningDate: employee.joining_date || start, effectiveStart };
+  // Period (monthly) net pay should NOT be affected by Loan Given / Loan Repayment —
+  // those only impact the employee's lifetime/personal account balance (netPayable).
+  const periodNetPayable = netPayable + totalLoans - totalRepayments;
+
+  return { periods: periodBreakdown, proratedSalary: totalProratedSalary, attendanceDeduction: totalAttendanceDeduction, otEarnings: totalOTEarnings, absentDays: totalAbsentDays, leaveDays: 0, totalOTHours, totalBonuses, foodAllowance, totalAdvances, totalPaid, totalContractorDist, totalLoans, totalRepayments, pendingLoan, netPayable, periodNetPayable, joiningDate: employee.joining_date || start, effectiveStart };
 }
 
 function StatCard({ label, value, sub, accent }) {
@@ -1949,7 +1953,7 @@ body: rows.map(({ emp, fin }) => [
   "Rs." + fin.foodAllowance.toLocaleString("en-IN"),
   "Rs." + fin.totalAdvances.toLocaleString("en-IN"),
   "Rs." + fin.totalPaid.toLocaleString("en-IN"),
-  "Rs." + Math.round(fin.netPayable).toLocaleString("en-IN")
+  "Rs." + Math.round(fin.periodNetPayable).toLocaleString("en-IN")
 ]),
           theme: "grid",
           headStyles: { fillColor: [30, 111, 219], fontSize: 8 },
@@ -1970,7 +1974,7 @@ body: rows.map(({ emp, fin }) => [
   fin: calcFinances(emp, posts, rangeAttendance, ledger, monthStart, effectiveEnd, postHistory, overtime)
 }));
 
-    const totalNet = rows.reduce((s, r) => s + r.fin.netPayable, 0);
+    const totalNet = rows.reduce((s, r) => s + r.fin.periodNetPayable, 0);
 
     return (
       <div style={{ marginBottom: 30 }}>
@@ -2005,7 +2009,7 @@ body: rows.map(({ emp, fin }) => [
                     <td style={{ ...css.td, color: C.red }}>-₹{fin.totalAdvances.toLocaleString()}</td>
                     <td style={{ ...css.td, color: C.textDim }}>₹{fin.totalPaid.toLocaleString("en-IN")}</td>
                     <td style={{ ...css.td, background: color + "11" }}>
-                      <strong style={{ color: fin.netPayable < 0 ? C.red : color, fontSize: 14 }}>₹{Math.round(fin.netPayable).toLocaleString("en-IN")}</strong>
+                      <strong style={{ color: fin.periodNetPayable < 0 ? C.red : color, fontSize: 14 }}>₹{Math.round(fin.periodNetPayable).toLocaleString("en-IN")}</strong>
                     </td>
                     {(() => {
   const monthPaid = ledger.filter(l =>
