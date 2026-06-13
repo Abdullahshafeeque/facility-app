@@ -121,13 +121,15 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
   const empAttMap = {};
   (rangeAttendance || [])
     .filter(a => String(a.employee_id) === String(employee.id))
-    .sort((a, b) => {
-      const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
-      const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
-      return timeA - timeB; // Safely sorts oldest to newest
-    })
     .forEach(a => {
-      empAttMap[a.date] = a.status; // Newest entry safely overwrites the old
+      const prev = empAttMap[a.date];
+      // If duplicates ever exist, prefer "Absent" over anything else so attendance
+      // corrections always win over a stale "Present"/"Holiday" record.
+      if (prev === undefined || a.status === "Absent") {
+        empAttMap[a.date] = a.status;
+      } else if (prev === undefined) {
+        empAttMap[a.date] = a.status;
+      }
     });
   
   const getEffStatus = (dateStr) => {
@@ -697,15 +699,21 @@ function AttendanceView({ employees, logAction, myRole }) {
     setSaving(true);
     const insertData = filtered.map(emp => { const rec = dayAttendance[emp.id] || { status: "Present", ot_hours: 0 }; return { employee_id: emp.id, date: selectedDate, status: rec.status, ot_hours: rec.ot_hours || 0, shift: activeShift }; });
     
-    // Wipe the entire shift for this date to prevent any duplicates or ghost records
-  await supabase.from("attendance").delete().eq("date", selectedDate).eq("shift", activeShift);
-  
-  if (insertData.length > 0) {
-    await supabase.from("attendance").insert(insertData);
-  } else {
-    // Even if shift has zero employees, record a sentinel so the dashboard knows it was submitted
-    await supabase.from("attendance").insert({ employee_id: null, date: selectedDate, status: "Present", ot_hours: 0, shift: activeShift });
-  }
+    let finalInsertData = insertData;
+    if (finalInsertData.length === 0) {
+      // Even if shift has zero employees, record a sentinel so the dashboard knows it was submitted
+      finalInsertData = [{ employee_id: null, date: selectedDate, status: "Present", ot_hours: 0, shift: activeShift }];
+    }
+
+    const { error: upsertError } = await supabase
+      .from("attendance")
+      .upsert(finalInsertData, { onConflict: "employee_id,date,shift" });
+
+    if (upsertError) {
+      alert("Database Error saving attendance: " + upsertError.message);
+      setSaving(false);
+      return;
+    }
 
     setIsSubmitted(true); setIsHoliday(false); setSaving(false);
     if (logAction) logAction("Attendance Submitted", `Marked ${activeShift} shift for ${selectedDate}`);
@@ -715,12 +723,17 @@ function AttendanceView({ employees, logAction, myRole }) {
     setSaving(true);
     const insertData = filtered.map(emp => ({ employee_id: emp.id, date: selectedDate, status: "Holiday", ot_hours: 0, shift: activeShift }));
     
-    // Wipe the entire shift for this date to prevent any duplicates or ghost records
-  await supabase.from("attendance").delete().eq("date", selectedDate).eq("shift", activeShift);
-  
-  if (insertData.length > 0) {
-    await supabase.from("attendance").insert(insertData);
-  }
+    if (insertData.length > 0) {
+      const { error: upsertError } = await supabase
+        .from("attendance")
+        .upsert(insertData, { onConflict: "employee_id,date,shift" });
+
+      if (upsertError) {
+        alert("Database Error saving holiday: " + upsertError.message);
+        setSaving(false);
+        return;
+      }
+    }
     
     setIsSubmitted(true); setIsHoliday(true);
     const newMap = { ...dayAttendance };
