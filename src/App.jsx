@@ -1773,12 +1773,33 @@ const [attTick, setAttTick] = useState(0);
 
 
   useEffect(() => {
-  supabase
-    .from("attendance")
-    .select("*")
-    .gte("date", "2020-01-01")
-    .then(({ data }) => { if (data) setRangeAttendance(data); });
-}, [selectedMonth, attTick]);
+    let cancelled = false;
+    const fetchAllAttendance = async () => {
+      let all = [];
+      let from = 0;
+      const pageSize = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from("attendance")
+          .select("*")
+          .order("date", { ascending: true })
+          .range(from, from + pageSize - 1);
+
+        if (error) {
+          console.error("Attendance fetch error:", error.message);
+          break;
+        }
+        if (!data || data.length === 0) break;
+
+        all = all.concat(data);
+        if (data.length < pageSize) break;
+        from += pageSize;
+      }
+      if (!cancelled) setRangeAttendance(all);
+    };
+    fetchAllAttendance();
+    return () => { cancelled = true; };
+  }, [selectedMonth, attTick]);
 
   const monthLabel = (m) => {
     const [y, mo] = m.split("-");
