@@ -230,7 +230,17 @@ const attendanceDeduction = employee.leave_type === 'paid'
   }
 
   // Calculate Ledger impacts (Advances, Fines, Payouts, Bonuses)
-  const staffLedger = (ledger || []).filter(l => l.employee_id === employee.id && l.date >= start && l.date <= end);
+  // CODE TO ADD:
+  // Calculate Ledger impacts (Advances, Fines, Payouts, Bonuses)
+  const staffLedger = (ledger || []).filter(l => {
+    if (l.employee_id !== employee.id) return false;
+    // If calculating for a specific month, strictly group by assigned pay_month instead of physical transaction date
+    const queryMonth = start.slice(0, 7);
+    if (start === `${queryMonth}-01` && end.startsWith(queryMonth) && l.pay_month) {
+      return l.pay_month === queryMonth;
+    }
+    return l.date >= start && l.date <= end;
+  });
   const totalBonuses = staffLedger.filter(l => l.transaction_type === "Bonus").reduce((s, l) => s + Number(l.amount), 0);
   const totalAdvances = staffLedger.filter(l => l.transaction_type === "Advance" || l.transaction_type === "Fine").reduce((s, l) => s + Number(l.amount), 0);
   const totalPaid = staffLedger.filter(l => l.transaction_type === "Payout").reduce((s, l) => s + Number(l.amount), 0);
