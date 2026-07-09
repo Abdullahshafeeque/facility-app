@@ -2299,7 +2299,7 @@ body: rows.map(({ emp, fin }) => [
       <div>
         <div style={{ marginBottom: 12, padding: "10px 14px", background: C.orange + "15", border: `1px solid ${C.orange}44`, borderRadius: 6, fontSize: 12, color: C.orange, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
           <span>⚠ Former employees with pending dues. Record their final payout using "+ Register Transaction".</span>
-          <button style={css.btn(C.green)} onClick={markAllSettled}>✓ Mark All Settled</button>
+          {myRole !== "accountant" && <button style={css.btn(C.green)} onClick={markAllSettled}>✓ Mark All Settled</button>}
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
@@ -2322,7 +2322,7 @@ body: rows.map(({ emp, fin }) => [
                           setShowModal(true);
                         }}>Record Payout</button>
                       )}
-                      <button style={css.btn(C.green)} onClick={() => markSettled(emp)}>✓ Settled</button>
+                      {myRole !== "accountant" && <button style={css.btn(C.green)} onClick={() => markSettled(emp)}>✓ Settled</button>}
                     </div>
                   </td>
                 </tr>
@@ -3423,6 +3423,7 @@ function UserManagementView({ users, setUsers, employees }) {
                     <option value="viewer">Viewer (Staff Only)</option>
                     <option value="supervisor">Supervisor</option>
                     <option value="manager">Manager</option>
+                    <option value="accountant">Accountant</option>
                     <option value="director">Director</option>
                   </select>
                 </td>
@@ -3709,12 +3710,16 @@ export default function App() {
   const alerts = getCoverage(employees.filter(e => e.status === "active"), attendance, posts);
   const pendingSettlements = employees.filter(e => e.status === "inactive" && !e.settlement_done).length;
 
- // Dynamic tabs based on role
+// Dynamic tabs based on role
   const TABS = [
     { id: "dashboard", label: "Dashboard" },
-    ...(myRole !== "viewer" ? [{ id: "attendance", label: "Attendance" }, { id: "overtime", label: "Overtime" }] : []),
+    // Exclude viewer and accountant from Attendance and Overtime
+    ...(myRole !== "viewer" && myRole !== "accountant" ? [{ id: "attendance", label: "Attendance" }, { id: "overtime", label: "Overtime" }] : []),
     ...(myRole === "director" || myRole === "manager" || myRole === "supervisor" ? [{ id: "staff", label: "Staff" }] : []),
-    ...(myRole === "director" || myRole === "manager" ? [{ id: "payroll", label: "Payroll" }, { id: "transactions", label: "Transactions" }, { id: "reports", label: "📊 Reports" }] : []),
+    // Add accountant to Payroll and Transactions
+    ...(myRole === "director" || myRole === "manager" || myRole === "accountant" ? [{ id: "payroll", label: "Payroll" }, { id: "transactions", label: "Transactions" }] : []),
+    // Keep Reports restricted to director and manager
+    ...(myRole === "director" || myRole === "manager" ? [{ id: "reports", label: "📊 Reports" }] : []),
     ...(myRole === "director" ? [{ id: "settings", label: "⚙ Settings" }, { id: "logs", label: "📋 Logs" }, { id: "users", label: "🔐 Users" }] : []),
   ];
 
@@ -3806,7 +3811,7 @@ export default function App() {
           {tab === "overtime" && myRole !== "viewer" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} logAction={logAction} myRole={myRole} />}
           {tab === "staff" && (myRole === "director" || myRole === "manager" || myRole === "supervisor") && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
           {tab === "payroll" && myRole !== "viewer" && <PayrollView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
-          {tab === "transactions" && (myRole === "director" || myRole === "manager") && <TransactionsView ledger={ledger} setLedger={setLedger} employees={employees} myRole={myRole} />}
+          {tab === "transactions" && (myRole === "director" || myRole === "manager" || myRole === "accountant") && <TransactionsView ledger={ledger} setLedger={setLedger} employees={employees} myRole={myRole} />}
           {tab === "reports" && (myRole === "director" || myRole === "manager") && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} logAction={logAction} />}
           {tab === "settings" && myRole === "director" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} logAction={logAction} />}
           {tab === "logs" && myRole === "director" && <LogsView logs={logs} setLogs={setLogs} />} {/* <-- NEW RENDER LINE */}
