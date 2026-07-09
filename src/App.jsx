@@ -251,17 +251,24 @@ const attendanceDeduction = employee.leave_type === 'paid'
   const totalRepayments = staffLedger.filter(l => l.transaction_type === "Loan Repayment").reduce((s, l) => s + Number(l.amount), 0);
   const pendingLoan = totalLoans - totalRepayments;
 
-  // FOOD ALLOWANCE (70% Threshold Rule)
-  const totalDaysInRange = Math.max(1, Math.round((new Date(effectiveEnd) - new Date(effectiveStart)) / 86400000) + 1);
+// FOOD ALLOWANCE (70% Threshold Rule + Unpaid Gap Fix)
+  // Sum up days from valid periods only (ignoring 'Unpaid Gap' days where they aren't employed)
+  const validWorkingDays = periodBreakdown
+    .filter(p => p.post !== "Unpaid Gap")
+    .reduce((sum, p) => sum + p.daysInPeriod, 0) || 1; // Fallback to 1 to prevent division by zero
+
   let foodAllowance = 0;
   if (employee.has_food_allowance && employee.food_allowance_amount > 0) {
-    const presentDays = Math.max(0, totalDaysInRange - totalAbsentDays - totalLeaveDays);
-    const attendancePercent = presentDays / totalDaysInRange;
+    // Calculate present days only within their actual employed periods
+    const presentDays = Math.max(0, validWorkingDays - totalAbsentDays - totalLeaveDays);
+    const attendancePercent = presentDays / validWorkingDays;
     
     if (attendancePercent >= 0.70) {
-      // Hit 70% or more: Give full allowance
-      // (Keeps the >= 28 days check so a new hire who joins on the 29th doesn't get a full 30-day payout)
-      foodAllowance = totalDaysInRange >= 28 ? employee.food_allowance_amount : Math.round((employee.food_allowance_amount / 30) * totalDaysInRange);
+      // Hit 70%: Give full allowance ONLY if they were actually employed for the whole month (>= 28 days).
+      // If they rejoined late (like Rajkumar's 4 days), it caps the max allowance to their active days.
+      foodAllowance = validWorkingDays >= 28 
+        ? employee.food_allowance_amount 
+        : Math.round((employee.food_allowance_amount / 30) * validWorkingDays);
     } else {
       // Under 70%: Prorate strictly based on actual days worked
       foodAllowance = Math.round((employee.food_allowance_amount / 30) * presentDays);
