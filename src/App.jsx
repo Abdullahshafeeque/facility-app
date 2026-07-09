@@ -251,16 +251,20 @@ const attendanceDeduction = employee.leave_type === 'paid'
   const totalRepayments = staffLedger.filter(l => l.transaction_type === "Loan Repayment").reduce((s, l) => s + Number(l.amount), 0);
   const pendingLoan = totalLoans - totalRepayments;
 
-  // FOOD ALLOWANCE (60% Minimum Attendance Rule)
+  // FOOD ALLOWANCE (70% Threshold Rule)
   const totalDaysInRange = Math.max(1, Math.round((new Date(effectiveEnd) - new Date(effectiveStart)) / 86400000) + 1);
   let foodAllowance = 0;
   if (employee.has_food_allowance && employee.food_allowance_amount > 0) {
-    const presentDays = totalDaysInRange - totalAbsentDays - totalLeaveDays;
+    const presentDays = Math.max(0, totalDaysInRange - totalAbsentDays - totalLeaveDays);
     const attendancePercent = presentDays / totalDaysInRange;
     
-    if (attendancePercent >= 0.60) {
-      // Prorate for partial months (e.g. joined mid-month), otherwise give full amount
+    if (attendancePercent >= 0.70) {
+      // Hit 70% or more: Give full allowance
+      // (Keeps the >= 28 days check so a new hire who joins on the 29th doesn't get a full 30-day payout)
       foodAllowance = totalDaysInRange >= 28 ? employee.food_allowance_amount : Math.round((employee.food_allowance_amount / 30) * totalDaysInRange);
+    } else {
+      // Under 70%: Prorate strictly based on actual days worked
+      foodAllowance = Math.round((employee.food_allowance_amount / 30) * presentDays);
     }
   }
 
