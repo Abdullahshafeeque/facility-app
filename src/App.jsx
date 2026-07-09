@@ -1076,7 +1076,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
   const askForDate = (msg) => new Promise(resolve => setDatePromptOpts({ msg, date: todayStr, resolve }));
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportDates, setReportDates] = useState({ start: "", end: "" });
-
+const [calMonth, setCalMonth] = useState(todayStr.slice(0, 7));
   // Fetch this specific person's historical attendance when their profile opens
   useEffect(() => {
     if (!viewing) { setViewingAtt([]); return; }
@@ -1602,6 +1602,128 @@ if (aadharCheck && aadharCheck.length > 0) {
               </div>
             )}
 
+{/* --- NEW ATTENDANCE & EARNINGS CALENDAR --- */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ ...css.sectionTitle, marginBottom: 0 }}>Attendance & Earnings Calendar</div>
+                <input type="month" value={calMonth} onChange={e => setCalMonth(e.target.value)} style={{ ...css.input, padding: "4px 8px" }} />
+              </div>
+              <div style={{ background: C.bg, padding: 10, borderRadius: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4, marginBottom: 6 }}>
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
+                    <div key={d} style={{ textAlign: "center", fontSize: 10, fontWeight: 700, color: C.textDim }}>{d}</div>
+                  ))}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+                  {Array.from({ length: new Date(Number(calMonth.split("-")[0]), Number(calMonth.split("-")[1]) - 1, 1).getDay() }).map((_, i) => (
+                    <div key={`empty-${i}`} style={{ background: "transparent" }} />
+                  ))}
+                  {Array.from({ length: new Date(Number(calMonth.split("-")[0]), Number(calMonth.split("-")[1]), 0).getDate() }).map((_, i) => {
+                    const dayNum = i + 1;
+                    const dateStr = `${calMonth}-${String(dayNum).padStart(2, "0")}`;
+                    
+                    // Map datasets to this specific day
+                    const att = viewingAtt.find(a => a.date === dateStr);
+                    const dayOT = (overtime || []).filter(o => o.employee_id === viewing.id && o.date === dateStr);
+                    const dayLedger = (ledger || []).filter(l => l.employee_id === viewing.id && l.date === dateStr);
+
+                    let dayStatus = att?.status || "";
+                    let isEmployed = true;
+                    if (viewing.joining_date && dateStr < viewing.joining_date) isEmployed = false;
+                    if (viewing.left_date && dateStr > viewing.left_date) isEmployed = false;
+                    
+                    // Filter out Unpaid Gaps
+                    const hist = empHistory.find(h => h.valid_from <= dateStr && (!h.valid_to || h.valid_to >= dateStr));
+                    if (hist && hist.post === "Unpaid Gap") isEmployed = false;
+
+                    let bgColor = C.panel;
+                    let borderColor = C.border;
+                    if (!isEmployed) { bgColor = "transparent"; borderColor = "transparent"; dayStatus = ""; }
+                    else if (dayStatus === "Present") { bgColor = C.green + "11"; borderColor = C.green + "44"; }
+                    else if (dayStatus === "Absent") { bgColor = C.red + "11"; borderColor = C.red + "44"; }
+                    else if (dayStatus === "Holiday") { bgColor = C.orange + "11"; borderColor = C.orange + "44"; }
+                    else if (dayStatus === "Leave") { bgColor = C.accent + "11"; borderColor = C.accent + "44"; }
+
+                    // Daily Salary Math
+                    const activePost = hist ? hist.post : viewing.post;
+                    let dailyBasePay = 0;
+                    if (isEmployed) {
+                       let salaryRate = hist ? Number(hist.salary) : Number(viewing.base_salary);
+                       if (viewing.staff_type === "contract" && (!hist || hist.salary === 0)) {
+                           const pDef = posts.find(p => p.name === activePost);
+                           salaryRate = pDef?.contract_salary || pDef?.base_salary || 0;
+                       }
+                       const daysInMonth = new Date(Number(calMonth.split("-")[0]), Number(calMonth.split("-")[1]), 0).getDate();
+                       dailyBasePay = salaryRate / daysInMonth;
+                       if (dayStatus === "Absent" && viewing.leave_type === "unpaid") dailyBasePay = 0;
+                    }
+
+                    // OT Math
+                    let otPay = 0;
+                    dayOT.forEach(o => {
+                        let hrRate = Math.round(((((hist ? Number(hist.salary) : Number(viewing.base_salary)) * 12) / 365) / 12) * 2) / 2;
+                        if (viewing.staff_type === "contract") {
+                            const otPost = posts.find(p => p.name === o.post);
+                            if (otPost && Number(otPost.ot_hourly_rate) > 0) hrRate = Number(otPost.ot_hourly_rate);
+                            else if (otPost && Number(otPost.contract_salary) > 0) hrRate = Math.round((((Number(otPost.contract_salary) * 12) / 365) / 12) * 2) / 2;
+                        }
+                        otPay += Number(o.hours) * hrRate;
+                    });
+
+                    const dayEarned = dailyBasePay + otPay;
+                    
+                    // Transaction Flags
+                    const hasFine = dayLedger.some(l => l.transaction_type === "Fine");
+                    const hasAdvance = dayLedger.some(l => l.transaction_type === "Advance");
+                    const hasBonus = dayLedger.some(l => l.transaction_type === "Bonus");
+                    const hasPayout = dayLedger.some(l => l.transaction_type === "Payout" || l.transaction_type === "Contractor Payout");
+                    const hasLoan = dayLedger.some(l => l.transaction_type === "Loan Given" || l.transaction_type === "Loan Repayment");
+
+                    return (
+                      <div key={dateStr} style={{ background: bgColor, border: `1px solid ${borderColor}`, borderRadius: 4, padding: "4px", minHeight: 52, display: "flex", flexDirection: "column", opacity: isEmployed ? 1 : 0.4 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: C.textDim }}>{dayNum}</span>
+                          {isEmployed && dayStatus !== "" && (
+                             <span style={{ fontSize: 9, color: dayStatus === "Absent" ? C.red : dayStatus === "Holiday" ? C.orange : C.green, fontWeight: 900 }}>
+                               {dayStatus.slice(0, 3).toUpperCase()}
+                             </span>
+                          )}
+                        </div>
+                        
+                        {isEmployed && (
+                           <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
+                             <div style={{ display: "flex", gap: 2, flexWrap: "wrap", fontSize: 10, justifyContent: "flex-end" }}>
+                               {dayOT.length > 0 && <span title={`OT: ${dayOT.reduce((s,o)=>s+Number(o.hours),0)}h`}>🕒</span>}
+                               {hasFine && <span title="Fine">⚠</span>}
+                               {hasAdvance && <span title="Advance">💸</span>}
+                               {hasBonus && <span title="Bonus">🎁</span>}
+                               {hasPayout && <span title="Payout">💳</span>}
+                               {hasLoan && <span title="Loan Activity">🏦</span>}
+                             </div>
+                             {(dayEarned > 0 || dayStatus === "Absent") && (
+                               <div style={{ fontSize: 9, color: dayEarned > 0 ? C.green : C.textDim, fontWeight: 700, textAlign: "right", marginTop: 2 }}>
+                                 {dayEarned > 0 ? `₹${Math.round(dayEarned).toLocaleString("en-IN")}` : "₹0"}
+                               </div>
+                             )}
+                           </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ display: "flex", gap: 12, marginTop: 10, fontSize: 9, color: C.textDim, justifyContent: "center", flexWrap: "wrap" }}>
+                  <span><span style={{ color: C.green }}>■</span> Present</span>
+                  <span><span style={{ color: C.red }}>■</span> Absent</span>
+                  <span><span style={{ color: C.orange }}>■</span> Holiday</span>
+                  <span>🕒 OT</span>
+                  <span>⚠ Fine</span>
+                  <span>🎁 Bonus</span>
+                  <span>💸 Advance</span>
+                  <span>💳 Payout</span>
+                  <span>🏦 Loan</span>
+                </div>
+              </div>
+            </div>
             {viewing.staff_type === "company" && <div style={css.sectionTitle}>Recent Transactions</div>}
             {viewing.staff_type === "company" && <div style={{ maxHeight: 120, overflowY: "auto", background: C.bg, borderRadius: 6, padding: 10, marginBottom: 16 }}>
               {(ledger || []).filter(l => l.employee_id === viewing.id).slice(0, 10).length === 0
