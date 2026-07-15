@@ -992,12 +992,32 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
 
       // Checkpoint dates = every date something actually happened, plus endDate
       // (so trailing accrued salary + food allowance always get their own row).
-      const checkpointSet = new Set([...empOT.map(o => o.date), ...empLedger.map(l => l.date), endDate]);
+      // Month-end dates (or endDate, whichever is earlier) within the range —
+      // these are where Food Allowance now accrues, same rhythm as a payslip.
+      const monthEndCheckpoints = [];
+      {
+        let [cy, cm] = startDate.split("-").map(Number);
+        while (true) {
+          const lastDay = new Date(cy, cm, 0).getDate();
+          const mEnd = [cy, String(cm).padStart(2, "0"), String(lastDay).padStart(2, "0")].join("-");
+          if (mEnd >= endDate) { monthEndCheckpoints.push(endDate); break; }
+          monthEndCheckpoints.push(mEnd);
+          cm += 1; if (cm > 12) { cm = 1; cy += 1; }
+        }
+      }
+
+      const checkpointSet = new Set([...empOT.map(o => o.date), ...empLedger.map(l => l.date), ...monthEndCheckpoints, endDate]);
       const checkpoints = Array.from(checkpointSet).sort();
+
+      const foodComponentAsOf = (d) => {
+        if (d < startDate) return 0;
+        return calcFinances(emp, posts, viewingAtt, ledger, startDate, d, postHistory, overtime).foodAllowance;
+      };
 
       const rows = [];
       let prevCheckpoint = null;   // last date we drew a Salary Accrued line up to
       let prevComp = 0;
+      let prevFoodComp = 0;
 
       checkpoints.forEach(cpDate => {
         const comp = salaryComponentAsOf(cpDate);
@@ -1013,6 +1033,12 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
         }
         prevComp = comp;
         prevCheckpoint = cpDate;
+        const foodComp = foodComponentAsOf(cpDate);
+        const foodDelta = foodComp - prevFoodComp;
+        if (foodDelta >= 1) {
+          rows.push({ date: cpDate, particulars: "Food Allowance Accrued", debit: 0, credit: foodDelta });
+        }
+        prevFoodComp = foodComp;
 
         empOT.filter(o => o.date === cpDate).forEach(o => {
           let hrRate = fallbackHourly;
@@ -1031,9 +1057,9 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
           rows.push({ date: l.date, particulars: `${l.transaction_type}${l.notes ? " — " + l.notes : ""}`, debit: isCredit ? 0 : Number(l.amount), credit: isCredit ? Number(l.amount) : 0 });
         });
 
-        if (cpDate === endDate && finPeriod.foodAllowance > 0) {
-          rows.push({ date: endDate, particulars: "Food Allowance", debit: 0, credit: finPeriod.foodAllowance });
-        }
+        // Food allowance accrues by calendar month too — checked at every month-end
+        // checkpoint so it posts to the ledger BEFORE any payout/settlement that
+        // already assumes it's earned, instead of appearing as one lump sum at the end.
       });
 
       let running = openingBalance;
