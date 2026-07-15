@@ -252,27 +252,51 @@ const attendanceDeduction = employee.leave_type === 'paid'
   const pendingLoan = totalLoans - totalRepayments;
 
 // FOOD ALLOWANCE (70% Threshold Rule + Unpaid Gap Fix)
-  // Sum up days from valid periods only (ignoring 'Unpaid Gap' days where they aren't employed)
-  const validWorkingDays = periodBreakdown
-    .filter(p => p.post !== "Unpaid Gap")
-    .reduce((sum, p) => sum + p.daysInPeriod, 0) || 1; // Fallback to 1 to prevent division by zero
-
+  // Computed CALENDAR MONTH BY CALENDAR MONTH and summed — so a multi-month range
+  // (e.g. a 76-day report) correctly accrues one allowance per month, instead of
+  // being capped at a single month's amount no matter how long the range is.
   let foodAllowance = 0;
   if (employee.has_food_allowance && employee.food_allowance_amount > 0) {
-    // Calculate present days only within their actual employed periods
-    const presentDays = Math.max(0, validWorkingDays - totalAbsentDays - totalLeaveDays);
-    const attendancePercent = presentDays / validWorkingDays;
-    
-    if (attendancePercent >= 0.70) {
-      // Hit 70%: Give full allowance ONLY if they were actually employed for the whole month (>= 28 days).
-      // If they rejoined late (like Rajkumar's 4 days), it caps the max allowance to their active days.
-      foodAllowance = validWorkingDays >= 28 
-        ? employee.food_allowance_amount 
-        : Math.round((employee.food_allowance_amount / 30) * validWorkingDays);
-    } else {
-      // Under 70%: Prorate strictly based on actual days worked
-      foodAllowance = Math.round((employee.food_allowance_amount / 30) * presentDays);
-    }
+    periodBreakdown.forEach(p => {
+      if (p.post === "Unpaid Gap") return;
+
+      // Walk this period month by month
+      const [pfy, pfm, pfd] = p.from.split('-').map(Number);
+      const [pty, ptm, ptd] = p.to.split('-').map(Number);
+      let curMonthStart = new Date(pfy, pfm - 1, 1);
+      const periodEndDt = new Date(pty, ptm - 1, ptd);
+
+      while (curMonthStart <= periodEndDt) {
+        const monthDaysTotal = new Date(curMonthStart.getFullYear(), curMonthStart.getMonth() + 1, 0).getDate();
+        const monthStartDt = new Date(curMonthStart.getFullYear(), curMonthStart.getMonth(), 1);
+        const monthEndDt = new Date(curMonthStart.getFullYear(), curMonthStart.getMonth(), monthDaysTotal);
+        const spanStartDt = new Date(pfy, pfm - 1, pfd) > monthStartDt ? new Date(pfy, pfm - 1, pfd) : monthStartDt;
+        const spanEndDt = periodEndDt < monthEndDt ? periodEndDt : monthEndDt;
+        const daysInThisMonthSlice = Math.round((spanEndDt - spanStartDt) / 86400000) + 1;
+
+        const sliceStartStr = [spanStartDt.getFullYear(), String(spanStartDt.getMonth() + 1).padStart(2, "0"), String(spanStartDt.getDate()).padStart(2, "0")].join("-");
+        const sliceEndStr = [spanEndDt.getFullYear(), String(spanEndDt.getMonth() + 1).padStart(2, "0"), String(spanEndDt.getDate()).padStart(2, "0")].join("-");
+
+        const sliceAbsent = (rangeAttendance || []).filter(a =>
+          String(a.employee_id) === String(employee.id) &&
+          a.date >= sliceStartStr && a.date <= sliceEndStr &&
+          getEffStatus(a.date) === "Absent"
+        ).length;
+
+        const slicePresentDays = Math.max(0, daysInThisMonthSlice - sliceAbsent);
+        const sliceAttPct = daysInThisMonthSlice > 0 ? slicePresentDays / daysInThisMonthSlice : 0;
+
+        if (sliceAttPct >= 0.70) {
+          foodAllowance += daysInThisMonthSlice >= 28
+            ? employee.food_allowance_amount
+            : Math.round((employee.food_allowance_amount / 30) * daysInThisMonthSlice);
+        } else {
+          foodAllowance += Math.round((employee.food_allowance_amount / 30) * slicePresentDays);
+        }
+
+        curMonthStart = new Date(curMonthStart.getFullYear(), curMonthStart.getMonth() + 1, 1);
+      }
+    });
   }
 
   // The Final Logical Output
