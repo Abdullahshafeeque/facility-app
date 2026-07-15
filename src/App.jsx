@@ -957,7 +957,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
       });
     });
   };
-  const generateFullReport = (emp, startDate, endDate) => {
+  const generateLedgerReport = (emp, startDate, endDate) => {
     try {
       const [y, m, d] = startDate.split("-").map(Number);
       const beforeDt = new Date(y, m - 1, d - 1);
@@ -1134,6 +1134,134 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
 
     } catch (mainErr) { alert("Logic Error: " + mainErr.message); }
   };
+  // Original summary-style statement — one row per metric instead of a
+  // chronological ledger. Automatically reflects the corrected monthly
+  // Food Allowance accrual since that fix lives inside calcFinances itself.
+  const generateStatementReport = (emp, startDate, endDate) => {
+    try {
+      const [y, m, d] = startDate.split("-").map(Number);
+      const beforeDt = new Date(y, m - 1, d - 1);
+      const beforeStartStr = [beforeDt.getFullYear(), String(beforeDt.getMonth() + 1).padStart(2, "0"), String(beforeDt.getDate()).padStart(2, "0")].join("-");
+      const empStart = emp.joining_date || "2020-01-01";
+
+      const priorFin = calcFinances(emp, posts, viewingAtt, ledger, empStart, beforeStartStr, postHistory, overtime);
+      const openingBalance = Math.round(priorFin.netPayable);
+
+      const finPeriod = calcFinances(emp, posts, viewingAtt, ledger, startDate, endDate, postHistory, overtime);
+
+      const staffLedgerPeriod = (ledger || []).filter(l => l.employee_id === emp.id && l.date >= startDate && l.date <= endDate);
+      const periodAdvances = staffLedgerPeriod.filter(l => l.transaction_type === "Advance").reduce((s, l) => s + Number(l.amount), 0);
+      const periodFines = staffLedgerPeriod.filter(l => l.transaction_type === "Fine").reduce((s, l) => s + Number(l.amount), 0);
+
+      const closingFin = calcFinances(emp, posts, viewingAtt, ledger, empStart, endDate, postHistory, overtime);
+      const closingBalance = Math.round(closingFin.netPayable);
+
+      const joinDateObj = new Date(empStart);
+      const endDateObj = new Date(endDate);
+      const startDateObj = new Date(startDate);
+
+      const lifetimeDays = Math.max(1, Math.round((endDateObj - joinDateObj) / 86400000) + 1);
+      const lifetimeMonths = (lifetimeDays / 30.44).toFixed(1);
+      const lifetimePresent = Math.max(0, lifetimeDays - closingFin.absentDays - closingFin.leaveDays);
+      const lifetimeAttPct = ((lifetimePresent / lifetimeDays) * 100).toFixed(1);
+
+      const periodDays = Math.max(1, Math.round((endDateObj - startDateObj) / 86400000) + 1);
+      const periodPresent = Math.max(0, periodDays - finPeriod.absentDays - finPeriod.leaveDays);
+      const periodAttPct = ((periodPresent / periodDays) * 100).toFixed(1);
+
+      import("jspdf").then(({ jsPDF }) => {
+        import("jspdf-autotable").then(({ default: autoTable }) => {
+          try {
+            const doc = new jsPDF();
+
+            doc.setFontSize(20);
+            doc.setTextColor(30, 111, 219);
+            doc.text("PUNATHIL ROLLER FLOUR MILLS", 14, 20);
+            doc.setFontSize(14);
+            doc.setTextColor(0);
+            doc.text(`Comprehensive Statement: ${emp.name}`, 14, 28);
+            doc.setFontSize(10);
+            doc.text(`Period: ${startDate} to ${endDate} | Aadhar: ${emp.aadhar || "N/A"}`, 14, 34);
+
+            autoTable(doc, {
+              startY: 40,
+              head: [["Metric / Account", "Details", "Amount / Stat"]],
+              body: [
+                ["--- EMPLOYMENT METRICS ---", "", ""],
+                ["Total Tenure (Up to End Date)", `Joined ${empStart}`, `${lifetimeMonths} months`],
+                ["Lifetime Attendance %", `${lifetimePresent} present / ${lifetimeDays} total days`, `${lifetimeAttPct}%`],
+                ["Period Attendance %", `${periodPresent} present / ${periodDays} period days`, `${periodAttPct}%`],
+                ["Period Absences", "Leaves & unpaid absences during period", `${finPeriod.absentDays + finPeriod.leaveDays} days`],
+                ["Period Overtime Logged", "Total OT hours during period", `${finPeriod.totalOTHours} hrs`],
+                ["--- FINANCIAL LEDGER ---", "", ""],
+                ["OPENING BALANCE (Brought Forward)", `Net balance as of ${beforeStartStr}`, `Rs. ${openingBalance.toLocaleString("en-IN")}`],
+                ["(+) Base Salary (Prorated)", `Days Worked: ${periodPresent}`, `Rs. ${Math.round(finPeriod.proratedSalary).toLocaleString("en-IN")}`],
+                ["(+) Overtime Earnings", `OT Hours: ${finPeriod.totalOTHours}`, `Rs. ${Math.round(finPeriod.otEarnings).toLocaleString("en-IN")}`],
+                ["(+) Performance Bonus", `Period Bonuses`, `Rs. ${Math.round(finPeriod.totalBonuses).toLocaleString("en-IN")}`],
+                ["(+) Food Allowance", `Attendance: ${periodAttPct}%`, `Rs. ${Math.round(finPeriod.foodAllowance || 0).toLocaleString("en-IN")}`],
+                ["(+) Loan Repayments", `Recovery from staff`, `Rs. ${Math.round(finPeriod.totalRepayments).toLocaleString("en-IN")}`],
+                ["(-) Attendance Deductions", `Absences: ${finPeriod.absentDays + finPeriod.leaveDays}d`, `Rs. ${Math.round(finPeriod.attendanceDeduction).toLocaleString("en-IN")}`],
+                ["(-) Personal Advances", `Cash advances taken`, `Rs. ${periodAdvances.toLocaleString("en-IN")}`],
+                ["(-) Disciplinary Fines", `Penalties issued`, `Rs. ${periodFines.toLocaleString("en-IN")}`],
+                ["(-) New Loans Issued", `Company loans given`, `Rs. ${Math.round(finPeriod.totalLoans).toLocaleString("en-IN")}`],
+                ["(-) Salary Payouts", `Bank/Cash transfers`, `Rs. ${finPeriod.totalPaid.toLocaleString("en-IN")}`],
+                ["CLOSING NET BALANCE", `Final Payable as of ${endDate}`, `Rs. ${closingBalance.toLocaleString("en-IN")}`],
+                ["ACTIVE LOAN DEBT", `Total Unpaid Principal`, `Rs. ${closingFin.pendingLoan.toLocaleString("en-IN")}`]
+              ],
+              theme: "grid",
+              headStyles: { fillColor: [244, 246, 249], textColor: [0, 0, 0] },
+              styles: { fontSize: 10, fontStyle: "bold" }
+            });
+
+            let finalY = doc.lastAutoTable.finalY + 10;
+
+            const empOT = (overtime || []).filter(o => o.employee_id === emp.id && o.date >= startDate && o.date <= endDate).sort((a, b) => new Date(a.date) - new Date(b.date));
+            if (empOT.length > 0) {
+              const fallbackHourly = Math.round((((Number(emp.base_salary) * 12) / 365) / 12) * 2) / 2;
+              autoTable(doc, {
+                startY: finalY,
+                head: [["Date", "Overtime Post", "Time", "Hours", "Amount Earned"]],
+                body: empOT.map(o => {
+                  let hrRate = fallbackHourly;
+                  if (emp.staff_type === "contract") {
+                    const p = (posts || []).find(x => x.name === o.post);
+                    if (p) {
+                      if (Number(p.ot_hourly_rate) > 0) {
+                        hrRate = Number(p.ot_hourly_rate);
+                      } else if (Number(p.contract_salary) > 0) {
+                        hrRate = Math.round((((Number(p.contract_salary) * 12) / 365) / 12) * 2) / 2;
+                      }
+                    }
+                  }
+                  const earned = Math.round(Number(o.hours) * hrRate);
+                  return [o.date, o.post, `${o.start_time} - ${o.end_time}`, `${o.hours}h`, `Rs. ${earned.toLocaleString("en-IN")}`];
+                }),
+                theme: "grid",
+                headStyles: { fillColor: [22, 163, 74] },
+                styles: { fontSize: 9 }
+              });
+              finalY = doc.lastAutoTable.finalY + 10;
+            }
+
+            const empLedger = (ledger || []).filter(l => l.employee_id === emp.id && l.date >= startDate && l.date <= endDate).sort((a, b) => new Date(a.date) - new Date(b.date));
+            if (empLedger.length > 0) {
+              autoTable(doc, {
+                startY: finalY,
+                head: [["Date", "Transaction Type", "Amount", "Remarks"]],
+                body: empLedger.map(l => [l.date, l.transaction_type, `Rs. ${l.amount.toLocaleString("en-IN")}`, l.notes || ""]),
+                theme: "grid",
+                headStyles: { fillColor: [234, 88, 12] },
+                styles: { fontSize: 9 }
+              });
+            }
+
+            doc.save(`Statement_${emp.name.replace(/ /g, "_")}_${startDate}_to_${endDate}.pdf`);
+          } catch (pdfErr) { alert("PDF Error: " + pdfErr.message); }
+        }).catch(err => alert("AutoTable Error: " + err.message));
+      }).catch(err => alert("jsPDF Error: " + err.message));
+
+    } catch (mainErr) { alert("Logic Error: " + mainErr.message); }
+  };
   const [showForm, setShowForm] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
   const [search, setSearch] = useState("");
@@ -1146,6 +1274,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
   const [datePromptOpts, setDatePromptOpts] = useState(null);
   const askForDate = (msg) => new Promise(resolve => setDatePromptOpts({ msg, date: todayStr, resolve }));
   const [showReportModal, setShowReportModal] = useState(false);
+  const [reportType, setReportType] = useState("ledger"); // "ledger" | "statement"
   const handleSettleUntil = async (emp) => {
     const settleDate = await askForDate(`Select the exact date to settle ${emp.name}'s account up to:`);
     if (!settleDate) return;
@@ -1708,8 +1837,15 @@ if (aadharCheck && aadharCheck.length > 0) {
                     <button style={{ ...css.btn(C.green), padding: "4px 12px", fontSize: 10 }} onClick={() => {
                       const todayStr = [new Date().getFullYear(), String(new Date().getMonth() + 1).padStart(2, "0"), String(new Date().getDate()).padStart(2, "0")].join("-");
                       setReportDates({ start: viewing.joining_date || "2020-01-01", end: todayStr });
+                      setReportType("ledger");
                       setShowReportModal(true);
-                    }}>📊 Account Statement</button>
+                    }}>📒 Ledger Statement</button>
+                    <button style={{ ...css.btn(C.purple), padding: "4px 12px", fontSize: 10 }} onClick={() => {
+                      const todayStr = [new Date().getFullYear(), String(new Date().getMonth() + 1).padStart(2, "0"), String(new Date().getDate()).padStart(2, "0")].join("-");
+                      setReportDates({ start: viewing.joining_date || "2020-01-01", end: todayStr });
+                      setReportType("statement");
+                      setShowReportModal(true);
+                    }}>📄 Summary Statement</button>
                   </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 16, background: C.bg, padding: 14, borderRadius: 8, textAlign: "center" }}>
@@ -2019,7 +2155,14 @@ if (aadharCheck && aadharCheck.length > 0) {
       {showReportModal && (
         <div style={css.modal}>
           <div style={{ ...css.card, maxWidth: 320, width: "100%", border: `2px solid ${C.green}` }}>
-            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: C.accent }}>Select Report Period</div>
+            <button style={{ ...css.btn(C.green), flex: 1 }} onClick={() => {
+                setShowReportModal(false);
+                if (reportType === "ledger") {
+                  generateLedgerReport(viewing, reportDates.start, reportDates.end);
+                } else {
+                  generateStatementReport(viewing, reportDates.start, reportDates.end);
+                }
+              }}>⬇ Download PDF</button>
             
             <div style={{ marginBottom: 12 }}>
               <label style={{ display: "block", fontSize: 10, color: C.textDim, fontWeight: 700, marginBottom: 4 }}>START DATE</label>
