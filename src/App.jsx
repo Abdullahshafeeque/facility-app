@@ -935,128 +935,122 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
   };
   const generateFullReport = (emp, startDate, endDate) => {
     try {
-      // Calculate Prior Balance (Carried Forward)
+      // Opening Balance = lifetime net payable up to the day BEFORE the period starts
       const [y, m, d] = startDate.split("-").map(Number);
       const beforeDt = new Date(y, m - 1, d - 1);
       const beforeStartStr = [beforeDt.getFullYear(), String(beforeDt.getMonth() + 1).padStart(2, "0"), String(beforeDt.getDate()).padStart(2, "0")].join("-");
-      
-      // 1. Opening Balance (Lifetime up to day before Start Date)
+
       const priorFin = calcFinances(emp, posts, viewingAtt, ledger, emp.joining_date || "2020-01-01", beforeStartStr, postHistory, overtime);
       const openingBalance = Math.round(priorFin.netPayable);
 
-      // 2. Period Earnings & Deductions
       const finPeriod = calcFinances(emp, posts, viewingAtt, ledger, startDate, endDate, postHistory, overtime);
-      const periodEarned = finPeriod.proratedSalary - finPeriod.attendanceDeduction + finPeriod.otEarnings + finPeriod.totalBonuses + (finPeriod.foodAllowance || 0);
-
-      const staffLedgerPeriod = (ledger || []).filter(l => l.employee_id === emp.id && l.date >= startDate && l.date <= endDate);
-      const periodAdvances = staffLedgerPeriod.filter(l => l.transaction_type === "Advance").reduce((s, l) => s + Number(l.amount), 0);
-      const periodFines = staffLedgerPeriod.filter(l => l.transaction_type === "Fine").reduce((s, l) => s + Number(l.amount), 0);
-
-      // 3. Closing Balance (Lifetime up to End Date)
       const closingFin = calcFinances(emp, posts, viewingAtt, ledger, emp.joining_date || "2020-01-01", endDate, postHistory, overtime);
-      const closingBalance = Math.round(closingFin.netPayable);
 
-      // --- EXTENDED HR METRICS CALCULATIONS ---
-      const joinDateObj = new Date(emp.joining_date || "2020-01-01");
-      const endDateObj = new Date(endDate);
-      const startDateObj = new Date(startDate);
-      
-      const lifetimeDays = Math.max(1, Math.round((endDateObj - joinDateObj) / 86400000) + 1);
-      const lifetimeMonths = (lifetimeDays / 30.44).toFixed(1);
-      const lifetimePresent = Math.max(0, lifetimeDays - closingFin.absentDays - closingFin.leaveDays);
-      const lifetimeAttPct = ((lifetimePresent / lifetimeDays) * 100).toFixed(1);
+      // ---- Build chronological Debit/Credit ledger rows ----
+      const rows = [];
 
-      const periodDays = Math.max(1, Math.round((endDateObj - startDateObj) / 86400000) + 1);
-      const periodPresent = Math.max(0, periodDays - finPeriod.absentDays - finPeriod.leaveDays);
-      const periodAttPct = ((periodPresent / periodDays) * 100).toFixed(1);
+      // Salary earned + attendance deduction, per post-history period within the range
+      finPeriod.periods.forEach(p => {
+        if (p.proratedSalary) {
+          rows.push({ date: p.to, particulars: `Salary Earned — ${p.post} (${fDate(p.from)} to ${fDate(p.to)})`, debit: 0, credit: p.proratedSalary });
+        }
+        if (p.attendanceDeduction > 0) {
+          rows.push({ date: p.to, particulars: `Attendance Deduction (${p.absentDays} day${p.absentDays === 1 ? "" : "s"} absent)`, debit: p.attendanceDeduction, credit: 0 });
+        }
+      });
+
+      // Food Allowance
+      if (finPeriod.foodAllowance > 0) {
+        rows.push({ date: endDate, particulars: "Food Allowance", debit: 0, credit: finPeriod.foodAllowance });
+      }
+
+      // Overtime, itemised entry by entry
+      const empOT = (overtime || []).filter(o => o.employee_id === emp.id && o.date >= startDate && o.date <= endDate);
+      const fallbackHourly = Math.round((((Number(emp.base_salary) * 12) / 365) / 12) * 2) / 2;
+      empOT.forEach(o => {
+        let hrRate = fallbackHourly;
+        if (emp.staff_type === "contract") {
+          const p = (posts || []).find(x => x.name === o.post);
+          if (p) {
+            if (Number(p.ot_hourly_rate) > 0) hrRate = Number(p.ot_hourly_rate);
+            else if (Number(p.contract_salary) > 0) hrRate = Math.round((((Number(p.contract_salary) * 12) / 365) / 12) * 2) / 2;
+          }
+        }
+        rows.push({ date: o.date, particulars: `Overtime — ${o.post} (${o.hours}h)`, debit: 0, credit: Math.round(Number(o.hours) * hrRate) });
+      });
+
+      // Ledger transactions — advances, fines, bonuses, payouts, loans
+      const CREDIT_TYPES = ["Bonus", "Settlement Addition", "Loan Repayment", "Contractor Distribution"];
+      const empLedger = (ledger || []).filter(l => l.employee_id === emp.id && l.date >= startDate && l.date <= endDate);
+      empLedger.forEach(l => {
+        const isCredit = CREDIT_TYPES.includes(l.transaction_type);
+        rows.push({ date: l.date, particulars: `${l.transaction_type}${l.notes ? " — " + l.notes : ""}`, debit: isCredit ? 0 : Number(l.amount), credit: isCredit ? Number(l.amount) : 0 });
+      });
+
+      // Sort chronologically and roll a running balance from the opening balance
+      rows.sort((a, b) => a.date.localeCompare(b.date));
+      let running = openingBalance;
+      let totalDebit = 0, totalCredit = 0;
+      const ledgerRows = rows.map(r => {
+        running += r.credit - r.debit;
+        totalDebit += r.debit;
+        totalCredit += r.credit;
+        return [
+          fDate(r.date),
+          r.particulars,
+          r.debit ? Math.round(r.debit).toLocaleString("en-IN") : "-",
+          r.credit ? Math.round(r.credit).toLocaleString("en-IN") : "-",
+          Math.round(running).toLocaleString("en-IN")
+        ];
+      });
 
       import("jspdf").then(({ jsPDF }) => {
         import("jspdf-autotable").then(({ default: autoTable }) => {
           try {
             const doc = new jsPDF();
-            
+
             doc.setFontSize(20);
             doc.setTextColor(30, 111, 219);
             doc.text("PUNATHIL ROLLER FLOUR MILLS", 14, 20);
             doc.setFontSize(14);
             doc.setTextColor(0);
-            doc.text(`Comprehensive Statement: ${emp.name}`, 14, 28);
+            doc.text(`Ledger Statement: ${emp.name}`, 14, 28);
             doc.setFontSize(10);
-            doc.text(`Period: ${startDate} to ${endDate} | Aadhar: ${emp.aadhar || "N/A"}`, 14, 34);
+            doc.setTextColor(90);
+            doc.text(`Period: ${fDate(startDate)} to ${fDate(endDate)}  |  Post: ${emp.post}  |  Aadhar: ${emp.aadhar || "N/A"}`, 14, 34);
 
             autoTable(doc, {
               startY: 40,
-              head: [["Metric / Account", "Details", "Amount / Stat"]],
+              head: [["Date", "Particulars", "Debit (Rs)", "Credit (Rs)", "Balance (Rs)"]],
               body: [
-                ["--- EMPLOYMENT METRICS ---", "", ""],
-                ["Total Tenure (Up to End Date)", `Joined ${emp.joining_date || "2020-01-01"}`, `${lifetimeMonths} months`],
-                ["Lifetime Attendance %", `${lifetimePresent} present / ${lifetimeDays} total days`, `${lifetimeAttPct}%`],
-                ["Period Attendance %", `${periodPresent} present / ${periodDays} period days`, `${periodAttPct}%`],
-                ["Period Absences", "Leaves & unpaid absences during period", `${finPeriod.absentDays + finPeriod.leaveDays} days`],
-                ["Period Overtime Logged", "Total OT hours during period", `${finPeriod.totalOTHours} hrs`],
-                ["--- FINANCIAL LEDGER ---", "", ""],
-                ["OPENING BALANCE (Brought Forward)", `Net balance as of ${beforeStartStr}`, `Rs. ${openingBalance.toLocaleString("en-IN")}`],
-                ["(+) Base Salary (Prorated)", `Days Worked: ${periodPresent}`, `Rs. ${Math.round(finPeriod.proratedSalary).toLocaleString("en-IN")}`],
-                ["(+) Overtime Earnings", `OT Hours: ${finPeriod.totalOTHours}`, `Rs. ${Math.round(finPeriod.otEarnings).toLocaleString("en-IN")}`],
-                ["(+) Performance Bonus", `Period Bonuses`, `Rs. ${Math.round(finPeriod.totalBonuses).toLocaleString("en-IN")}`],
-                ["(+) Food Allowance", `Attendance: ${periodAttPct}%`, `Rs. ${Math.round(finPeriod.foodAllowance || 0).toLocaleString("en-IN")}`],
-                ["(+) Loan Repayments", `Recovery from staff`, `Rs. ${Math.round(finPeriod.totalRepayments).toLocaleString("en-IN")}`],
-                ["(-) Attendance Deductions", `Absences: ${finPeriod.absentDays + finPeriod.leaveDays}d`, `Rs. ${Math.round(finPeriod.attendanceDeduction).toLocaleString("en-IN")}`],
-                ["(-) Personal Advances", `Cash advances taken`, `Rs. ${periodAdvances.toLocaleString("en-IN")}`],
-                ["(-) Disciplinary Fines", `Penalties issued`, `Rs. ${periodFines.toLocaleString("en-IN")}`],
-                ["(-) New Loans Issued", `Company loans given`, `Rs. ${Math.round(finPeriod.totalLoans).toLocaleString("en-IN")}`],
-                ["(-) Salary Payouts", `Bank/Cash transfers`, `Rs. ${finPeriod.totalPaid.toLocaleString("en-IN")}`],
-                ["CLOSING NET BALANCE", `Final Payable as of ${endDate}`, `Rs. ${closingBalance.toLocaleString("en-IN")}`],
-                ["ACTIVE LOAN DEBT", `Total Unpaid Principal`, `Rs. ${closingFin.pendingLoan.toLocaleString("en-IN")}`]
+                [fDate(beforeStartStr), "Opening Balance B/F", "-", "-", openingBalance.toLocaleString("en-IN")],
+                ...ledgerRows
+              ],
+              foot: [
+                ["", "TOTAL", Math.round(totalDebit).toLocaleString("en-IN"), Math.round(totalCredit).toLocaleString("en-IN"), ""],
+                ["", "CLOSING BALANCE C/F", "", "", Math.round(running).toLocaleString("en-IN")]
               ],
               theme: "grid",
-              headStyles: { fillColor: [244, 246, 249], textColor: [0, 0, 0] },
-              styles: { fontSize: 10, fontStyle: "bold" }
+              headStyles: { fillColor: [30, 111, 219], textColor: [255, 255, 255], fontStyle: "bold" },
+              footStyles: { fillColor: [240, 245, 255], textColor: [30, 111, 219], fontStyle: "bold" },
+              styles: { fontSize: 9, cellPadding: 4 },
+              columnStyles: { 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right", fontStyle: "bold" } }
             });
 
-            let finalY = doc.lastAutoTable.finalY + 10;
+            let finalY = doc.lastAutoTable.finalY + 12;
 
-            const empOT = (overtime || []).filter(o => o.employee_id === emp.id && o.date >= startDate && o.date <= endDate).sort((a, b) => new Date(a.date) - new Date(b.date));
-            if (empOT.length > 0) {
-              const fallbackHourly = Math.round((((Number(emp.base_salary) * 12) / 365) / 12) * 2) / 2;
-              autoTable(doc, {
-                startY: finalY,
-                head: [["Date", "Overtime Post", "Time", "Hours", "Amount Earned"]],
-                body: empOT.map(o => {
-                  let hrRate = fallbackHourly; // Company staff: always salary-based, never overridden
-                  if (emp.staff_type === "contract") {
-                    const p = (posts || []).find(x => x.name === o.post);
-                    if (p) {
-                      if (Number(p.ot_hourly_rate) > 0) {
-                        hrRate = Number(p.ot_hourly_rate);
-                      } else if (Number(p.contract_salary) > 0) {
-                        hrRate = Math.round((((Number(p.contract_salary) * 12) / 365) / 12) * 2) / 2;
-                      }
-                    }
-                  }
-                  const earned = Math.round(Number(o.hours) * hrRate);
-                  return [o.date, o.post, `${o.start_time} - ${o.end_time}`, `${o.hours}h`, `Rs. ${earned.toLocaleString("en-IN")}`];
-                }),
-                theme: "grid",
-                headStyles: { fillColor: [22, 163, 74] },
-                styles: { fontSize: 9 }
-              });
-              finalY = doc.lastAutoTable.finalY + 10;
+            if (closingFin.pendingLoan !== 0) {
+              doc.setFontSize(10);
+              doc.setTextColor(234, 88, 12);
+              doc.text(`Active Loan Balance (outstanding as of ${fDate(endDate)}): Rs. ${closingFin.pendingLoan.toLocaleString("en-IN")}`, 14, finalY);
+              finalY += 8;
             }
 
-            const empLedger = (ledger || []).filter(l => l.employee_id === emp.id && l.date >= startDate && l.date <= endDate).sort((a, b) => new Date(a.date) - new Date(b.date));
-            if (empLedger.length > 0) {
-              autoTable(doc, {
-                startY: finalY,
-                head: [["Date", "Transaction Type", "Amount", "Remarks"]],
-                body: empLedger.map(l => [l.date, l.transaction_type, `Rs. ${l.amount.toLocaleString("en-IN")}`, l.notes || ""]),
-                theme: "grid",
-                headStyles: { fillColor: [234, 88, 12] },
-                styles: { fontSize: 9 }
-              });
-            }
+            doc.setFontSize(8);
+            doc.setTextColor(140);
+            doc.text("System-generated ledger. Credit (Cr) = amount owed to employee, Debit (Dr) = amount deducted/paid to employee.", 14, finalY);
 
-            doc.save(`Statement_${emp.name.replace(/ /g, "_")}_${startDate}_to_${endDate}.pdf`);
+            doc.save(`Ledger_${emp.name.replace(/ /g, "_")}_${startDate}_to_${endDate}.pdf`);
           } catch (pdfErr) { alert("PDF Error: " + pdfErr.message); }
         }).catch(err => alert("AutoTable Error: " + err.message));
       }).catch(err => alert("jsPDF Error: " + err.message));
