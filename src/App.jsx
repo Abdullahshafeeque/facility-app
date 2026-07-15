@@ -935,36 +935,27 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
   };
   const generateFullReport = (emp, startDate, endDate) => {
     try {
-      // Opening Balance = lifetime net payable up to the day BEFORE the period starts
       const [y, m, d] = startDate.split("-").map(Number);
       const beforeDt = new Date(y, m - 1, d - 1);
       const beforeStartStr = [beforeDt.getFullYear(), String(beforeDt.getMonth() + 1).padStart(2, "0"), String(beforeDt.getDate()).padStart(2, "0")].join("-");
 
-      const priorFin = calcFinances(emp, posts, viewingAtt, ledger, emp.joining_date || "2020-01-01", beforeStartStr, postHistory, overtime);
-      const openingBalance = Math.round(priorFin.netPayable);
+      const empStart = emp.joining_date || "2020-01-01";
+
+      // Opening balance — official app balance as of the day before the period starts
+      const openingBalance = Math.round(calcFinances(emp, posts, viewingAtt, ledger, empStart, beforeStartStr, postHistory, overtime).netPayable);
 
       const finPeriod = calcFinances(emp, posts, viewingAtt, ledger, startDate, endDate, postHistory, overtime);
-      const closingFin = calcFinances(emp, posts, viewingAtt, ledger, emp.joining_date || "2020-01-01", endDate, postHistory, overtime);
 
-      // ---- Build chronological Debit/Credit ledger rows ----
+      // ---- Build chronological rows for display (Particulars / Dr / Cr) ----
       const rows = [];
 
-      // Salary earned + attendance deduction, per post-history period within the range
       finPeriod.periods.forEach(p => {
-        if (p.proratedSalary) {
-          rows.push({ date: p.to, particulars: `Salary Earned — ${p.post} (${fDate(p.from)} to ${fDate(p.to)})`, debit: 0, credit: p.proratedSalary });
-        }
-        if (p.attendanceDeduction > 0) {
-          rows.push({ date: p.to, particulars: `Attendance Deduction (${p.absentDays} day${p.absentDays === 1 ? "" : "s"} absent)`, debit: p.attendanceDeduction, credit: 0 });
-        }
+        if (p.proratedSalary) rows.push({ date: p.to, particulars: `Salary Earned — ${p.post} (${fDate(p.from)} to ${fDate(p.to)})`, debit: 0, credit: p.proratedSalary });
+        if (p.attendanceDeduction > 0) rows.push({ date: p.to, particulars: `Attendance Deduction (${p.absentDays} day${p.absentDays === 1 ? "" : "s"} absent)`, debit: p.attendanceDeduction, credit: 0 });
       });
 
-      // Food Allowance
-      if (finPeriod.foodAllowance > 0) {
-        rows.push({ date: endDate, particulars: "Food Allowance", debit: 0, credit: finPeriod.foodAllowance });
-      }
+      if (finPeriod.foodAllowance > 0) rows.push({ date: endDate, particulars: "Food Allowance", debit: 0, credit: finPeriod.foodAllowance });
 
-      // Overtime, itemised entry by entry
       const empOT = (overtime || []).filter(o => o.employee_id === emp.id && o.date >= startDate && o.date <= endDate);
       const fallbackHourly = Math.round((((Number(emp.base_salary) * 12) / 365) / 12) * 2) / 2;
       empOT.forEach(o => {
@@ -979,30 +970,36 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
         rows.push({ date: o.date, particulars: `Overtime — ${o.post} (${o.hours}h)`, debit: 0, credit: Math.round(Number(o.hours) * hrRate) });
       });
 
-      // Ledger transactions — advances, fines, bonuses, payouts, loans
-      const CREDIT_TYPES = ["Bonus", "Settlement Addition", "Loan Repayment", "Contractor Distribution"];
+      // Only these ledger types increase what's owed to the employee — everything
+      // else (Advance, Fine, Payout, Loan Given, Settlement Payout, Contractor Dist.)
+      // reduces it, matching calcFinances' netPayable formula exactly.
+      const CREDIT_TYPES = ["Bonus", "Settlement Addition", "Loan Repayment"];
       const empLedger = (ledger || []).filter(l => l.employee_id === emp.id && l.date >= startDate && l.date <= endDate);
       empLedger.forEach(l => {
         const isCredit = CREDIT_TYPES.includes(l.transaction_type);
         rows.push({ date: l.date, particulars: `${l.transaction_type}${l.notes ? " — " + l.notes : ""}`, debit: isCredit ? 0 : Number(l.amount), credit: isCredit ? Number(l.amount) : 0 });
       });
 
-      // Sort chronologically and roll a running balance from the opening balance
       rows.sort((a, b) => a.date.localeCompare(b.date));
-      let running = openingBalance;
+
+      // Balance column is pulled LIVE from calcFinances as of each row's date —
+      // never manually accumulated — so it can never drift from Payroll/Settlement figures.
       let totalDebit = 0, totalCredit = 0;
       const ledgerRows = rows.map(r => {
-        running += r.credit - r.debit;
         totalDebit += r.debit;
         totalCredit += r.credit;
+        const balAsOfRow = Math.round(calcFinances(emp, posts, viewingAtt, ledger, empStart, r.date, postHistory, overtime).netPayable);
         return [
           fDate(r.date),
           r.particulars,
           r.debit ? Math.round(r.debit).toLocaleString("en-IN") : "-",
           r.credit ? Math.round(r.credit).toLocaleString("en-IN") : "-",
-          Math.round(running).toLocaleString("en-IN")
+          balAsOfRow.toLocaleString("en-IN")
         ];
       });
+
+      const closingFin = calcFinances(emp, posts, viewingAtt, ledger, empStart, endDate, postHistory, overtime);
+      const closingBalance = Math.round(closingFin.netPayable);
 
       import("jspdf").then(({ jsPDF }) => {
         import("jspdf-autotable").then(({ default: autoTable }) => {
@@ -1028,8 +1025,9 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
               ],
               foot: [
                 ["", "TOTAL", Math.round(totalDebit).toLocaleString("en-IN"), Math.round(totalCredit).toLocaleString("en-IN"), ""],
-                ["", "CLOSING BALANCE C/F", "", "", Math.round(running).toLocaleString("en-IN")]
+                ["", "CLOSING BALANCE C/F", "", "", closingBalance.toLocaleString("en-IN")]
               ],
+              showFoot: "lastPage",
               theme: "grid",
               headStyles: { fillColor: [30, 111, 219], textColor: [255, 255, 255], fontStyle: "bold" },
               footStyles: { fillColor: [240, 245, 255], textColor: [30, 111, 219], fontStyle: "bold" },
@@ -1048,7 +1046,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
 
             doc.setFontSize(8);
             doc.setTextColor(140);
-            doc.text("System-generated ledger. Credit (Cr) = amount owed to employee, Debit (Dr) = amount deducted/paid to employee.", 14, finalY);
+            doc.text("System-generated ledger. Credit (Cr) = amount owed to employee, Debit (Dr) = amount deducted/paid to employee. Balance is pulled live from the payroll engine, so it always matches Payroll and Settlement figures exactly.", 14, finalY, { maxWidth: 180 });
 
             doc.save(`Ledger_${emp.name.replace(/ /g, "_")}_${startDate}_to_${endDate}.pdf`);
           } catch (pdfErr) { alert("PDF Error: " + pdfErr.message); }
