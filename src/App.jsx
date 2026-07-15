@@ -241,9 +241,9 @@ const attendanceDeduction = employee.leave_type === 'paid'
     }
     return l.date >= start && l.date <= end;
   });
-  const totalBonuses = staffLedger.filter(l => l.transaction_type === "Bonus").reduce((s, l) => s + Number(l.amount), 0);
+  const totalBonuses = staffLedger.filter(l => l.transaction_type === "Bonus" || l.transaction_type === "Settlement Addition").reduce((s, l) => s + Number(l.amount), 0);
   const totalAdvances = staffLedger.filter(l => l.transaction_type === "Advance" || l.transaction_type === "Fine").reduce((s, l) => s + Number(l.amount), 0);
-  const totalPaid = staffLedger.filter(l => l.transaction_type === "Payout").reduce((s, l) => s + Number(l.amount), 0);
+  const totalPaid = staffLedger.filter(l => l.transaction_type === "Payout" || l.transaction_type === "Settlement Payout").reduce((s, l) => s + Number(l.amount), 0);
   const totalContractorDist = staffLedger.filter(l => l.transaction_type === "Contractor Distribution").reduce((s, l) => s + Number(l.amount), 0);
   
   // NEW: Dedicated Loan System Tracker
@@ -1075,6 +1075,76 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
   const [datePromptOpts, setDatePromptOpts] = useState(null);
   const askForDate = (msg) => new Promise(resolve => setDatePromptOpts({ msg, date: todayStr, resolve }));
   const [showReportModal, setShowReportModal] = useState(false);
+  const handleSettleUntil = async (emp) => {
+    const settleDate = await askForDate(`Select the exact date to settle ${emp.name}'s account up to:`);
+    if (!settleDate) return;
+
+    // Calculate balance strictly up to the chosen date, ignoring future days/transactions
+    const empStart = emp.joining_date || "2020-01-01";
+    const finUpToDate = calcFinances(emp, posts, viewingAtt, ledger, empStart, settleDate, postHistory, overtime);
+
+    const netToSettle = Math.round(finUpToDate.netPayable);
+    const loanToSettle = Math.round(finUpToDate.pendingLoan);
+
+    if (netToSettle === 0 && loanToSettle === 0) {
+      return alert(`As of ${fDate(settleDate)}, ${emp.name}'s net balance and loan balance are already exactly ₹0. Nothing to settle.`);
+    }
+
+    let confirmMsg = `As of ${fDate(settleDate)}, ${emp.name} has:\n`;
+    if (netToSettle !== 0) confirmMsg += `• Net Balance: ₹${netToSettle.toLocaleString("en-IN")}\n`;
+    if (loanToSettle > 0) confirmMsg += `• Pending Loan: ₹${loanToSettle.toLocaleString("en-IN")}\n`;
+    confirmMsg += `\nDo you want to insert settlement entries on ${fDate(settleDate)} to bring this to exactly zero?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    setLoading(true);
+    const entriesToInsert = [];
+    const payMonth = settleDate.slice(0, 7);
+
+    // If we owe them money, we log a Payout to bring the balance down to 0
+    if (netToSettle > 0) {
+      entriesToInsert.push({
+        employee_id: emp.id,
+        date: settleDate,
+        transaction_type: "Settlement Payout",
+        amount: netToSettle,
+        notes: `Settled positive balance up to ${fDate(settleDate)}`,
+        pay_month: payMonth
+      });
+    } 
+    // If they owe us money (negative balance), we log an Addition to push the balance up to 0
+    else if (netToSettle < 0) {
+      entriesToInsert.push({
+        employee_id: emp.id,
+        date: settleDate,
+        transaction_type: "Settlement Addition",
+        amount: Math.abs(netToSettle),
+        notes: `Cleared negative deficit up to ${fDate(settleDate)}`,
+        pay_month: payMonth
+      });
+    }
+
+    // Zero out any active loans on that date
+    if (loanToSettle > 0) {
+      entriesToInsert.push({
+        employee_id: emp.id,
+        date: settleDate,
+        transaction_type: "Loan Repayment",
+        amount: loanToSettle,
+        notes: `Settled pending loan up to ${fDate(settleDate)}`,
+        pay_month: payMonth
+      });
+    }
+
+    const { data, error } = await supabase.from("financial_ledger").insert(entriesToInsert).select();
+    setLoading(false);
+
+    if (error) return alert("Database Error: " + error.message);
+
+    setLedger(prev => [...data, ...prev]);
+    if (logAction) logAction("Account Settled", `Settled ${emp.name}'s balance up to ${fDate(settleDate)}`);
+    alert("✅ Account successfully settled to zero for that date!");
+  };
   const [reportDates, setReportDates] = useState({ start: "", end: "" });
 const [calMonth, setCalMonth] = useState(todayStr.slice(0, 7));
   // Fetch this specific person's historical attendance when their profile opens
@@ -1560,6 +1630,9 @@ if (aadharCheck && aadharCheck.length > 0) {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
                   <div style={{ ...css.sectionTitle, marginBottom: 0 }}>Lifetime Ledger Summary</div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {myRole === "director" && (
+                      <button style={{ ...css.btn(C.orange), padding: "4px 12px", fontSize: 10 }} onClick={() => handleSettleUntil(viewing)}>⚖ Settle Until Date</button>
+                    )}
                     <button style={{ ...css.btn(C.blue), padding: "4px 12px", fontSize: 10 }} onClick={() => generatePayslip(viewing, fin)}>📥 Monthly Payslip</button>
                     <button style={{ ...css.btn(C.green), padding: "4px 12px", fontSize: 10 }} onClick={() => {
                       const todayStr = [new Date().getFullYear(), String(new Date().getMonth() + 1).padStart(2, "0"), String(new Date().getDate()).padStart(2, "0")].join("-");
