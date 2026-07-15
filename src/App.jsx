@@ -938,63 +938,92 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
       const [y, m, d] = startDate.split("-").map(Number);
       const beforeDt = new Date(y, m - 1, d - 1);
       const beforeStartStr = [beforeDt.getFullYear(), String(beforeDt.getMonth() + 1).padStart(2, "0"), String(beforeDt.getDate()).padStart(2, "0")].join("-");
-
       const empStart = emp.joining_date || "2020-01-01";
 
-      // Opening balance — official app balance as of the day before the period starts
       const openingBalance = Math.round(calcFinances(emp, posts, viewingAtt, ledger, empStart, beforeStartStr, postHistory, overtime).netPayable);
+
+      // Net salary component (prorated salary minus attendance deduction) accrued
+      // from startDate up to a given date "d" — a pure function of the date range,
+      // computed the SAME way calcFinances computes it internally. We diff this
+      // between consecutive checkpoints to show salary as it actually accrues,
+      // instead of one lump row that hides days already earned.
+      const salaryComponentAsOf = (d) => {
+        if (d < startDate) return 0;
+        const f = calcFinances(emp, posts, viewingAtt, ledger, startDate, d, postHistory, overtime);
+        return f.proratedSalary - f.attendanceDeduction;
+      };
+
+      const addDays = (dateStr, n) => {
+        const [yy, mm, dd] = dateStr.split("-").map(Number);
+        const dt = new Date(yy, mm - 1, dd + n);
+        return [dt.getFullYear(), String(dt.getMonth() + 1).padStart(2, "0"), String(dt.getDate()).padStart(2, "0")].join("-");
+      };
+
+      const empOT = (overtime || []).filter(o => o.employee_id === emp.id && o.date >= startDate && o.date <= endDate);
+      const empLedger = (ledger || []).filter(l => l.employee_id === emp.id && l.date >= startDate && l.date <= endDate);
+      const CREDIT_TYPES = ["Bonus", "Settlement Addition", "Loan Repayment"];
+      const fallbackHourly = Math.round((((Number(emp.base_salary) * 12) / 365) / 12) * 2) / 2;
 
       const finPeriod = calcFinances(emp, posts, viewingAtt, ledger, startDate, endDate, postHistory, overtime);
 
-      // ---- Build chronological rows for display (Particulars / Dr / Cr) ----
+      // Checkpoint dates = every date something actually happened, plus endDate
+      // (so trailing accrued salary + food allowance always get their own row).
+      const checkpointSet = new Set([...empOT.map(o => o.date), ...empLedger.map(l => l.date), endDate]);
+      const checkpoints = Array.from(checkpointSet).sort();
+
       const rows = [];
+      let prevCheckpoint = null;   // last date we drew a Salary Accrued line up to
+      let prevComp = 0;
 
-      finPeriod.periods.forEach(p => {
-        if (p.proratedSalary) rows.push({ date: p.to, particulars: `Salary Earned — ${p.post} (${fDate(p.from)} to ${fDate(p.to)})`, debit: 0, credit: p.proratedSalary });
-        if (p.attendanceDeduction > 0) rows.push({ date: p.to, particulars: `Attendance Deduction (${p.absentDays} day${p.absentDays === 1 ? "" : "s"} absent)`, debit: p.attendanceDeduction, credit: 0 });
-      });
-
-      if (finPeriod.foodAllowance > 0) rows.push({ date: endDate, particulars: "Food Allowance", debit: 0, credit: finPeriod.foodAllowance });
-
-      const empOT = (overtime || []).filter(o => o.employee_id === emp.id && o.date >= startDate && o.date <= endDate);
-      const fallbackHourly = Math.round((((Number(emp.base_salary) * 12) / 365) / 12) * 2) / 2;
-      empOT.forEach(o => {
-        let hrRate = fallbackHourly;
-        if (emp.staff_type === "contract") {
-          const p = (posts || []).find(x => x.name === o.post);
-          if (p) {
-            if (Number(p.ot_hourly_rate) > 0) hrRate = Number(p.ot_hourly_rate);
-            else if (Number(p.contract_salary) > 0) hrRate = Math.round((((Number(p.contract_salary) * 12) / 365) / 12) * 2) / 2;
-          }
+      checkpoints.forEach(cpDate => {
+        const comp = salaryComponentAsOf(cpDate);
+        const delta = comp - prevComp;
+        if (Math.abs(delta) >= 1) {
+          const rangeFrom = prevCheckpoint ? addDays(prevCheckpoint, 1) : startDate;
+          rows.push({
+            date: cpDate,
+            particulars: `Salary Accrued (${fDate(rangeFrom)} to ${fDate(cpDate)})`,
+            debit: delta < 0 ? -delta : 0,
+            credit: delta > 0 ? delta : 0
+          });
         }
-        rows.push({ date: o.date, particulars: `Overtime — ${o.post} (${o.hours}h)`, debit: 0, credit: Math.round(Number(o.hours) * hrRate) });
+        prevComp = comp;
+        prevCheckpoint = cpDate;
+
+        empOT.filter(o => o.date === cpDate).forEach(o => {
+          let hrRate = fallbackHourly;
+          if (emp.staff_type === "contract") {
+            const p = (posts || []).find(x => x.name === o.post);
+            if (p) {
+              if (Number(p.ot_hourly_rate) > 0) hrRate = Number(p.ot_hourly_rate);
+              else if (Number(p.contract_salary) > 0) hrRate = Math.round((((Number(p.contract_salary) * 12) / 365) / 12) * 2) / 2;
+            }
+          }
+          rows.push({ date: o.date, particulars: `Overtime — ${o.post} (${o.hours}h)`, debit: 0, credit: Math.round(Number(o.hours) * hrRate) });
+        });
+
+        empLedger.filter(l => l.date === cpDate).forEach(l => {
+          const isCredit = CREDIT_TYPES.includes(l.transaction_type);
+          rows.push({ date: l.date, particulars: `${l.transaction_type}${l.notes ? " — " + l.notes : ""}`, debit: isCredit ? 0 : Number(l.amount), credit: isCredit ? Number(l.amount) : 0 });
+        });
+
+        if (cpDate === endDate && finPeriod.foodAllowance > 0) {
+          rows.push({ date: endDate, particulars: "Food Allowance", debit: 0, credit: finPeriod.foodAllowance });
+        }
       });
 
-      // Only these ledger types increase what's owed to the employee — everything
-      // else (Advance, Fine, Payout, Loan Given, Settlement Payout, Contractor Dist.)
-      // reduces it, matching calcFinances' netPayable formula exactly.
-      const CREDIT_TYPES = ["Bonus", "Settlement Addition", "Loan Repayment"];
-      const empLedger = (ledger || []).filter(l => l.employee_id === emp.id && l.date >= startDate && l.date <= endDate);
-      empLedger.forEach(l => {
-        const isCredit = CREDIT_TYPES.includes(l.transaction_type);
-        rows.push({ date: l.date, particulars: `${l.transaction_type}${l.notes ? " — " + l.notes : ""}`, debit: isCredit ? 0 : Number(l.amount), credit: isCredit ? Number(l.amount) : 0 });
-      });
-
-      rows.sort((a, b) => a.date.localeCompare(b.date));
-
-      // Balance column is pulled LIVE from calcFinances as of each row's date —
-      // never manually accumulated — so it can never drift from Payroll/Settlement figures.
+      let running = openingBalance;
       let totalDebit = 0, totalCredit = 0;
       const ledgerRows = rows.map(r => {
+        running += r.credit - r.debit;
         totalDebit += r.debit;
         totalCredit += r.credit;
-        const balAsOfRow = Math.round(calcFinances(emp, posts, viewingAtt, ledger, empStart, r.date, postHistory, overtime).netPayable);
         return [
           fDate(r.date),
           r.particulars,
           r.debit ? Math.round(r.debit).toLocaleString("en-IN") : "-",
           r.credit ? Math.round(r.credit).toLocaleString("en-IN") : "-",
-          balAsOfRow.toLocaleString("en-IN")
+          Math.round(running).toLocaleString("en-IN")
         ];
       });
 
@@ -1046,7 +1075,7 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
 
             doc.setFontSize(8);
             doc.setTextColor(140);
-            doc.text("System-generated ledger. Credit (Cr) = amount owed to employee, Debit (Dr) = amount deducted/paid to employee. Balance is pulled live from the payroll engine, so it always matches Payroll and Settlement figures exactly.", 14, finalY, { maxWidth: 180 });
+            doc.text("System-generated ledger. Credit (Cr) = amount owed to employee, Debit (Dr) = amount deducted/paid to employee. Salary accrues daily; each 'Salary Accrued' row covers the days since the previous entry.", 14, finalY, { maxWidth: 180 });
 
             doc.save(`Ledger_${emp.name.replace(/ /g, "_")}_${startDate}_to_${endDate}.pdf`);
           } catch (pdfErr) { alert("PDF Error: " + pdfErr.message); }
