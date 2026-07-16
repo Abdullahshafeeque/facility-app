@@ -2121,6 +2121,7 @@ if (aadharCheck && aadharCheck.length > 0) {
                     <td style={css.td}><span style={{ fontSize: 11, color: C.red }}>{fDate(emp.left_date)}</span></td>
                     <td style={css.td}>
                       <div style={{ display: "flex", gap: 6 }}>
+                        <button style={{ ...css.btn(C.blue), padding: "4px 10px", fontSize: 10 }} onClick={() => { setViewing(emp); setConfirmLeave(false); }}>View</button>
                         <button style={{ ...css.btn(C.green), padding: "4px 10px", fontSize: 10 }} onClick={() => reactivate(emp)}>Reactivate</button>
                         {myRole === "director" && <button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => deleteInactive(emp)}>Delete</button>}
                       </div>
