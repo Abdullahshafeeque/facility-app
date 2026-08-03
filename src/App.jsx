@@ -764,7 +764,7 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
                   if (!emp) return null;
                   return (
                     <div key={id} style={{ display: "flex", alignItems: "center", gap: 6, background: C.accentDim, border: `1px solid ${C.accent}`, color: C.accent, padding: "6px 12px", borderRadius: "20px", fontSize: 13, fontWeight: 600 }}>
-                      <span>{emp.name} <span style={{ opacity: 0.7, fontSize: 11 }}>({emp.employee_code})</span></span>
+                      <span>{emp.name} <span style={{ opacity: 0.7, fontSize: 11 }}>({emp.emp_code})</span></span>
                       <span 
                         onClick={() => setForm(prev => ({ ...prev, empIds: prev.empIds.filter(eid => eid !== id) }))}
                         style={{ marginLeft: 4, cursor: "pointer", fontSize: 18, lineHeight: 1 }}
@@ -850,90 +850,6 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
       </>
       )}
 
-      <div style={css.sectionTitle}>Overtime Report — All Staff</div>
-      <div style={{ ...css.card, marginBottom: 20 }}>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 16 }}>
-          <div>
-            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>STAFF TYPE</div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button style={css.navBtn(reportStaffType === "company")} onClick={() => setReportStaffType("company")}>🏢 Company</button>
-              <button style={css.navBtn(reportStaffType === "contract")} onClick={() => setReportStaffType("contract")}>📋 Contract</button>
-            </div>
-          </div>
-          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={css.input} value={reportStart} onChange={e => setReportStart(e.target.value)} /></div>
-          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={css.input} value={reportEnd} onChange={e => setReportEnd(e.target.value)} /></div>
-          <button
-            style={css.btn(reportStaffType === "company" ? C.blue : C.green)}
-            onClick={() => reportStaffType === "company" ? downloadCompanyOTReport() : downloadContractOTReport()}
-          >
-            📥 Download PDF
-          </button>
-        </div>
-
-        {reportStaffType === "company" ? (
-          <div style={{ overflowX: "auto" }}>
-            <table style={css.table}>
-              <thead><tr>{["Date", "Employee", "Post", "Hours", "Amount Earned"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
-              <tbody>
-                {companyReportRows.length === 0 && <tr><td colSpan={5} style={{ ...css.td, textAlign: "center" }}>No company OT entries in this period.</td></tr>}
-                {companyReportRows.map((r, i) => (
-                  <tr key={i}>
-                    <td style={css.td}>{fDate(r.date)}</td>
-                    <td style={css.td}><strong>{r.name}</strong></td>
-                    <td style={css.td}>{r.post}</td>
-                    <td style={{ ...css.td, color: C.accent, fontWeight: 700 }}>{r.hours}h</td>
-                    <td style={{ ...css.td, color: C.green, fontWeight: 700 }}>₹{r.amount.toLocaleString("en-IN")}</td>
-                  </tr>
-                ))}
-              </tbody>
-              {companyReportRows.length > 0 && (
-                <tfoot>
-                  <tr style={{ borderTop: `2px solid ${C.border}` }}>
-                    <td colSpan={3} style={{ ...css.td, textAlign: "right", fontWeight: 700 }}>TOTAL</td>
-                    <td style={{ ...css.td, fontWeight: 700, color: C.accent }}>{companyTotalHours}h</td>
-                    <td style={{ ...css.td, fontWeight: 700, color: C.green }}>₹{companyTotalAmount.toLocaleString("en-IN")}</td>
-                  </tr>
-                </tfoot>
-              )}
-            </table>
-          </div>
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={css.table}>
-              <thead><tr>{["Date", "Department / Post", "Hours", "Amount"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
-              <tbody>
-                {contractReportData.length === 0 && <tr><td colSpan={4} style={{ ...css.td, textAlign: "center" }}>No contract OT entries in this period.</td></tr>}
-                {contractReportData.map(day => (
-                  <React.Fragment key={day.date}>
-                    {day.deptRows.map((r, i) => (
-                      <tr key={i}>
-                        <td style={css.td}>{fDate(day.date)}</td>
-                        <td style={css.td}>{r.postName}</td>
-                        <td style={{ ...css.td, color: C.accent, fontWeight: 700 }}>{r.hours}h</td>
-                        <td style={{ ...css.td, color: C.green, fontWeight: 700 }}>₹{r.amount.toLocaleString("en-IN")}</td>
-                      </tr>
-                    ))}
-                    <tr style={{ background: C.bg }}>
-                      <td colSpan={2} style={{ ...css.td, fontWeight: 700 }}>Day Total — {fDate(day.date)}</td>
-                      <td style={{ ...css.td, fontWeight: 700 }}>{day.dayTotalHours}h</td>
-                      <td style={{ ...css.td, fontWeight: 700 }}>₹{day.dayTotalAmount.toLocaleString("en-IN")}</td>
-                    </tr>
-                  </React.Fragment>
-                ))}
-              </tbody>
-              {contractReportData.length > 0 && (
-                <tfoot>
-                  <tr style={{ borderTop: `2px solid ${C.border}` }}>
-                    <td colSpan={2} style={{ ...css.td, textAlign: "right", fontWeight: 700 }}>GRAND TOTAL</td>
-                    <td style={{ ...css.td, fontWeight: 700, color: C.accent }}>{contractGrandHours}h</td>
-                    <td style={{ ...css.td, fontWeight: 700, color: C.green }}>₹{contractGrandAmount.toLocaleString("en-IN")}</td>
-                  </tr>
-                </tfoot>
-              )}
-            </table>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
@@ -2550,7 +2466,11 @@ if (aadharCheck && aadharCheck.length > 0) {
             <div style={{ display: "flex", gap: 10 }}>
               <button style={{ ...css.btn(C.green), flex: 1 }} onClick={() => {
                 setShowReportModal(false);
-                generateFullReport(viewing, reportDates.start, reportDates.end);
+                if (reportType === "ledger") {
+                  generateLedgerReport(viewing, reportDates.start, reportDates.end);
+                } else {
+                  generateStatementReport(viewing, reportDates.start, reportDates.end);
+                }
               }}>⬇ Download PDF</button>
               <button style={{ ...css.btn(C.red), flex: 1, background: "transparent" }} onClick={() => setShowReportModal(false)}>Cancel</button>
             </div>
