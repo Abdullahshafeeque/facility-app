@@ -445,8 +445,132 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
     if (logAction) logAction("Overtime Deleted", `Removed an OT entry`);
   };
 
+  // ── OT REPORT (visible to every role) ────────────────────────────────────
+  const [reportStart, setReportStart] = useState(todayStr);
+  const [reportEnd, setReportEnd] = useState(todayStr);
+  const [reportStaffType, setReportStaffType] = useState("company");
+
+  const fallbackHourlyRate = (emp) => Math.round((((Number(emp.base_salary) * 12) / 365) / 12) * 2) / 2;
+  const contractHourlyRate = (postName) => {
+    const p = posts.find(pp => pp.name === postName) || {};
+    if (Number(p.ot_hourly_rate) > 0) return Number(p.ot_hourly_rate);
+    if (Number(p.contract_salary) > 0) return Math.round((((Number(p.contract_salary) * 12) / 365) / 12) * 2) / 2;
+    return 0;
+  };
+
+  const reportEntries = overtime
+    .filter(o => o.date >= reportStart && o.date <= reportEnd)
+    .map(o => {
+      const rawId = typeof o.employee_id === "object" && o.employee_id !== null ? o.employee_id.id : o.employee_id;
+      const emp = employees.find(e => String(e.id) === String(rawId));
+      return { o, emp };
+    });
+
+  // Company: one row per employee per day (hours + amount earned that day)
+  const companyDailyMap = {};
+  reportEntries
+    .filter(({ emp }) => emp && emp.staff_type === "company")
+    .forEach(({ o, emp }) => {
+      const key = `${o.date}__${emp.id}`;
+      if (!companyDailyMap[key]) companyDailyMap[key] = { date: o.date, name: emp.name, post: o.post, hours: 0, emp };
+      companyDailyMap[key].hours += Number(o.hours);
+    });
+
+  const companyReportRows = Object.values(companyDailyMap)
+    .map(r => ({ date: r.date, name: r.name, post: r.post, hours: r.hours, amount: Math.round(r.hours * fallbackHourlyRate(r.emp)) }))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+
+  const companyTotalHours = companyReportRows.reduce((s, r) => s + r.hours, 0);
+  const companyTotalAmount = companyReportRows.reduce((s, r) => s + r.amount, 0);
+
+  // Contract: no individual names — grouped by date, then by department/post
+  const contractByDate = {};
+  reportEntries
+    .filter(({ emp }) => emp && emp.staff_type === "contract")
+    .forEach(({ o }) => {
+      if (!contractByDate[o.date]) contractByDate[o.date] = {};
+      contractByDate[o.date][o.post] = (contractByDate[o.date][o.post] || 0) + Number(o.hours);
+    });
+
+  let contractGrandHours = 0, contractGrandAmount = 0;
+  const contractReportData = Object.keys(contractByDate).sort().map(date => {
+    const deptRows = Object.keys(contractByDate[date]).sort().map(postName => {
+      const hours = contractByDate[date][postName];
+      const amount = Math.round(hours * contractHourlyRate(postName));
+      return { postName, hours, amount };
+    });
+    const dayTotalHours = deptRows.reduce((s, r) => s + r.hours, 0);
+    const dayTotalAmount = deptRows.reduce((s, r) => s + r.amount, 0);
+    contractGrandHours += dayTotalHours;
+    contractGrandAmount += dayTotalAmount;
+    return { date, deptRows, dayTotalHours, dayTotalAmount };
+  });
+
+  const downloadCompanyOTReport = () => {
+    import("jspdf").then(({ jsPDF }) => {
+      import("jspdf-autotable").then(({ default: autoTable }) => {
+        const doc = new jsPDF();
+        doc.setFontSize(16);
+        doc.text("Company Staff — Overtime Report", 14, 18);
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        doc.text(`Period: ${fDate(reportStart)} to ${fDate(reportEnd)}`, 14, 25);
+        autoTable(doc, {
+          startY: 32,
+          head: [["Date", "Employee", "Post", "Hours", "Amount Earned (Rs)"]],
+          body: companyReportRows.map(r => [fDate(r.date), r.name, r.post, `${r.hours}h`, r.amount.toLocaleString("en-IN")]),
+          foot: [["", "", "TOTAL", `${companyTotalHours}h`, companyTotalAmount.toLocaleString("en-IN")]],
+          theme: "grid",
+          headStyles: { fillColor: [30, 111, 219] },
+          footStyles: { fillColor: [240, 245, 255], textColor: [30, 111, 219], fontStyle: "bold" },
+          styles: { fontSize: 9 }
+        });
+        doc.save(`Company_OT_Report_${reportStart}_to_${reportEnd}.pdf`);
+      });
+    });
+  };
+
+  const downloadContractOTReport = () => {
+    import("jspdf").then(({ jsPDF }) => {
+      import("jspdf-autotable").then(({ default: autoTable }) => {
+        const doc = new jsPDF();
+        doc.setFontSize(16);
+        doc.text("Contract Department — Overtime Report", 14, 18);
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        doc.text(`Period: ${fDate(reportStart)} to ${fDate(reportEnd)}`, 14, 25);
+
+        const body = [];
+        contractReportData.forEach(day => {
+          day.deptRows.forEach(r => {
+            body.push([fDate(day.date), r.postName, `${r.hours}h`, r.amount.toLocaleString("en-IN")]);
+          });
+          body.push([
+            { content: `Day Total (${fDate(day.date)})`, colSpan: 2, styles: { fontStyle: "bold", fillColor: [244, 246, 249] } },
+            { content: `${day.dayTotalHours}h`, styles: { fontStyle: "bold", fillColor: [244, 246, 249] } },
+            { content: day.dayTotalAmount.toLocaleString("en-IN"), styles: { fontStyle: "bold", fillColor: [244, 246, 249] } }
+          ]);
+        });
+
+        autoTable(doc, {
+          startY: 32,
+          head: [["Date", "Department / Post", "Hours", "Amount (Rs)"]],
+          body,
+          foot: [["", "GRAND TOTAL", `${contractGrandHours}h`, contractGrandAmount.toLocaleString("en-IN")]],
+          theme: "grid",
+          headStyles: { fillColor: [22, 163, 74] },
+          footStyles: { fillColor: [240, 253, 244], textColor: [22, 163, 74], fontStyle: "bold" },
+          styles: { fontSize: 9 }
+        });
+        doc.save(`Contract_OT_Report_${reportStart}_to_${reportEnd}.pdf`);
+      });
+    });
+  };
+
   return (
     <div style={css.page}>
+      {myRole !== "viewer" && myRole !== "accountant" && (
+      <>
       <div style={css.sectionTitle}>Log Overtime</div>
       <div style={{ ...css.card, marginBottom: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, alignItems: "flex-end" }}>
         <div style={{ gridColumn: "1 / -1", width: "100%", boxSizing: "border-box" }}>
@@ -561,6 +685,93 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
                 })}
           </tbody>
         </table>
+      </div>
+      </>
+      )}
+
+      <div style={css.sectionTitle}>Overtime Report — All Staff</div>
+      <div style={{ ...css.card, marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>STAFF TYPE</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button style={css.navBtn(reportStaffType === "company")} onClick={() => setReportStaffType("company")}>🏢 Company</button>
+              <button style={css.navBtn(reportStaffType === "contract")} onClick={() => setReportStaffType("contract")}>📋 Contract</button>
+            </div>
+          </div>
+          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={css.input} value={reportStart} onChange={e => setReportStart(e.target.value)} /></div>
+          <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={css.input} value={reportEnd} onChange={e => setReportEnd(e.target.value)} /></div>
+          <button
+            style={css.btn(reportStaffType === "company" ? C.blue : C.green)}
+            onClick={() => reportStaffType === "company" ? downloadCompanyOTReport() : downloadContractOTReport()}
+          >
+            📥 Download PDF
+          </button>
+        </div>
+
+        {reportStaffType === "company" ? (
+          <div style={{ overflowX: "auto" }}>
+            <table style={css.table}>
+              <thead><tr>{["Date", "Employee", "Post", "Hours", "Amount Earned"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {companyReportRows.length === 0 && <tr><td colSpan={5} style={{ ...css.td, textAlign: "center" }}>No company OT entries in this period.</td></tr>}
+                {companyReportRows.map((r, i) => (
+                  <tr key={i}>
+                    <td style={css.td}>{fDate(r.date)}</td>
+                    <td style={css.td}><strong>{r.name}</strong></td>
+                    <td style={css.td}>{r.post}</td>
+                    <td style={{ ...css.td, color: C.accent, fontWeight: 700 }}>{r.hours}h</td>
+                    <td style={{ ...css.td, color: C.green, fontWeight: 700 }}>₹{r.amount.toLocaleString("en-IN")}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {companyReportRows.length > 0 && (
+                <tfoot>
+                  <tr style={{ borderTop: `2px solid ${C.border}` }}>
+                    <td colSpan={3} style={{ ...css.td, textAlign: "right", fontWeight: 700 }}>TOTAL</td>
+                    <td style={{ ...css.td, fontWeight: 700, color: C.accent }}>{companyTotalHours}h</td>
+                    <td style={{ ...css.td, fontWeight: 700, color: C.green }}>₹{companyTotalAmount.toLocaleString("en-IN")}</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={css.table}>
+              <thead><tr>{["Date", "Department / Post", "Hours", "Amount"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+              <tbody>
+                {contractReportData.length === 0 && <tr><td colSpan={4} style={{ ...css.td, textAlign: "center" }}>No contract OT entries in this period.</td></tr>}
+                {contractReportData.map(day => (
+                  <React.Fragment key={day.date}>
+                    {day.deptRows.map((r, i) => (
+                      <tr key={i}>
+                        <td style={css.td}>{fDate(day.date)}</td>
+                        <td style={css.td}>{r.postName}</td>
+                        <td style={{ ...css.td, color: C.accent, fontWeight: 700 }}>{r.hours}h</td>
+                        <td style={{ ...css.td, color: C.green, fontWeight: 700 }}>₹{r.amount.toLocaleString("en-IN")}</td>
+                      </tr>
+                    ))}
+                    <tr style={{ background: C.bg }}>
+                      <td colSpan={2} style={{ ...css.td, fontWeight: 700 }}>Day Total — {fDate(day.date)}</td>
+                      <td style={{ ...css.td, fontWeight: 700 }}>{day.dayTotalHours}h</td>
+                      <td style={{ ...css.td, fontWeight: 700 }}>₹{day.dayTotalAmount.toLocaleString("en-IN")}</td>
+                    </tr>
+                  </React.Fragment>
+                ))}
+              </tbody>
+              {contractReportData.length > 0 && (
+                <tfoot>
+                  <tr style={{ borderTop: `2px solid ${C.border}` }}>
+                    <td colSpan={2} style={{ ...css.td, textAlign: "right", fontWeight: 700 }}>GRAND TOTAL</td>
+                    <td style={{ ...css.td, fontWeight: 700, color: C.accent }}>{contractGrandHours}h</td>
+                    <td style={{ ...css.td, fontWeight: 700, color: C.green }}>₹{contractGrandAmount.toLocaleString("en-IN")}</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -4123,8 +4334,9 @@ export default function App() {
 // Dynamic tabs based on role
   const TABS = [
     { id: "dashboard", label: "Dashboard" },
-    // Exclude viewer and accountant from Attendance and Overtime
-    ...(myRole !== "viewer" && myRole !== "accountant" ? [{ id: "attendance", label: "Attendance" }, { id: "overtime", label: "Overtime" }] : []),
+    // Attendance stays restricted; Overtime is now open to every role so all users can reach the OT Report
+    ...(myRole !== "viewer" && myRole !== "accountant" ? [{ id: "attendance", label: "Attendance" }] : []),
+    { id: "overtime", label: "Overtime" },
     ...(myRole === "director" || myRole === "manager" || myRole === "supervisor" ? [{ id: "staff", label: "Staff" }] : []),
     // Add accountant to Payroll and Transactions
     ...(myRole === "director" || myRole === "manager" || myRole === "accountant" ? [{ id: "payroll", label: "Payroll" }, { id: "transactions", label: "Transactions" }] : []),
@@ -4218,7 +4430,7 @@ export default function App() {
         )}
         {tab === "dashboard" && myRole !== "viewer" && <DashboardView employees={employees} attendance={attendance} posts={posts} trackingStartDate={trackingStartDate} />}
           {tab === "attendance" && myRole !== "viewer" && <AttendanceView employees={employees} logAction={logAction} myRole={myRole} />}
-          {tab === "overtime" && myRole !== "viewer" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} logAction={logAction} myRole={myRole} />}
+          {tab === "overtime" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} logAction={logAction} myRole={myRole} />}
           {tab === "staff" && (myRole === "director" || myRole === "manager" || myRole === "supervisor") && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
           {tab === "payroll" && myRole !== "viewer" && <PayrollView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
           {tab === "transactions" && (myRole === "director" || myRole === "manager" || myRole === "accountant") && <TransactionsView ledger={ledger} setLedger={setLedger} employees={employees} myRole={myRole} />}
