@@ -817,7 +817,7 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
           <thead><tr>{["Start Date", "End Date", "Employee", "Post", "From", "To", "Hours", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
           <tbody>
             {overtime.length === 0 && <tr><td colSpan={7} style={{...css.td, textAlign: "center"}}>No OT entries found.</td></tr>}
-            {overtime.slice(0, 200).map(o => {
+            {overtime.slice(0, 250).map(o => {
                   // Robust ID matching in case of database object nesting or string mismatch
                   const rawId = typeof o.employee_id === "object" && o.employee_id !== null ? o.employee_id.id : o.employee_id;
                   const emp = employees.find(e => String(e.id) === String(rawId));
