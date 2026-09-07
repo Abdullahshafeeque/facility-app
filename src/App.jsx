@@ -38,6 +38,16 @@ const getLocalDateStr = (d = new Date()) => { const dt = new Date(d); dt.setMinu
 const todayStr = getLocalDateStr();
 // NEW: Formats yyyy-mm-dd into dd-mm-yyyy for display
 const fDate = (d) => (d && typeof d === "string" && d.includes("-")) ? d.split("-").reverse().join("-") : (d || "—");
+// NEW: OT hourly rate — uses actual days-in-month ÷ 12hr shift from 1 Aug 2026 onwards; old 365-day formula before that
+const OT_RATE_CUTOFF = "2026-08-01";
+const otHourlyRateForDate = (salary, dateStr) => {
+  if (dateStr && dateStr >= OT_RATE_CUTOFF) {
+    const [y, m] = dateStr.split("-").map(Number);
+    const daysInMonth = new Date(y, m, 0).getDate();
+    return Math.round(((salary / daysInMonth) / 12) * 2) / 2;
+  }
+  return Math.round((((salary * 12) / 365) / 12) * 2) / 2;
+};
 
 function getCoverage(employees, attendance, posts) {
   if (!posts || posts.length === 0) return [];
@@ -180,7 +190,7 @@ function calcFinances(employee, posts, rangeAttendance, ledger, start, end, post
       // FIXED MATH 2: Deductions use exact days in the month to perfectly cancel out base pay, OT uses annualized 365-day rate
       const daysInThisMonth = new Date(sYear, sMonth, 0).getDate();
       const dailyWorkingRate = period.salary / daysInThisMonth; 
-      const hourlyRate = Math.round((((period.salary * 12) / 365) / 12) * 2) / 2;
+      const hourlyRate = otHourlyRateForDate(period.salary, period.from);
       
       let absentDays = 0;
       let leaveDays = 0;
@@ -205,14 +215,14 @@ const attendanceDeduction = employee.leave_type === 'paid'
 
     periodOT.forEach(o => {
       otHours += Number(o.hours);
-      let appliedHourlyRate = hourlyRate; // Company staff: always uses their own salary rate
+      let appliedHourlyRate = otHourlyRateForDate(period.salary, o.date); // Company staff: always uses their own salary rate
 
       if (employee.staff_type === "contract") {
         const otPost = posts.find(p => p.name === o.post);
         if (otPost && Number(otPost.ot_hourly_rate) > 0) {
           appliedHourlyRate = Number(otPost.ot_hourly_rate);
         } else if (otPost && Number(otPost.contract_salary) > 0) {
-          appliedHourlyRate = Math.round((((Number(otPost.contract_salary) * 12) / 365) / 12) * 2) / 2;
+          appliedHourlyRate = otHourlyRateForDate(Number(otPost.contract_salary), o.date);
         }
       }
 
@@ -451,11 +461,11 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
   const [reportStaffType, setReportStaffType] = useState("company");
   const [reportEmployeeId, setReportEmployeeId] = useState("");
 
-  const fallbackHourlyRate = (emp) => Math.round((((Number(emp.base_salary) * 12) / 365) / 12) * 2) / 2;
-  const contractHourlyRate = (postName) => {
+  const fallbackHourlyRate = (emp, dateStr) => otHourlyRateForDate(Number(emp.base_salary), dateStr);
+  const contractHourlyRate = (postName, dateStr) => {
     const p = posts.find(pp => pp.name === postName) || {};
     if (Number(p.ot_hourly_rate) > 0) return Number(p.ot_hourly_rate);
-    if (Number(p.contract_salary) > 0) return Math.round((((Number(p.contract_salary) * 12) / 365) / 12) * 2) / 2;
+    if (Number(p.contract_salary) > 0) return otHourlyRateForDate(Number(p.contract_salary), dateStr);
     return 0;
   };
 
@@ -480,7 +490,7 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
       from: o.start_time,
       to: o.end_time,
       hours: Number(o.hours),
-      amount: Math.round(Number(o.hours) * fallbackHourlyRate(emp))
+      amount: Math.round(Number(o.hours) * fallbackHourlyRate(emp, o.date))
     }))
     .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
 
@@ -507,7 +517,7 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
     let dayHours = 0, dayAmount = 0;
     const cells = contractDepartments.map(dept => {
       const hours = contractByDate[date][dept] || 0;
-      const amount = hours > 0 ? Math.round(hours * contractHourlyRate(dept)) : 0;
+      const amount = hours > 0 ? Math.round(hours * contractHourlyRate(dept, date)) : 0;
       dayHours += hours;
       dayAmount += amount;
       contractDeptTotals[dept].hours += hours;
@@ -807,7 +817,7 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
           <thead><tr>{["Start Date", "End Date", "Employee", "Post", "From", "To", "Hours", "Action"].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
           <tbody>
             {overtime.length === 0 && <tr><td colSpan={7} style={{...css.td, textAlign: "center"}}>No OT entries found.</td></tr>}
-            {overtime.slice(0, 50).map(o => {
+            {overtime.slice(0, 200).map(o => {
                   // Robust ID matching in case of database object nesting or string mismatch
                   const rawId = typeof o.employee_id === "object" && o.employee_id !== null ? o.employee_id.id : o.employee_id;
                   const emp = employees.find(e => String(e.id) === String(rawId));
@@ -1274,8 +1284,6 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
       const empOT = (overtime || []).filter(o => o.employee_id === emp.id && o.date >= startDate && o.date <= endDate);
       const empLedger = (ledger || []).filter(l => l.employee_id === emp.id && l.date >= startDate && l.date <= endDate);
       const CREDIT_TYPES = ["Bonus", "Settlement Addition", "Loan Repayment"];
-      const fallbackHourly = Math.round((((Number(emp.base_salary) * 12) / 365) / 12) * 2) / 2;
-
       const finPeriod = calcFinances(emp, posts, viewingAtt, ledger, startDate, endDate, postHistory, overtime);
 
       // Checkpoint dates = every date something actually happened, plus endDate
@@ -1329,12 +1337,12 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
         prevFoodComp = foodComp;
 
         empOT.filter(o => o.date === cpDate).forEach(o => {
-          let hrRate = fallbackHourly;
+          let hrRate = otHourlyRateForDate(Number(emp.base_salary), o.date);
           if (emp.staff_type === "contract") {
             const p = (posts || []).find(x => x.name === o.post);
             if (p) {
               if (Number(p.ot_hourly_rate) > 0) hrRate = Number(p.ot_hourly_rate);
-              else if (Number(p.contract_salary) > 0) hrRate = Math.round((((Number(p.contract_salary) * 12) / 365) / 12) * 2) / 2;
+              else if (Number(p.contract_salary) > 0) hrRate = otHourlyRateForDate(Number(p.contract_salary), o.date);
             }
           }
           rows.push({ date: o.date, particulars: `Overtime — ${o.post} (${o.hours}h)`, debit: 0, credit: Math.round(Number(o.hours) * hrRate) });
@@ -1505,19 +1513,18 @@ function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHist
 
             const empOT = (overtime || []).filter(o => o.employee_id === emp.id && o.date >= startDate && o.date <= endDate).sort((a, b) => new Date(a.date) - new Date(b.date));
             if (empOT.length > 0) {
-              const fallbackHourly = Math.round((((Number(emp.base_salary) * 12) / 365) / 12) * 2) / 2;
               autoTable(doc, {
                 startY: finalY,
                 head: [["Date", "Overtime Post", "Time", "Hours", "Amount Earned"]],
                 body: empOT.map(o => {
-                  let hrRate = fallbackHourly;
+                  let hrRate = otHourlyRateForDate(Number(emp.base_salary), o.date);
                   if (emp.staff_type === "contract") {
                     const p = (posts || []).find(x => x.name === o.post);
                     if (p) {
                       if (Number(p.ot_hourly_rate) > 0) {
                         hrRate = Number(p.ot_hourly_rate);
                       } else if (Number(p.contract_salary) > 0) {
-                        hrRate = Math.round((((Number(p.contract_salary) * 12) / 365) / 12) * 2) / 2;
+                        hrRate = otHourlyRateForDate(Number(p.contract_salary), o.date);
                       }
                     }
                   }
@@ -4240,18 +4247,17 @@ function ViewerDashboardView({ userEmail, appUsers, employees, posts, ledger, po
           let finalY = doc.lastAutoTable.finalY + 10;
 
           if (myOT.length > 0) {
-            const fallbackHourly = Math.round((((Number(myEmp.base_salary) * 12) / 365) / 12) * 2) / 2;
             autoTable(doc, {
               startY: finalY,
               head: [["Date", "Overtime Post", "Time", "Hours", "Amount Earned"]],
               body: myOT.map(o => {
-                let hrRate = fallbackHourly;
+                let hrRate = otHourlyRateForDate(Number(myEmp.base_salary), o.date);
                 const p = (posts || []).find(x => x.name === o.post);
                 if (p && myEmp.staff_type === "contract") {
                   if (Number(p.ot_hourly_rate) > 0) {
                     hrRate = Number(p.ot_hourly_rate);
                   } else if (Number(p.contract_salary) > 0) {
-                    hrRate = Math.round((((Number(p.contract_salary) * 12) / 365) / 12) * 2) / 2;
+                    hrRate = otHourlyRateForDate(Number(p.contract_salary), o.date);
                   }
                 }
                 const earned = Math.round(Number(o.hours) * hrRate);
