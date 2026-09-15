@@ -2851,38 +2851,43 @@ body: rows.map(({ emp, fin }) => [
                 CONTRACTOR BILL — {monthLabel(selectedMonth).toUpperCase()}
                 {isCurrentMonth && <span style={{ ...css.badge(C.orange), marginLeft: 8 }}>IN PROGRESS</span>}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16, marginTop: 8 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, marginTop: 8 }}>
                 <div>
-                  <div style={{ fontSize: 10, color: C.textDim }}>TOTAL BILL AMOUNT</div>
+                  <div style={{ fontSize: 10, color: C.textDim }}>PRORATED SALARY</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: C.text }}>₹{Math.round(totalProratedSalary).toLocaleString("en-IN")}</div>
+                  <div style={{ fontSize: 10, color: C.textDim }}>base earned</div>
+                </div>
+                <div style={{ fontSize: 20, color: C.textDim, fontWeight: 700 }}>+</div>
+                <div>
+                  <div style={{ fontSize: 10, color: C.textDim }}>OT EARNINGS</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: C.green }}>₹{Math.round(totalOTEarnings).toLocaleString("en-IN")}</div>
+                  <div style={{ fontSize: 10, color: C.textDim }}>overtime</div>
+                </div>
+                <div style={{ fontSize: 20, color: C.textDim, fontWeight: 700 }}>−</div>
+                <div>
+                  <div style={{ fontSize: 10, color: C.textDim }}>DEDUCTIONS</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: C.red }}>₹{Math.round(totalDeductions).toLocaleString("en-IN")}</div>
+                  <div style={{ fontSize: 10, color: C.textDim }}>absences + advances/fines</div>
+                </div>
+                <div style={{ fontSize: 20, color: C.textDim, fontWeight: 700 }}>=</div>
+                <div>
+                  <div style={{ fontSize: 10, color: C.textDim }}>TOTAL BILL</div>
                   <div style={{ fontSize: 24, fontWeight: 700, color: C.blue }}>₹{billAmount.toLocaleString("en-IN")}</div>
                   <div style={{ fontSize: 10, color: C.textDim }}>sum of all contract staff earnings</div>
                 </div>
+                <div style={{ fontSize: 20, color: C.textDim, fontWeight: 700 }}>−</div>
                 <div>
                   <div style={{ fontSize: 10, color: C.textDim }}>PAID TO CONTRACTOR</div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: C.green }}>₹{Math.round(monthPayments).toLocaleString("en-IN")}</div>
-                  <div style={{ fontSize: 10, color: C.textDim }}>{monthPaymentRecords.length} payment(s) this month</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: C.green }}>₹{Math.round(monthPayments).toLocaleString("en-IN")}</div>
+                  <div style={{ fontSize: 10, color: C.textDim }}>{monthPaymentRecords.length} payment(s)</div>
                 </div>
+                <div style={{ fontSize: 20, color: C.textDim, fontWeight: 700 }}>=</div>
                 <div>
                   <div style={{ fontSize: 10, color: C.textDim }}>BALANCE DUE</div>
                   <div style={{ fontSize: 28, fontWeight: 700, color: isPaid ? C.green : C.red }}>
                     {isPaid ? "✓ PAID" : `₹${Math.round(balance).toLocaleString("en-IN")}`}
                   </div>
-                  <div style={{ fontSize: 10, color: C.textDim }}>{isPaid ? "fully settled" : "remaining to pay"}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textDim }}>PRORATED SALARY (TOTAL)</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: C.text }}>₹{Math.round(totalProratedSalary).toLocaleString("en-IN")}</div>
-                  <div style={{ fontSize: 10, color: C.textDim }}>base earned by all staff</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textDim }}>OT EARNINGS (TOTAL)</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: C.green }}>₹{Math.round(totalOTEarnings).toLocaleString("en-IN")}</div>
-                  <div style={{ fontSize: 10, color: C.textDim }}>overtime earned by all staff</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: C.textDim }}>TOTAL DEDUCTIONS</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: C.red }}>₹{Math.round(totalDeductions).toLocaleString("en-IN")}</div>
-                  <div style={{ fontSize: 10, color: C.textDim }}>absences + advances/fines</div>
+                  <div style={{ fontSize: 10, color: C.textDim }}>{isPaid ? "fully settled" : "remaining"}</div>
                 </div>
               </div>
             </div>
