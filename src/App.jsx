@@ -2831,6 +2831,11 @@ body: rows.map(({ emp, fin }) => [
       return { emp, fin, gross };
     });
 
+    // NEW: Aggregate totals across all contract staff for the summary card
+    const totalProratedSalary = empRows.reduce((s, r) => s + r.fin.proratedSalary, 0);
+    const totalOTEarnings = empRows.reduce((s, r) => s + r.fin.otEarnings, 0);
+    const totalDeductions = empRows.reduce((s, r) => s + r.fin.attendanceDeduction + r.fin.totalAdvances, 0);
+
     // Payment history for this month
     const monthPaymentRecords = ledger
       .filter(l => l.transaction_type === "Contractor Payout" && l.pay_month === selectedMonth)
@@ -2863,6 +2868,21 @@ body: rows.map(({ emp, fin }) => [
                     {isPaid ? "✓ PAID" : `₹${Math.round(balance).toLocaleString("en-IN")}`}
                   </div>
                   <div style={{ fontSize: 10, color: C.textDim }}>{isPaid ? "fully settled" : "remaining to pay"}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: C.textDim }}>PRORATED SALARY (TOTAL)</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: C.text }}>₹{Math.round(totalProratedSalary).toLocaleString("en-IN")}</div>
+                  <div style={{ fontSize: 10, color: C.textDim }}>base earned by all staff</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: C.textDim }}>OT EARNINGS (TOTAL)</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: C.green }}>₹{Math.round(totalOTEarnings).toLocaleString("en-IN")}</div>
+                  <div style={{ fontSize: 10, color: C.textDim }}>overtime earned by all staff</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, color: C.textDim }}>TOTAL DEDUCTIONS</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: C.red }}>₹{Math.round(totalDeductions).toLocaleString("en-IN")}</div>
+                  <div style={{ fontSize: 10, color: C.textDim }}>absences + advances/fines</div>
                 </div>
               </div>
             </div>
