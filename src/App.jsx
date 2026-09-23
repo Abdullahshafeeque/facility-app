@@ -995,9 +995,17 @@ function AttendanceView({ employees, logAction, myRole }) {
   const [historicalShifts, setHistoricalShifts] = useState({});
 
   const active = employees.filter(e => e.status === "active");
-  // Filters based on past saved shift first, defaults to current shift if unrecorded
-  let filtered = active.filter(e => (historicalShifts[e.id] || e.shift) === activeShift);
-  if (search.trim()) filtered = filtered.filter(e => e.name.toLowerCase().includes(search.toLowerCase()));
+// Was this employee actually employed on the selected date?
+// Independent of their CURRENT status: a since-left employee still shows for
+// dates while they were working, and a not-yet-joined employee stays hidden
+// until their joining date, regardless of what "status" currently says.
+const employedOnDate = employees.filter(e => {
+  if (e.joining_date && selectedDate < e.joining_date) return false;
+  if (e.left_date && selectedDate > e.left_date) return false;
+  return true;
+});
+// Filters based on past saved shift first, defaults to current shift if unrecorded
+let filtered = employedOnDate.filter(e => (historicalShifts[e.id] || e.shift) === activeShift);
 
   useEffect(() => {
     const loadDay = async () => {
