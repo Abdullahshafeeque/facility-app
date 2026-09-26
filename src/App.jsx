@@ -1893,6 +1893,76 @@ if (aadharCheck && aadharCheck.length > 0) {
     setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "active", left_date: null, settlement_done: false } : e));
   };
 
+  const initiateTypeMigration = async (emp) => {
+    const newType = emp.staff_type === "contract" ? "company" : "contract";
+
+    // Debt gate: block if there is any outstanding balance or loan of the relevant kind for their CURRENT type
+    const finCheck = calcFinances(emp, posts, viewingAtt, ledger, emp.joining_date || "2020-01-01", todayStr, postHistory, overtime);
+    const hasPendingLoan = Math.round(finCheck.pendingLoan) !== 0;
+    const hasNetBalance = emp.staff_type === "company" && Math.round(finCheck.netPayable) !== 0;
+
+    if (hasPendingLoan || hasNetBalance) {
+      let msg = `Cannot change employment type — ${emp.name} has an outstanding balance that must be settled first:\n\n`;
+      if (hasNetBalance) msg += `• Net Payable: ₹${Math.round(finCheck.netPayable).toLocaleString("en-IN")}\n`;
+      if (hasPendingLoan) msg += `• Pending Loan: ₹${Math.round(finCheck.pendingLoan).toLocaleString("en-IN")}\n`;
+      msg += `\nPlease use "⚖ Settle Until Date" to bring this to zero before migrating.`;
+      return alert(msg);
+    }
+
+    if (!window.confirm(`This will mark ${emp.name}'s current (${emp.staff_type}) record as LEFT, and open a new employee form to register them as ${newType} staff.\n\nTheir Aadhar (${emp.aadhar}) will be freed up for the new record.\n\nContinue?`)) return;
+
+    const effectiveDate = await askForDate(`Select the effective date ${emp.name} moves from ${emp.staff_type} to ${newType}:`);
+    if (!effectiveDate) return;
+
+    setLoading(true);
+
+    // Close any open post_history row at effective date - 1
+    const [y, m, d] = effectiveDate.split("-").map(Number);
+    const dateObj = new Date(y, m - 1, d - 1);
+    const validToDate = [dateObj.getFullYear(), String(dateObj.getMonth() + 1).padStart(2, "0"), String(dateObj.getDate()).padStart(2, "0")].join("-");
+
+    await supabase.from("post_history").update({ valid_to: validToDate }).eq("employee_id", emp.id).is("valid_to", null);
+    setPostHistory(prev => prev.map(h => (h.employee_id === emp.id && !h.valid_to) ? { ...h, valid_to: validToDate } : h));
+
+    const oldAadhar = emp.aadhar;
+    const newAadharForOldRecord = `${oldAadhar}-OLD`;
+
+    const { error } = await supabase.from("employees").update({
+      status: "inactive",
+      left_date: effectiveDate,
+      aadhar: newAadharForOldRecord
+    }).eq("id", emp.id);
+
+    if (error) {
+      setLoading(false);
+      return alert("Database Error: " + error.message);
+    }
+
+    setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, status: "inactive", left_date: effectiveDate, aadhar: newAadharForOldRecord } : e));
+
+    if (logAction) logAction("Employment Type Migration", `${emp.name} moved from ${emp.staff_type} to ${newType} effective ${effectiveDate}. Old record retired with Aadhar ${newAadharForOldRecord}.`);
+
+    setLoading(false);
+    setViewing(null);
+    setConfirmLeave(false);
+
+    // Open the Add Employee form pre-filled for the new record
+    setForm({
+      emp_code: "",
+      name: emp.name,
+      aadhar: oldAadhar,
+      post: newType === "contract" ? emp.post : "",
+      shift: emp.shift,
+      base_salary: newType === "contract" ? getContractSalary(emp.post) : "",
+      staff_type: newType,
+      joining_date: effectiveDate,
+      has_food_allowance: false,
+      food_allowance_amount: "",
+      leave_type: "unpaid"
+    });
+    setShowForm(true);
+  };
+
   const deleteEmployee = async () => {
     if (!window.confirm(`⚠️ DANGER: Permanently delete ${viewing.name} and ALL their historical data (attendance, payroll, ledger)? This CANNOT be undone.`)) return;
     
@@ -2326,13 +2396,18 @@ if (aadharCheck && aadharCheck.length > 0) {
 
             {/* Inline confirm instead of window.confirm */}
             {!confirmLeave ? (
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button style={{ ...css.btn(C.orange), flex: 1 }} onClick={() => setConfirmLeave(true)}>
                   ⏸ Mark as Left / Inactive
                 </button>
                 {myRole === "director" && (
                   <button style={{ ...css.btn(C.red), flex: 1 }} onClick={deleteEmployee}>
                     🗑 Delete Permanently
+                  </button>
+                )}
+                {myRole === "director" && (
+                  <button style={{ ...css.btn(C.purple), flex: "1 1 100%" }} onClick={() => initiateTypeMigration(viewing)}>
+                    🔄 Change to {viewing.staff_type === "contract" ? "Company" : "Contract"} Staff
                   </button>
                 )}
               </div>
