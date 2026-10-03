@@ -4612,7 +4612,7 @@ export default function App() {
       <header style={css.header}>
         <div style={css.logo}>⚙ PRFM HR Portal</div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", flexShrink: 0 }}>
-          <span style={{ fontSize: 11, color: C.textDim, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</span>
+          <span style={{ fontSize: 11, color: C.text, fontWeight: 700, maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={user.email}>{(employees.find(e => String(e.id) === String(appUsers.find(u => u.email === user.email)?.employee_id))?.name) || user.email}</span>
           
           {/* Locked to prevent viewers from seeing internal HR alerts */}
           {myRole !== "viewer" && alerts.length > 0 && <span style={{ ...css.badge(C.red), cursor: "pointer" }} onClick={() => setTab("dashboard")}>⚠ {alerts.length} Alert{alerts.length > 1 ? "s" : ""}</span>}
