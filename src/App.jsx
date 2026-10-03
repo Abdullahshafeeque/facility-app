@@ -1180,7 +1180,7 @@ let filtered = employedOnDate.filter(e => (historicalShifts[e.id] || e.shift) ==
 }
 
 // ─── STAFF ────────────────────────────────────────────────────────────────────
-function StaffView({ employees, setEmployees, posts, ledger, setLedger, postHistory, setPostHistory, overtime, logAction, myRole }) {
+function StaffView({ appUsers, employees, setEmployees, posts, ledger, setLedger, postHistory, setPostHistory, overtime, logAction, myRole }) {
   const deleteTransaction = async (txId) => {
     if (!window.confirm("Delete this transaction? This will instantly adjust their Net Payable.")) return;
     await supabase.from("financial_ledger").delete().eq("id", txId);
@@ -2126,6 +2126,7 @@ if (aadharCheck && aadharCheck.length > 0) {
               </div>
               <div><div style={{ fontSize: 10, color: C.textDim }}>JOINED</div><strong>{fDate(viewing.joining_date)}</strong></div>
               <div><div style={{ fontSize: 10, color: C.textDim }}>CURRENT POST</div><strong>{viewing.post}</strong></div>
+              {myRole === "director" && (() => { const lu = (appUsers || []).find(u => String(u.employee_id) === String(viewing.id)); return <div style={{ gridColumn: "1 / -1" }}><div style={{ fontSize: 10, color: C.textDim }}>LOGIN ACCOUNT</div>{lu ? <strong>{lu.email} <span style={{ fontSize: 10, color: C.textDim }}>({lu.role})</span></strong> : <span style={{ fontSize: 12, color: C.textDim }}>Not linked to any login</span>}</div>; })()}
             </div>
             <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 10, color: C.textDim, marginBottom: 6, fontWeight: 700 }}>CHANGE POST / SHIFT</div>
@@ -4210,7 +4211,12 @@ function UserManagementView({ users, setUsers, employees }) {
 
   const linkEmployee = async (userId, empId) => {
     const val = empId === "" ? null : empId;
-    await supabase.from("app_users").update({ employee_id: val }).eq("id", userId);
+    if (val !== null) {
+      const other = users.find(u => u.id !== userId && String(u.employee_id) === String(val));
+      if (other) return alert(`This employee is already linked to ${other.email}. Unlink that login first.`);
+    }
+    const { error } = await supabase.from("app_users").update({ employee_id: val }).eq("id", userId);
+    if (error) return alert("Could not save link: " + error.message);
     setUsers(prev => prev.map(u => u.id === userId ? { ...u, employee_id: val } : u));
   };
 
@@ -4229,11 +4235,11 @@ function UserManagementView({ users, setUsers, employees }) {
       <div style={css.sectionTitle}>User Access Management</div>
       <div style={{ overflowX: "auto" }}>
         <table style={css.table}>
-          <thead><tr><th style={css.th}>Email</th><th style={css.th}>Role</th><th style={css.th}>Linked Employee (For Viewers)</th><th style={css.th}>Action</th></tr></thead>
+          <thead><tr><th style={css.th}>Email</th><th style={css.th}>Role</th><th style={css.th}>Linked Employee</th><th style={css.th}>Action</th></tr></thead>
           <tbody>
             {users.map(u => (
               <tr key={u.id} style={{ background: u.role === "pending" ? C.orange + "15" : "transparent" }}>
-                <td style={css.td}><strong>{u.email}</strong></td>
+                <td style={css.td}><strong>{u.email}</strong>{u.role !== "pending" && !u.employee_id && <div style={{ fontSize: 10, color: C.orange, marginTop: 2 }}>⚠ Not linked to an employee</div>}</td>
                 <td style={css.td}>
                   <select style={css.input} value={u.role} onChange={e => updateRole(u.id, e.target.value)}>
                     <option value="pending">Pending (Locked Out)</option>
@@ -4245,9 +4251,12 @@ function UserManagementView({ users, setUsers, employees }) {
                   </select>
                 </td>
                 <td style={css.td}>
-                  <select disabled={u.role !== "viewer"} style={{ ...css.input, opacity: u.role !== "viewer" ? 0.3 : 1, width: "100%" }} value={u.employee_id || ""} onChange={e => linkEmployee(u.id, e.target.value)}>
+                  <select disabled={u.role === "pending"} style={{ ...css.input, opacity: u.role === "pending" ? 0.3 : 1, width: "100%" }} value={u.employee_id || ""} onChange={e => linkEmployee(u.id, e.target.value)}>
                     <option value="">-- Link to Staff Profile --</option>
-                    {employees.filter(e => e.status === "active").map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                    {employees.filter(e => e.status === "active" || String(e.id) === String(u.employee_id)).sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(e => {
+                      const owner = users.find(x => x.id !== u.id && String(x.employee_id) === String(e.id));
+                      return <option key={e.id} value={e.id} disabled={!!owner}>{e.name}{e.emp_code ? ` (${e.emp_code})` : ""}{e.status !== "active" ? " — left" : ""}{owner ? ` — linked to ${owner.email}` : ""}</option>;
+                    })}
                   </select>
                 </td>
                 <td style={css.td}>
