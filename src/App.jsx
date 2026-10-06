@@ -4245,6 +4245,8 @@ function UserManagementView({ users, setUsers, employees }) {
                     <option value="pending">Pending (Locked Out)</option>
                     <option value="viewer">Viewer (Staff Only)</option>
                     <option value="supervisor">Supervisor</option>
+                    <option value="store">Store Clerk</option>
+                    <option value="dispatch">Dispatch Clerk</option>
                     <option value="manager">Manager</option>
                     <option value="accountant">Accountant</option>
                     <option value="director">Director</option>
