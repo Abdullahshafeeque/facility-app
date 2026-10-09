@@ -2315,11 +2315,11 @@ if (aadharCheck && aadharCheck.length > 0) {
                     // OT Math
                     let otPay = 0;
                     dayOT.forEach(o => {
-                        let hrRate = Math.round(((((hist ? Number(hist.salary) : Number(viewing.base_salary)) * 12) / 365) / 12) * 2) / 2;
+                        let hrRate = otHourlyRateForDate(hist ? Number(hist.salary) : Number(viewing.base_salary), dateStr);
                         if (viewing.staff_type === "contract") {
                             const otPost = posts.find(p => p.name === o.post);
                             if (otPost && Number(otPost.ot_hourly_rate) > 0) hrRate = Number(otPost.ot_hourly_rate);
-                            else if (otPost && Number(otPost.contract_salary) > 0) hrRate = Math.round((((Number(otPost.contract_salary) * 12) / 365) / 12) * 2) / 2;
+                            else if (otPost && Number(otPost.contract_salary) > 0) hrRate = otHourlyRateForDate(Number(otPost.contract_salary), dateStr);
                         }
                         otPay += Number(o.hours) * hrRate;
                     });
