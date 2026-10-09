@@ -44,8 +44,7 @@ const otHourlyRateForDate = (salary, dateStr) => {
   if (dateStr && dateStr >= OT_RATE_CUTOFF) {
     const [y, m] = dateStr.split("-").map(Number);
     const daysInMonth = new Date(y, m, 0).getDate();
-    return Math.round(((salary / daysInMonth) / 12) * 2) / 2;
-  }
+    return (salary / daysInMonth) / 12;  }
   return Math.round((((salary * 12) / 365) / 12) * 2) / 2;
 };
 
