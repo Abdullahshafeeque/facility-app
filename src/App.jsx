@@ -126,7 +126,7 @@ const hasAccess = (section, action) => {
   if (ACC_ROLE === "director") return true;
   if (ACC_STATE === "loading") return false;
   if (ACC_STATE === "off") return accessDefault("hr:" + section, ACC_ROLE, action);
-  const has = (a) => ACC_RULES.some(r => r.section === "hr:" + section && r.action === a && r.user_email === ACC_ME);
+  const has = (a) => ACC_RULES.some(r => r.section === "hr:" + section && r.action === a && r.employee_id === ACC_ME);
   if (action !== "view" && !has("view")) return false;
   return has(action);
 };
@@ -4564,13 +4564,15 @@ function AccessView({ appUsers, employees, logAction }) {
   const [sectionKey, setSectionKey] = useState(allSections[0].key);
   const [bulkAct, setBulkAct] = useState("view");
   const [bulkRole, setBulkRole] = useState("manager");
+  const [search, setSearch] = useState("");
+  const [onlyLogin, setOnlyLogin] = useState(true);
 
   const load = async () => {
     const { data: st } = await supabase.from("erp_settings").select("value").eq("key", "access_rules_on").maybeSingle();
     setOn(!!st && st.value === "1");
     let all = [], from = 0;
     for (;;) {
-      const { data, error } = await supabase.from("access_rules").select("section,action,user_email").order("section").order("action").order("user_email").range(from, from + 999);
+      const { data, error } = await supabase.from("access_rules").select("section,action,employee_id").order("section").order("action").order("employee_id").range(from, from + 999);
       if (error) { alert("Could not load access rules: " + error.message + "\n\nHave you run the SQL step?"); break; }
       all = all.concat(data || []);
       if (!data || data.length < 1000) break;
@@ -4581,25 +4583,30 @@ function AccessView({ appUsers, employees, logAction }) {
   };
   useEffect(() => { load(); }, []);
 
-  const emailOf = (u) => (u.email || "").toLowerCase();
-  const nameOf = (u) => { const e = (employees || []).find(x => String(x.id) === String(u.employee_id)); return e ? e.name : u.email; };
-  const people = (appUsers || []).filter(u => u.role !== "pending" && u.role !== "director")
-    .sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
+  const loginOf = (emp) => (appUsers || []).find(u => String(u.employee_id) === String(emp.id));
+  const everyone = (employees || [])
+    .filter(e => e.status === "active")
+    .filter(e => { const lu = loginOf(e); return !(lu && lu.role === "director"); })
+    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const people = everyone
+    .filter(e => !onlyLogin || !!loginOf(e))
+    .filter(e => !search.trim() || `${e.name} ${e.emp_code || ""}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const unlinked = (appUsers || []).filter(u => u.role !== "pending" && u.role !== "director" && !u.employee_id);
   const cur = allSections.find(s => s.key === sectionKey);
-  const has = (sec, act, email) => rules.some(r => r.section === sec && r.action === act && r.user_email === email);
+  const has = (sec, act, id) => rules.some(r => r.section === sec && r.action === act && r.employee_id === id);
 
-  const toggle = async (sec, act, email, want) => {
+  const toggle = async (sec, act, id, want) => {
     setBusy(true);
     let err = null;
     if (want) {
-      const { error } = await supabase.from("access_rules").upsert({ section: sec, action: act, user_email: email }, { onConflict: "section,action,user_email" });
+      const { error } = await supabase.from("access_rules").upsert({ section: sec, action: act, employee_id: id }, { onConflict: "section,action,employee_id" });
       err = error;
-      if (!err) setRules(p => p.some(r => r.section === sec && r.action === act && r.user_email === email) ? p : [...p, { section: sec, action: act, user_email: email }]);
+      if (!err) setRules(p => p.some(r => r.section === sec && r.action === act && r.employee_id === id) ? p : [...p, { section: sec, action: act, employee_id: id }]);
     } else {
       const acts = act === "view" ? ["view", "add", "edit", "delete"] : [act];
-      const { error } = await supabase.from("access_rules").delete().eq("section", sec).eq("user_email", email).in("action", acts);
+      const { error } = await supabase.from("access_rules").delete().eq("section", sec).eq("employee_id", id).in("action", acts);
       err = error;
-      if (!err) setRules(p => p.filter(r => !(r.section === sec && r.user_email === email && acts.includes(r.action))));
+      if (!err) setRules(p => p.filter(r => !(r.section === sec && r.employee_id === id && acts.includes(r.action))));
     }
     setBusy(false);
     if (err) alert("Could not save: " + err.message);
@@ -4607,17 +4614,17 @@ function AccessView({ appUsers, employees, logAction }) {
 
   const applyRole = async () => {
     if (!cur.acts.includes(bulkAct)) return alert(`"${cur.label}" has no ${bulkAct} option.`);
-    const targets = people.filter(u => u.role === bulkRole);
-    if (targets.length === 0) return alert(`No approved user has the role "${bulkRole}".`);
-    if (!window.confirm(`Give "${bulkAct}" access on "${cur.label}" to ${targets.length} user(s) with role "${bulkRole}"?`)) return;
+    const targets = everyone.filter(e => { const lu = loginOf(e); return lu && lu.role === bulkRole; });
+    if (targets.length === 0) return alert(`No active employee has a login with the role "${bulkRole}".`);
+    if (!window.confirm(`Give "${bulkAct}" access on "${cur.label}" to ${targets.length} employee(s) whose login role is "${bulkRole}"?`)) return;
     const acts = bulkAct === "view" ? ["view"] : ["view", bulkAct];
     const rows = [];
-    targets.forEach(u => acts.forEach(a => rows.push({ section: cur.key, action: a, user_email: emailOf(u) })));
+    targets.forEach(e => acts.forEach(a => rows.push({ section: cur.key, action: a, employee_id: String(e.id) })));
     setBusy(true);
-    const { error } = await supabase.from("access_rules").upsert(rows, { onConflict: "section,action,user_email" });
+    const { error } = await supabase.from("access_rules").upsert(rows, { onConflict: "section,action,employee_id" });
     setBusy(false);
     if (error) return alert("Could not save: " + error.message);
-    if (logAction) logAction("Access Rules", `Gave ${bulkAct} on ${cur.label} to all ${bulkRole} users`);
+    if (logAction) logAction("Access Rules", `Gave ${bulkAct} on ${cur.label} to all ${bulkRole} employees`);
     load();
   };
 
@@ -4632,12 +4639,14 @@ function AccessView({ appUsers, employees, logAction }) {
   };
 
   const seed = async () => {
-    if (!window.confirm("This ERASES all current access rules and rebuilds them from each person's role (the same access they have today). Continue?")) return;
+    if (!window.confirm("This ERASES all current access rules and rebuilds them from the role of each employee's linked login (the same access they have today). Employees without a login get nothing. Continue?")) return;
     setBusy(true);
     const rows = [];
-    people.forEach(u => {
+    everyone.forEach(emp => {
+      const lu = loginOf(emp);
+      if (!lu || lu.role === "pending") return;
       ACCESS_CATALOG.forEach(g => g.items.forEach(it => it.acts.forEach(a => {
-        if (accessDefault(it.key, u.role, a)) rows.push({ section: it.key, action: a, user_email: emailOf(u) });
+        if (accessDefault(it.key, lu.role, a)) rows.push({ section: it.key, action: a, employee_id: String(emp.id) });
       })));
     });
     const del = await supabase.from("access_rules").delete().neq("section", "");
@@ -4653,6 +4662,7 @@ function AccessView({ appUsers, employees, logAction }) {
 
   const setSwitch = async (next) => {
     if (next && rules.length === 0) return alert("There are no rules yet. Click 'Fill from current roles' first, otherwise everybody except Directors would be locked out.");
+    if (next && unlinked.length > 0 && !window.confirm(`${unlinked.length} approved login(s) are not linked to an employee and will get NO access:\n\n${unlinked.map(u => u.email).join("\n")}\n\nTurn ON anyway?`)) return;
     if (!window.confirm(next ? "Turn ON custom access rules? From now on these rules decide who can see and do what, in both apps." : "Turn OFF custom access rules? Both apps go back to the old role-based access.")) return;
     setBusy(true);
     const { error } = await supabase.from("erp_settings").upsert({ key: "access_rules_on", value: next ? "1" : "0" }, { onConflict: "key" });
@@ -4684,6 +4694,15 @@ function AccessView({ appUsers, employees, logAction }) {
         </div>
       </div>
 
+      {unlinked.length > 0 && (
+        <div style={{ ...css.alert, background: C.orange + "15", border: `1px solid ${C.orange}44`, alignItems: "flex-start", marginBottom: 20 }}>
+          <span style={{ color: C.orange, fontSize: 16 }}>⚠</span>
+          <span style={{ color: C.orange }}>
+            <strong>{unlinked.length} approved login(s) are not linked to an employee</strong> and will get no access when rules are ON. Link them in the Users tab: {unlinked.map(u => u.email).join(", ")}
+          </span>
+        </div>
+      )}
+
       <div style={{ ...css.card, marginBottom: 20 }}>
         <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4, fontWeight: 700 }}>SECTION</div>
         <select style={{ ...css.input, width: "100%", fontSize: 14, fontWeight: 700 }} value={sectionKey} onChange={e => setSectionKey(e.target.value)}>
@@ -4702,7 +4721,7 @@ function AccessView({ appUsers, employees, logAction }) {
             </select>
           </div>
           <div>
-            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO EVERYONE WITH ROLE</div>
+            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO EVERYONE WITH LOGIN ROLE</div>
             <select style={css.input} value={bulkRole} onChange={e => setBulkRole(e.target.value)}>
               {["manager", "accountant", "supervisor", "store", "dispatch", "viewer"].map(r => <option key={r} value={r}>{r}</option>)}
             </select>
@@ -4712,33 +4731,44 @@ function AccessView({ appUsers, employees, logAction }) {
         </div>
       </div>
 
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+        <input placeholder="🔍 Search employee..." value={search} onChange={e => setSearch(e.target.value)} style={{ ...css.input, minWidth: 200 }} />
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+          <input type="checkbox" checked={onlyLogin} onChange={e => setOnlyLogin(e.target.checked)} /> Only employees who have a login
+        </label>
+      </div>
       <div style={{ fontSize: 11, color: C.textDim, marginBottom: 8 }}>
-        Add, Edit and Delete only work for people who also have View. Directors always have full access and are not listed.
+        Add, Edit and Delete only work for people who also have View. Directors always have full access and are not listed. An employee can only use their access once their login is linked to them in the Users tab.
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={css.table}>
           <thead>
             <tr>
-              <th style={css.th}>Person</th>
-              <th style={css.th}>Role</th>
+              <th style={css.th}>Employee</th>
+              <th style={css.th}>Login</th>
               {ACTS.map(([a, l]) => <th key={a} style={{ ...css.th, textAlign: "center" }}>{l}</th>)}
             </tr>
           </thead>
           <tbody>
-            {people.length === 0 && <tr><td colSpan={6} style={{ ...css.td, textAlign: "center", padding: 30 }}>No approved users yet.</td></tr>}
-            {people.map(u => {
-              const em = emailOf(u);
-              const canView = has(cur.key, "view", em);
+            {people.length === 0 && <tr><td colSpan={6} style={{ ...css.td, textAlign: "center", padding: 30 }}>No employees to show.</td></tr>}
+            {people.map(e => {
+              const id = String(e.id);
+              const lu = loginOf(e);
+              const canView = has(cur.key, "view", id);
               return (
-                <tr key={u.id}>
-                  <td style={css.td}><strong>{nameOf(u)}</strong><div style={{ fontSize: 10, color: C.textDim }}>{u.email}</div></td>
-                  <td style={css.td}><span style={css.badge(C.blue)}>{u.role}</span></td>
+                <tr key={e.id}>
+                  <td style={css.td}><strong>{e.name}</strong><div style={{ fontSize: 10, color: C.textDim }}>{e.emp_code || "—"} · {e.post}</div></td>
+                  <td style={css.td}>
+                    {lu
+                      ? <><span style={css.badge(C.blue)}>{lu.role}</span><div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{lu.email}</div></>
+                      : <span style={{ fontSize: 11, color: C.red }}>No login linked</span>}
+                  </td>
                   {ACTS.map(([a]) => {
                     if (!cur.acts.includes(a)) return <td key={a} style={{ ...css.td, textAlign: "center", color: C.muted }}>—</td>;
                     const disabled = busy || (a !== "view" && !canView);
                     return (
                       <td key={a} style={{ ...css.td, textAlign: "center" }}>
-                        <input type="checkbox" style={{ transform: "scale(1.3)" }} checked={has(cur.key, a, em)} disabled={disabled} onChange={e => toggle(cur.key, a, em, e.target.checked)} />
+                        <input type="checkbox" style={{ transform: "scale(1.3)" }} checked={has(cur.key, a, id)} disabled={disabled} onChange={ev => toggle(cur.key, a, id, ev.target.checked)} />
                       </td>
                     );
                   })}
@@ -4817,15 +4847,16 @@ export default function App() {
 
   const [accData, setAccData] = useState(null);
   useEffect(() => {
-    if (!user) return;
+    if (!user || appUsers.length === 0) return;
     let cancelled = false;
+    const myEmpId = String((appUsers.find(u => (u.email || "").toLowerCase() === (user.email || "").toLowerCase()) || {}).employee_id ?? "");
     const f = async () => {
       let on = false, rules = [];
       try {
         const { data: st } = await supabase.from("erp_settings").select("value").eq("key", "access_rules_on").maybeSingle();
         on = !!st && st.value === "1";
-        if (on) {
-          const { data, error } = await supabase.from("access_rules").select("section,action,user_email").eq("user_email", (user.email || "").toLowerCase()).limit(2000);
+        if (on && myEmpId) {
+          const { data, error } = await supabase.from("access_rules").select("section,action,employee_id").eq("employee_id", myEmpId).limit(2000);
           if (error) on = false; else rules = data || [];
         }
       } catch (e) { on = false; }
@@ -4834,7 +4865,7 @@ export default function App() {
     f();
     const t = setInterval(f, 60000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [user]);
+  }, [user, appUsers]);
 
   const handleSignOut = async () => { 
     if (logAction) await logAction("Logged Out", `User signed out of the portal`);
@@ -4845,7 +4876,7 @@ export default function App() {
   if (!user) return <Login onLogin={setUser} />;
 
   ACC_ROLE = myRole || "";
-  ACC_ME = (user.email || "").toLowerCase();
+  ACC_ME = String((appUsers.find(u => (u.email || "").toLowerCase() === (user.email || "").toLowerCase()) || {}).employee_id ?? "");
   ACC_STATE = accData ? (accData.on ? "on" : "off") : "loading";
   ACC_RULES = accData ? accData.rules : [];
 
