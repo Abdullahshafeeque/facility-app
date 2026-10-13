@@ -48,87 +48,37 @@ const otHourlyRateForDate = (salary, dateStr) => {
   return Math.round((((salary * 12) / 365) / 12) * 2) / 2;
 };
 
-// ─── ACCESS RULES (engine) ────────────────────────────────────────────────────
-const ACCESS_CATALOG = [
-  { group: "Mill app", items: [
-    { key: "mill:dashboard", label: "Dashboard", acts: ["view"] },
-    { key: "mill:timeline", label: "Timeline Calendar", acts: ["view"] },
-    { key: "mill:production", label: "Production", acts: ["view", "add", "edit", "delete"] },
-    { key: "mill:dispatch", label: "Supplyco Dispatch", acts: ["view", "add", "delete"] },
-    { key: "mill:work-order-tracker", label: "Work Order Tracker", acts: ["view", "add", "edit", "delete"] },
-    { key: "mill:private-dispatch", label: "Private Dispatch", acts: ["view", "add", "delete"] },
-    { key: "mill:lifting-orders", label: "Lifting Orders", acts: ["view", "add", "edit", "delete"] },
-    { key: "mill:returns", label: "Returns", acts: ["view", "add", "delete"] },
-    { key: "mill:fci-inwards", label: "FCI Inwards", acts: ["view", "add", "delete"] },
-    { key: "mill:private-inwards", label: "Private Inwards", acts: ["view", "add", "delete"] },
-    { key: "mill:reconciliation", label: "Reconciliation", acts: ["view"] },
-    { key: "mill:job-cards", label: "Job Cards", acts: ["view", "add", "edit", "delete"] },
-    { key: "mill:recurring-jobs", label: "Recurring Jobs", acts: ["view"] },
-    { key: "mill:licenses", label: "Licenses & Renewals", acts: ["view"] },
-    { key: "mill:all-stock", label: "All Stock", acts: ["view"] },
-    { key: "mill:store", label: "Store & Materials", acts: ["view"] },
-    { key: "mill:stock-count", label: "Stock Count", acts: ["view"] },
-    { key: "mill:ledger", label: "Daily Cash Book", acts: ["view", "add", "edit", "delete"] },
-    { key: "mill:reports", label: "Reports", acts: ["view"] },
-    { key: "mill:product-master", label: "Product Master", acts: ["view", "add", "edit", "delete"] },
-    { key: "mill:product-recipes", label: "Product Recipes", acts: ["view"] },
-    { key: "mill:depot-settings", label: "Depots", acts: ["view"] },
-    { key: "mill:lifting-settings", label: "Lifting Alerts", acts: ["view"] },
-    { key: "mill:workorder-settings", label: "Work Order Alerts", acts: ["view"] },
-    { key: "mill:activity-log", label: "Activity Log", acts: ["view"] },
-  ] },
-  { group: "HR portal", items: [
-    { key: "hr:attendance", label: "Attendance (Edit = change a submitted day, Delete = unlock a day)", acts: ["view", "add", "edit", "delete"] },
-    { key: "hr:overtime", label: "Overtime (Edit = link missing staff)", acts: ["view", "add", "edit", "delete"] },
-    { key: "hr:staff", label: "Staff (View only = limited card, Edit = full profile)", acts: ["view", "add", "edit", "delete"] },
-    { key: "hr:payroll", label: "Payroll (Add = register transactions and payouts)", acts: ["view", "add"] },
-    { key: "hr:transactions", label: "Transactions", acts: ["view"] },
-    { key: "hr:reports", label: "Reports", acts: ["view"] },
-  ] },
-];
-
-const MILL_VIEW = {
-  manager: ["dashboard","timeline","production","dispatch","work-order-tracker","private-dispatch","lifting-orders","returns","fci-inwards","private-inwards","reconciliation","job-cards","recurring-jobs","licenses","all-stock","store","stock-count","ledger","reports","product-master","depot-settings","lifting-settings","workorder-settings","product-recipes","activity-log"],
-  accountant: ["dashboard","timeline","reconciliation","licenses","all-stock","ledger","reports"],
-  supervisor: ["dashboard","timeline","production","returns","job-cards","all-stock","store","stock-count"],
-  store: ["dashboard","all-stock","store","stock-count","fci-inwards","private-inwards"],
-  dispatch: ["dashboard","timeline","dispatch","private-dispatch","returns","all-stock"],
-  viewer: [],
-};
-
-// What each role can do TODAY. Used to fill the rules the first time, and as the fallback while rules are switched OFF.
-const accessDefault = (key, role, action) => {
-  const [app, id] = key.split(":");
-  if (role === "director") return true;
-  if (app === "mill") {
-    if (!(MILL_VIEW[role] || []).includes(id)) return false;
-    if (action === "view") return true;
-    if (id === "production" && (action === "edit" || action === "delete")) return role === "manager";
-    if (id === "ledger") return role === "manager" || role === "accountant";
-    if (id === "product-master" && action === "delete") return false;
-    if (action === "delete" && ["returns", "fci-inwards", "private-inwards", "dispatch", "private-dispatch", "work-order-tracker"].includes(id)) return role === "manager";
-    return true;
-  }
-  const notViewerAcct = role !== "viewer" && role !== "accountant";
-  if (id === "attendance") return (action === "view" || action === "add") && notViewerAcct;
-  if (id === "overtime") return action === "view" ? true : action === "add" ? notViewerAcct : false;
-  if (id === "staff") return (action === "view" || action === "add") ? (role === "manager" || role === "supervisor") : action === "edit" ? role === "manager" : false;
-  if (id === "payroll" || id === "transactions") return role === "manager" || role === "accountant";
-  if (id === "reports") return role === "manager";
-  return false;
-};
-
 let ACC_STATE = "loading"; // "loading" | "off" | "on"
 let ACC_ME = "";
 let ACC_RULES = [];
 let ACC_ROLE = "";
-const hasAccess = (section, action) => {
+
+const AX_L = { manager: "M", accountant: "A", supervisor: "S", store: "T", dispatch: "D", viewer: "V" };
+
+// MUST stay identical to the HR group in the Mill app file (AX_HR). Format: [key, label, default roles]
+const AX_HR = [
+  { key: "hr:attendance", acts: [["view","Open page","MSTD"],["mark","Mark Present / Absent","MSTD"],["mark_all","Mark all present","MSTD"],["holiday","Mark holiday","MSTD"],["submit","Submit day","MSTD"],["edit_submitted","Change a submitted day",""],["unlock","Unlock a submitted day",""]] },
+  { key: "hr:overtime", acts: [["view","Open page (report)","MASTDV"],["download","Download OT report PDFs","MASTDV"],["log","Log overtime","MSTD"],["link_staff","Link missing staff",""],["delete","Delete OT entry",""]] },
+  { key: "hr:staff", acts: [["view","Open page","MS"],["add","Add employee","MS"],["view_salary","See salary column","M"],["full_profile","Open full profile","M"],["change_shift","Change shift","M"],["change_post","Change post / role","M"],["edit_salary","Edit salary","M"],["food_allowance","Edit food allowance","M"],["payslip","Download payslip","M"],["ledger_report","Download ledger statement","M"],["summary_report","Download summary statement","M"],["mark_left","Mark as left","M"],["reactivate","Reactivate left staff","M"],["delete","Delete employee",""]] },
+  { key: "hr:payroll", acts: [["view","Open page","MA"],["register_txn","Register transaction","MA"],["pay_staff","Pay staff / record payout","MA"],["pay_contractor","Pay contractor bill","MA"],["export","Export payroll PDF","MA"],["settle_mark","Mark settlement done","M"]] },
+  { key: "hr:transactions", acts: [["view","Open page","MA"]] },
+  { key: "hr:reports", acts: [["view","Open page","M"],["csv","Payroll CSV","M"],["roster","Shift roster PDF","M"],["ot_report","Overtime report PDF","M"],["loan_report","Loan recovery PDF","M"],["costing","Role-wise costing PDF","M"],["contractor","Contractor reconciliation PDF","M"],["absenteeism","Absenteeism PDF","M"],["attrition","Attrition PDF","M"],["monthly_cost","Monthly cost projection PDF","M"]] },
+];
+
+const axDefault = (sec, k, role) => {
+  if (role === "director") return true;
+  const it = AX_HR.find(i => i.key === sec); const a = it && it.acts.find(x => x[0] === k);
+  return !!(a && AX_L[role] && a[2].includes(AX_L[role]));
+};
+
+// THE ONE CHECK used everywhere in the HR portal:   hasAccess("staff", "edit_salary")
+const hasAccess = (page, k) => {
   if (ACC_ROLE === "director") return true;
   if (ACC_STATE === "loading") return false;
-  if (ACC_STATE === "off") return accessDefault("hr:" + section, ACC_ROLE, action);
-  const has = (a) => ACC_RULES.some(r => r.section === "hr:" + section && r.action === a && r.employee_id === ACC_ME);
-  if (action !== "view" && !has("view")) return false;
-  return has(action);
+  const sec = "hr:" + page;
+  if (ACC_STATE === "off") return axDefault(sec, k, ACC_ROLE);
+  const has = (a) => ACC_RULES.some(r => r.section === sec && r.action === a && r.employee_id === ACC_ME);
+  return (k === "view" || has("view")) && has(k);
 };
 
 function getCoverage(employees, attendance, posts) {
@@ -727,7 +677,7 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
           )}
           <button
             style={css.btn(reportStaffType === "company" ? C.blue : C.green)}
-            onClick={() => reportStaffType === "company" ? downloadCompanyOTReport() : downloadContractOTReport()}
+            hidden={!hasAccess("overtime", "download")} onClick={() => reportStaffType === "company" ? downloadCompanyOTReport() : downloadContractOTReport()}
           >
             📥 Download PDF
           </button>
@@ -822,9 +772,9 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
       </div>
 
       {/* ── Log Overtime + Recent Entries — unchanged below, restricted roles only ── */}
-      {(hasAccess("overtime", "add") || hasAccess("overtime", "edit") || hasAccess("overtime", "delete")) && (
+      {(hasAccess("overtime", "log") || hasAccess("overtime", "link_staff") || hasAccess("overtime", "delete")) && (
       <>
-      {hasAccess("overtime", "add") && (<>
+      {hasAccess("overtime", "log") && (<>
       <div style={css.sectionTitle}>Log Overtime</div>
       <div style={{ ...css.card, marginBottom: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, alignItems: "flex-end" }}>
         <div style={{ gridColumn: "1 / -1", width: "100%", boxSizing: "border-box" }}>
@@ -912,7 +862,7 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
                       <td style={css.td}>{fDate(o.end_date || o.date)}</td>
                       <td style={css.td}>
                         <strong>{emp?.name || "Unknown"}</strong>
-                        {!emp && hasAccess("overtime", "edit") && (
+                        {!emp && hasAccess("overtime", "link_staff") && (
                           <div style={{ marginTop: 4 }}>
                             <select 
                               style={{ ...css.input, fontSize: 10, padding: "2px", borderColor: C.red, width: 120 }}
@@ -1077,9 +1027,9 @@ function AttendanceView({ employees, logAction, myRole }) {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [historicalShifts, setHistoricalShifts] = useState({});
-    const canAddAtt = hasAccess("attendance", "add");
-  const canEditAtt = hasAccess("attendance", "edit");
-  const canUnlockAtt = hasAccess("attendance", "delete");
+    const canAddAtt = hasAccess("attendance", "mark");
+  const canEditAtt = hasAccess("attendance", "edit_submitted");
+  const canUnlockAtt = hasAccess("attendance", "unlock");
 
   const active = employees.filter(e => e.status === "active");
 // Was this employee actually employed on the selected date?
@@ -1221,7 +1171,7 @@ let filtered = employedOnDate.filter(e => (historicalShifts[e.id] || e.shift) ==
       </div>
       <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
         <input placeholder="🔍 Search employee..." value={search} onChange={e => setSearch(e.target.value)} style={{ ...css.input, flex: 1, minWidth: 180 }} />
-        {!isHoliday && ((!isSubmitted && canAddAtt) || (isSubmitted && canEditAtt)) && <button style={css.btn(C.green)} onClick={markAllPresent}>✓ Mark All Present</button>}
+        {!isHoliday && hasAccess("attendance", "mark_all") && ((!isSubmitted && canAddAtt) || (isSubmitted && canEditAtt)) && <button style={css.btn(C.green)} onClick={markAllPresent}>✓ Mark All Present</button>}
       </div>
       {loading ? <div style={{ textAlign: "center", padding: 40, color: C.textDim }}>Loading {selectedDate}...</div> : (
         <>
@@ -1256,8 +1206,8 @@ let filtered = employedOnDate.filter(e => (historicalShifts[e.id] || e.shift) ==
             <span style={{ fontSize: 12, color: C.textDim }}>{isHoliday ? "Holiday — all staff marked present." : isSubmitted ? "Submitted. Click Unlock to make changes." : "Draft — submit when attendance is finalised."}</span>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {isSubmitted && canUnlockAtt && <button style={css.btn(C.red)} onClick={handleUnsubmit}>🔓 Unlock Day</button>}
-              {((!isSubmitted && canAddAtt) || (isSubmitted && canEditAtt)) && <button style={css.btn(C.orange)} onClick={handleHolidaySubmit} disabled={saving}>⛱ Mark Holiday</button>}
-              {((!isSubmitted && canAddAtt) || (isSubmitted && canEditAtt)) && <button style={css.btn(C.green)} onClick={handleSubmit} disabled={saving}>{saving ? "Saving..." : isSubmitted ? "Update Day" : "✓ Submit Day"}</button>}
+              {hasAccess("attendance", "holiday") && ((!isSubmitted && canAddAtt) || (isSubmitted && canEditAtt)) && <button style={css.btn(C.orange)} onClick={handleHolidaySubmit} disabled={saving}>⛱ Mark Holiday</button>}
+              {hasAccess("attendance", "submit") && ((!isSubmitted && canAddAtt) || (isSubmitted && canEditAtt)) && <button style={css.btn(C.green)} onClick={handleSubmit} disabled={saving}>{saving ? "Saving..." : isSubmitted ? "Update Day" : "✓ Submit Day"}</button>}
             </div>
           </div>
         </>
@@ -2164,7 +2114,7 @@ if (aadharCheck && aadharCheck.length > 0) {
       </div>
 
       {/* Staff profile modal */}
-      {viewing && hasAccess("staff", "edit") && (
+      {viewing && hasAccess("staff", "change_shift") && !hasAccess("staff", "full_profile") && (
         <div style={css.modal}>
           <div style={{ ...css.card, maxWidth: 380, width: "100%", border: `2px solid ${C.accent}` }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -2189,7 +2139,7 @@ if (aadharCheck && aadharCheck.length > 0) {
           </div>
         </div>
       )}
-      {viewing && myRole !== "supervisor" && (
+      {viewing && hasAccess("staff", "full_profile") && (
         <div style={css.modal}>
           <div style={{ ...css.card, maxWidth: 520, width: "100%", border: `2px solid ${C.accent}`, maxHeight: "90vh", overflowY: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -2209,7 +2159,7 @@ if (aadharCheck && aadharCheck.length > 0) {
               <div>
                 <div style={{ fontSize: 10, color: C.textDim }}>CURRENT SALARY</div>
                 <strong style={{ color: C.green }}>₹{Number(viewing.base_salary).toLocaleString("en-IN")}</strong>
-                {viewing.staff_type === "company" && <button style={{ background: "transparent", border: "none", color: C.blue, cursor: "pointer", fontSize: 12, marginLeft: 6, textDecoration: "underline" }} onClick={updateCompanySalary}>Edit</button>}
+                {viewing.staff_type === "company" && <button style={{ background: "transparent", border: "none", color: C.blue, cursor: "pointer", fontSize: 12, marginLeft: 6, textDecoration: "underline" }} hidden={!hasAccess("staff", "edit_salary")} onClick={updateCompanySalary}>Edit</button>}
               </div>
               <div><div style={{ fontSize: 10, color: C.textDim }}>JOINED</div><strong>{fDate(viewing.joining_date)}</strong></div>
               <div><div style={{ fontSize: 10, color: C.textDim }}>CURRENT POST</div><strong>{viewing.post}</strong></div>
@@ -2218,10 +2168,10 @@ if (aadharCheck && aadharCheck.length > 0) {
             <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 10, color: C.textDim, marginBottom: 6, fontWeight: 700 }}>CHANGE POST / SHIFT</div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <select style={{ ...css.input, flex: 1 }} value={viewing.post} onChange={e => updateEmployeePost(viewing, e.target.value)}>
+                  <select hidden={!hasAccess("staff", "change_post")} style={{ ...css.input, flex: 1 }} value={viewing.post} onChange={e => updateEmployeePost(viewing, e.target.value)}>
                     {posts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
                   </select>
-                  <select style={{ ...css.input, flex: 1 }} value={viewing.shift} onChange={e => updateEmployeeShift(viewing.id, e.target.value)}>
+                  <select hidden={!hasAccess("staff", "change_shift")} style={{ ...css.input, flex: 1 }} value={viewing.shift} onChange={e => updateEmployeeShift(viewing.id, e.target.value)}>
                     <option>Morning</option><option>Night</option>
                   </select>
                 </div>
@@ -2234,7 +2184,7 @@ if (aadharCheck && aadharCheck.length > 0) {
                   <div style={{ ...css.input, flex: 1, display: "flex", alignItems: "center", background: C.bg, color: C.textDim }}>
                     {viewing.has_food_allowance ? `Enabled: ₹${Number(viewing.food_allowance_amount || 0).toLocaleString("en-IN")} / mo` : "Disabled"}
                   </div>
-                  <button style={{ ...css.btn(C.orange), flex: 1 }} onClick={updateFoodAllowance}>✎ Edit Allowance</button>
+                  <button style={{ ...css.btn(C.orange), flex: 1 }} hidden={!hasAccess("staff", "food_allowance")} onClick={updateFoodAllowance}>✎ Edit Allowance</button>
                 </div>
                 <div style={{ fontSize: 10, color: C.textDim, marginTop: 4 }}>ℹ Paid out only if month's attendance is ≥ 60%.</div>
               </div>
@@ -2267,7 +2217,7 @@ if (aadharCheck && aadharCheck.length > 0) {
                   <div style={{ fontSize: 10, color: C.textDim, marginBottom: 6, fontWeight: 700 }}>CHANGE BASE SALARY (COMPANY STAFF)</div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <div style={{ ...css.input, flex: 1, display: "flex", alignItems: "center", background: C.bg, color: C.textDim }}>Current: ₹{Number(viewing.base_salary).toLocaleString("en-IN")}</div>
-                    <button style={{ ...css.btn(C.blue), flex: 1 }} onClick={updateCompanySalary}>✎ Edit Salary & Date</button>
+                    <button style={{ ...css.btn(C.blue), flex: 1 }} hidden={!hasAccess("staff", "edit_salary")} onClick={updateCompanySalary}>✎ Edit Salary & Date</button>
                   </div>
                 </div>
               )}
@@ -2294,14 +2244,14 @@ if (aadharCheck && aadharCheck.length > 0) {
                     {myRole === "director" && (
                       <button style={{ ...css.btn(C.orange), padding: "4px 12px", fontSize: 10 }} onClick={() => handleSettleUntil(viewing)}>⚖ Settle Until Date</button>
                     )}
-                    <button style={{ ...css.btn(C.blue), padding: "4px 12px", fontSize: 10 }} onClick={() => generatePayslip(viewing, fin)}>📥 Monthly Payslip</button>
-                    <button style={{ ...css.btn(C.green), padding: "4px 12px", fontSize: 10 }} onClick={() => {
+                    <button style={{ ...css.btn(C.blue), padding: "4px 12px", fontSize: 10 }} hidden={!hasAccess("staff", "payslip")} onClick={() => generatePayslip(viewing, fin)}>📥 Monthly Payslip</button>
+                    <button hidden={!hasAccess("staff", "ledger_report")} style={{ ...css.btn(C.green), padding: "4px 12px", fontSize: 10 }} onClick={() => {
                       const todayStr = [new Date().getFullYear(), String(new Date().getMonth() + 1).padStart(2, "0"), String(new Date().getDate()).padStart(2, "0")].join("-");
                       setReportDates({ start: viewing.joining_date || "2020-01-01", end: todayStr });
                       setReportType("ledger");
                       setShowReportModal(true);
                     }}>📒 Ledger Statement</button>
-                    <button style={{ ...css.btn(C.purple), padding: "4px 12px", fontSize: 10 }} onClick={() => {
+                    <button hidden={!hasAccess("staff", "summary_report")} style={{ ...css.btn(C.purple), padding: "4px 12px", fontSize: 10 }} onClick={() => {
                       const todayStr = [new Date().getFullYear(), String(new Date().getMonth() + 1).padStart(2, "0"), String(new Date().getDate()).padStart(2, "0")].join("-");
                       setReportDates({ start: viewing.joining_date || "2020-01-01", end: todayStr });
                       setReportType("statement");
@@ -2485,7 +2435,7 @@ if (aadharCheck && aadharCheck.length > 0) {
             {/* Inline confirm instead of window.confirm */}
             {!confirmLeave ? (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button style={{ ...css.btn(C.orange), flex: 1 }} onClick={() => setConfirmLeave(true)}>
+                <button style={{ ...css.btn(C.orange), flex: 1 }} hidden={!hasAccess("staff", "mark_left")} onClick={() => setConfirmLeave(true)}>
                   ⏸ Mark as Left / Inactive
                 </button>
                 {hasAccess("staff", "delete") && (
@@ -2548,7 +2498,7 @@ if (aadharCheck && aadharCheck.length > 0) {
                     </div>
                     <div style={{ overflowX: "auto" }}>
                       <table style={css.table}>
-                        <thead><tr>{["Code", "Name", "Type", "Joined", ...(hasAccess("staff", "edit") ? ["Salary"] : []), ""].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+                        <thead><tr>{["Code", "Name", "Type", "Joined", ...(hasAccess("staff", "view_salary") ? ["Salary"] : []), ""].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
                         <tbody>
                           {shiftStaff.map(emp => (
                             <tr key={emp.id} style={{ cursor: "pointer" }} onClick={() => { setViewing(emp); setConfirmLeave(false); }}>
@@ -2556,7 +2506,7 @@ if (aadharCheck && aadharCheck.length > 0) {
                               <td style={css.td}><span style={{ color: C.accent, fontWeight: 700, textDecoration: "underline" }}>{emp.name}</span></td>
                               <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
                               <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{fDate(emp.joining_date)}</span></td>
-                              {hasAccess("staff", "edit") && <td style={css.td}><span style={{ color: C.green }}>₹{Number(emp.base_salary).toLocaleString("en-IN")}</span></td>}
+                              {hasAccess("staff", "view_salary") && <td style={css.td}><span style={{ color: C.green }}>₹{Number(emp.base_salary).toLocaleString("en-IN")}</span></td>}
                               <td style={css.td}><span style={{ fontSize: 11, color: C.accent }}>View →</span></td>
                             </tr>
                           ))}
@@ -2588,7 +2538,7 @@ if (aadharCheck && aadharCheck.length > 0) {
                     <td style={css.td}>
                       <div style={{ display: "flex", gap: 6 }}>
                         <button style={{ ...css.btn(C.blue), padding: "4px 10px", fontSize: 10 }} onClick={() => { setViewing(emp); setConfirmLeave(false); }}>View</button>
-                        <button style={{ ...css.btn(C.green), padding: "4px 10px", fontSize: 10 }} onClick={() => reactivate(emp)}>Reactivate</button>
+                        <button style={{ ...css.btn(C.green), padding: "4px 10px", fontSize: 10 }} hidden={!hasAccess("staff", "reactivate")} onClick={() => reactivate(emp)}>Reactivate</button>
                         {hasAccess("staff", "delete") && <button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => deleteInactive(emp)}>Delete</button>}
                       </div>
                     </td>
@@ -2772,7 +2722,7 @@ const [attTick, setAttTick] = useState(0);
 
   // ── CONTRACTOR PAYMENT HANDLER ─────────────────────────────────────────────
 const handleContractorPayment = async () => {
-      if (!hasAccess("payroll", "add")) return alert("You do not have access to register payments.");
+      if (!hasAccess("payroll", "pay_contractor")) return alert("You do not have access to register payments.");
       if (!form.amount || Number(form.amount) <= 0) return alert("Enter a valid amount.");
     if (!form.pay_month) return alert("Select which month this payment is for.");
 
@@ -2808,7 +2758,7 @@ const handleContractorPayment = async () => {
 
   // ── STAFF TRANSACTION HANDLER ──────────────────────────────────────────────
   const handleStaffTransaction = async () => {
-        if (!hasAccess("payroll", "add")) return alert("You do not have access to register transactions.");
+        if (!hasAccess("payroll", "register_txn")) return alert("You do not have access to register transactions.");
     if (!form.empId || !form.amount || Number(form.amount) <= 0) return alert("Select a staff member and enter a valid amount.");
     if (!form.pay_month) return alert("Select which month this transaction belongs to.");
 
@@ -2883,7 +2833,7 @@ body: rows.map(({ emp, fin }) => [
       <div style={{ marginBottom: 30 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div style={css.sectionTitle}>{label} ({filteredList.length}) — {monthLabel(selectedMonth)}</div>
-          <button style={css.btn(C.textDim)} onClick={() => exportPDF(rows, label)}>📥 Export PDF</button>
+          <button style={css.btn(C.textDim)} hidden={!hasAccess("payroll", "export")} onClick={() => exportPDF(rows, label)}>📥 Export PDF</button>
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
@@ -2943,7 +2893,7 @@ body: rows.map(({ emp, fin }) => [
         }
         <button
           style={{ ...css.btn(isPaid ? C.textDim : C.green), padding: "3px 8px", fontSize: 10, opacity: isPaid ? 0.5 : 1 }}
-          disabled={isPaid}
+          disabled={isPaid} hidden={!hasAccess("payroll", "pay_staff")}
           onClick={() => {
             setForm(f => ({ ...f, empId: emp.id, type: "Payout", amount: maxPayable, pay_month: selectedMonth, date: todayStr, notes: `Salary for ${monthLabel(selectedMonth)}` }));
             setShowModal(true);
@@ -3066,7 +3016,7 @@ body: rows.map(({ emp, fin }) => [
             </div>
             {!isPaid && (
               <button
-                style={{ ...css.btn(C.green), padding: "10px 20px", fontSize: 13, fontWeight: 700, alignSelf: "center" }}
+                hidden={!hasAccess("payroll", "pay_contractor")} style={{ ...css.btn(C.green), padding: "10px 20px", fontSize: 13, fontWeight: 700, alignSelf: "center" }}
                 onClick={() => {
                   setForm(f => ({ ...f, empId: "CONTRACTOR", amount: Math.round(balance), pay_month: selectedMonth, date: todayStr, notes: `Payment for ${monthLabel(selectedMonth)}` }));
                   setShowModal(true);
@@ -3206,7 +3156,7 @@ body: rows.map(({ emp, fin }) => [
       <div>
         <div style={{ marginBottom: 12, padding: "10px 14px", background: C.orange + "15", border: `1px solid ${C.orange}44`, borderRadius: 6, fontSize: 12, color: C.orange, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
           <span>⚠ Former employees with pending dues. Record their final payout using "+ Register Transaction".</span>
-          {myRole !== "accountant" && <button style={css.btn(C.green)} onClick={markAllSettled}>✓ Mark All Settled</button>}
+          {hasAccess("payroll", "settle_mark") && <button style={css.btn(C.green)} onClick={markAllSettled}>✓ Mark All Settled</button>}
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={css.table}>
@@ -3223,13 +3173,13 @@ body: rows.map(({ emp, fin }) => [
                   </td>
                   <td style={css.td}>
                     <div style={{ display: "flex", gap: 8 }}>
-                      {emp.staff_type === "company" && (
+                      {emp.staff_type === "company" && hasAccess("payroll", "pay_staff") && (
                         <button style={css.btn(C.blue)} onClick={() => {
                           setForm(f => ({ ...f, empId: emp.id, type: "Payout", amount: Math.round(Math.abs(fin.netPayable)), pay_month: currentMonthStr }));
                           setShowModal(true);
                         }}>Record Payout</button>
                       )}
-                      {myRole !== "accountant" && <button style={css.btn(C.green)} onClick={() => markSettled(emp)}>✓ Settled</button>}
+                      {hasAccess("payroll", "settle_mark") && <button style={css.btn(C.green)} onClick={() => markSettled(emp)}>✓ Settled</button>}
                     </div>
                   </td>
                 </tr>
@@ -3251,7 +3201,7 @@ body: rows.map(({ emp, fin }) => [
         </div>
         <div style={{ display: "flex", gap: 8 }}>
   <button style={css.btn(C.textDim)} onClick={() => setAttTick(t => t + 1)}>🔄 Refresh Attendance</button>
-  {hasAccess("payroll", "add") && <button style={css.btn(C.blue)} onClick={() => setShowModal(true)}>+ Register Transaction</button>}
+  {hasAccess("payroll", "register_txn") && <button style={css.btn(C.blue)} onClick={() => setShowModal(true)}>+ Register Transaction</button>}
 </div>
       </div>
 
@@ -3362,7 +3312,7 @@ body: rows.map(({ emp, fin }) => [
                   <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>STAFF MEMBER</div>
                   <select style={{ ...css.input, width: "100%" }} value={form.empId} onChange={e => setForm({ ...form, empId: e.target.value })}>
                     <option value="">-- Select Person --</option>
-                    <option value="CONTRACTOR">🏢 Pay Contractor Bill</option>
+                    {hasAccess("payroll", "pay_contractor") && <option value="CONTRACTOR">🏢 Pay Contractor Bill</option>}
                     <optgroup label="Company Staff (Active)">{active.filter(e => e.staff_type === "company").map(e => <option key={e.id} value={e.id}>[{e.emp_code || "—"}] {e.name}</option>)}</optgroup>
                     <optgroup label="Contract Staff (Active — Fine only)">{active.filter(e => e.staff_type === "contract").map(e => <option key={e.id} value={e.id}>[{e.emp_code || "—"}] {e.name}</option>)}</optgroup>
                     <optgroup label="Former Staff">{inactive.map(e => <option key={e.id} value={e.id}>[{e.emp_code || "—"}] {e.name} (left)</option>)}</optgroup>
@@ -4021,7 +3971,7 @@ function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, alignItems: "flex-end" }}>
           <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>FROM</div><input type="date" style={css.input} value={start} onChange={e => setStart(e.target.value)} /></div>
           <div><div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO</div><input type="date" style={css.input} value={end} onChange={e => setEnd(e.target.value)} /></div>
-          <button style={css.btn(C.green)} onClick={downloadCSV} disabled={loading}>{loading ? "Fetching Data..." : "📥 Download CSV Spreadsheet"}</button>
+          <button style={css.btn(C.green)} hidden={!hasAccess("reports", "csv")} onClick={downloadCSV} disabled={loading}>{loading ? "Fetching Data..." : "📥 Download CSV Spreadsheet"}</button>
         </div>
       </div>
 
@@ -4046,7 +3996,7 @@ function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
                 <div style={{ fontSize: 10, color: C.textDim }}>Expected Staff</div>
               </div>
             </div>
-            <button style={{ ...css.btn(C.blue), width: "100%", marginTop: 14 }} onClick={printRoster}>🖨 Download Roster PDF</button>
+            <button style={{ ...css.btn(C.blue), width: "100%", marginTop: 14 }} hidden={!hasAccess("reports", "roster")} onClick={printRoster}>🖨 Download Roster PDF</button>
           </div>
 
           <div style={{ background: C.orange + "11", padding: 16, borderRadius: 8, border: `1px solid ${C.orange}33`, display: "flex", flexDirection: "column" }}>
@@ -4066,7 +4016,7 @@ function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
                 </table>
               )}
             </div>
-            <button style={{ ...css.btn(C.orange), width: "100%", marginTop: 14 }} onClick={downloadOTReport} disabled={loading}>📥 Download Full OT Report</button>
+            <button style={{ ...css.btn(C.orange), width: "100%", marginTop: 14 }} hidden={!hasAccess("reports", "ot_report")} onClick={downloadOTReport} disabled={loading}>📥 Download Full OT Report</button>
           </div>
 
         </div>
@@ -4077,9 +4027,9 @@ function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>3. Financial & Cash Flow Reports</div>
         <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>Deep insights into labor costs, contractor reconciliations, and active employee debts.</div>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <button style={{ ...css.btn(C.red), flex: "1 1 200px" }} onClick={downloadLoanReport} disabled={loading}>📥 Loan & Advance Recovery</button>
-          <button style={{ ...css.btn(C.blue), flex: "1 1 200px" }} onClick={downloadCostingReport} disabled={loading}>📥 Role-Wise Costing</button>
-          <button style={{ ...css.btn(C.accent), flex: "1 1 200px" }} onClick={downloadContractorReport} disabled={loading}>📥 Contractor Reconciliation</button>
+          <button style={{ ...css.btn(C.red), flex: "1 1 200px" }} hidden={!hasAccess("reports", "loan_report")} onClick={downloadLoanReport} disabled={loading}>📥 Loan & Advance Recovery</button>
+          <button style={{ ...css.btn(C.blue), flex: "1 1 200px" }} hidden={!hasAccess("reports", "costing")} onClick={downloadCostingReport} disabled={loading}>📥 Role-Wise Costing</button>
+          <button style={{ ...css.btn(C.accent), flex: "1 1 200px" }} hidden={!hasAccess("reports", "contractor")} onClick={downloadContractorReport} disabled={loading}>📥 Contractor Reconciliation</button>
         </div>
       </div>
 
@@ -4088,8 +4038,8 @@ function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>4. HR & Discipline Reports</div>
         <div style={{ color: C.textDim, fontSize: 12, marginBottom: 16 }}>Track workforce stability, identify chronic absenteeism, and monitor monthly turnover.</div>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <button style={{ ...css.btn(C.orange), flex: "1 1 200px" }} onClick={downloadAbsenteeismReport} disabled={loading}>📥 Chronic Absenteeism ({"<"} 75%)</button>
-          <button style={{ ...css.btn(C.textDim), flex: "1 1 200px", color: C.text, borderColor: C.border }} onClick={downloadAttritionReport} disabled={loading}>📥 Monthly Attrition & New Hires</button>
+          <button style={{ ...css.btn(C.orange), flex: "1 1 200px" }} hidden={!hasAccess("reports", "absenteeism")} onClick={downloadAbsenteeismReport} disabled={loading}>📥 Chronic Absenteeism ({"<"} 75%)</button>
+          <button style={{ ...css.btn(C.textDim), flex: "1 1 200px", color: C.text, borderColor: C.border }} hidden={!hasAccess("reports", "attrition")} onClick={downloadAttritionReport} disabled={loading}>📥 Monthly Attrition & New Hires</button>
         </div>
       </div>
 
@@ -4100,7 +4050,7 @@ function ReportsView({ employees, posts, ledger, postHistory, overtime }) {
           Project your fixed monthly labor cost based on active staff salaries, food allowances, and an optional 12-month bonus average.
         </div>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <button style={{ ...css.btn(C.purple), flex: "1 1 200px" }} onClick={downloadMonthlyCostReport} disabled={loading}>
+          <button style={{ ...css.btn(C.purple), flex: "1 1 200px" }} hidden={!hasAccess("reports", "monthly_cost")} onClick={downloadMonthlyCostReport} disabled={loading}>
             📥 Generate Monthly Cost Report
           </button>
         </div>
@@ -4553,235 +4503,6 @@ function ViewerDashboardView({ userEmail, appUsers, employees, posts, ledger, po
   );
 }
 
-// ─── ACCESS SETTINGS (DIRECTOR ONLY) ──────────────────────────────────────────
-function AccessView({ appUsers, employees, logAction }) {
-  const ACTS = [["view", "View"], ["add", "Add"], ["edit", "Edit"], ["delete", "Delete"]];
-  const allSections = ACCESS_CATALOG.flatMap(g => g.items.map(i => ({ ...i, group: g.group })));
-  const [rules, setRules] = useState([]);
-  const [on, setOn] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [sectionKey, setSectionKey] = useState(allSections[0].key);
-  const [bulkAct, setBulkAct] = useState("view");
-  const [bulkRole, setBulkRole] = useState("manager");
-  const [search, setSearch] = useState("");
-  const [onlyLogin, setOnlyLogin] = useState(true);
-
-  const load = async () => {
-    const { data: st } = await supabase.from("erp_settings").select("value").eq("key", "access_rules_on").maybeSingle();
-    setOn(!!st && st.value === "1");
-    let all = [], from = 0;
-    for (;;) {
-      const { data, error } = await supabase.from("access_rules").select("section,action,employee_id").order("section").order("action").order("employee_id").range(from, from + 999);
-      if (error) { alert("Could not load access rules: " + error.message + "\n\nHave you run the SQL step?"); break; }
-      all = all.concat(data || []);
-      if (!data || data.length < 1000) break;
-      from += 1000;
-    }
-    setRules(all);
-    setLoading(false);
-  };
-  useEffect(() => { load(); }, []);
-
-  const loginOf = (emp) => (appUsers || []).find(u => String(u.employee_id) === String(emp.id));
-  const everyone = (employees || [])
-    .filter(e => e.status === "active")
-    .filter(e => { const lu = loginOf(e); return !(lu && lu.role === "director"); })
-    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  const people = everyone
-    .filter(e => !onlyLogin || !!loginOf(e))
-    .filter(e => !search.trim() || `${e.name} ${e.emp_code || ""}`.toLowerCase().includes(search.trim().toLowerCase()));
-  const unlinked = (appUsers || []).filter(u => u.role !== "pending" && u.role !== "director" && !u.employee_id);
-  const cur = allSections.find(s => s.key === sectionKey);
-  const has = (sec, act, id) => rules.some(r => r.section === sec && r.action === act && r.employee_id === id);
-
-  const toggle = async (sec, act, id, want) => {
-    setBusy(true);
-    let err = null;
-    if (want) {
-      const { error } = await supabase.from("access_rules").upsert({ section: sec, action: act, employee_id: id }, { onConflict: "section,action,employee_id" });
-      err = error;
-      if (!err) setRules(p => p.some(r => r.section === sec && r.action === act && r.employee_id === id) ? p : [...p, { section: sec, action: act, employee_id: id }]);
-    } else {
-      const acts = act === "view" ? ["view", "add", "edit", "delete"] : [act];
-      const { error } = await supabase.from("access_rules").delete().eq("section", sec).eq("employee_id", id).in("action", acts);
-      err = error;
-      if (!err) setRules(p => p.filter(r => !(r.section === sec && r.employee_id === id && acts.includes(r.action))));
-    }
-    setBusy(false);
-    if (err) alert("Could not save: " + err.message);
-  };
-
-  const applyRole = async () => {
-    if (!cur.acts.includes(bulkAct)) return alert(`"${cur.label}" has no ${bulkAct} option.`);
-    const targets = everyone.filter(e => { const lu = loginOf(e); return lu && lu.role === bulkRole; });
-    if (targets.length === 0) return alert(`No active employee has a login with the role "${bulkRole}".`);
-    if (!window.confirm(`Give "${bulkAct}" access on "${cur.label}" to ${targets.length} employee(s) whose login role is "${bulkRole}"?`)) return;
-    const acts = bulkAct === "view" ? ["view"] : ["view", bulkAct];
-    const rows = [];
-    targets.forEach(e => acts.forEach(a => rows.push({ section: cur.key, action: a, employee_id: String(e.id) })));
-    setBusy(true);
-    const { error } = await supabase.from("access_rules").upsert(rows, { onConflict: "section,action,employee_id" });
-    setBusy(false);
-    if (error) return alert("Could not save: " + error.message);
-    if (logAction) logAction("Access Rules", `Gave ${bulkAct} on ${cur.label} to all ${bulkRole} employees`);
-    load();
-  };
-
-  const clearSection = async () => {
-    if (!window.confirm(`Remove ALL access to "${cur.label}" for everyone except Directors?`)) return;
-    setBusy(true);
-    const { error } = await supabase.from("access_rules").delete().eq("section", cur.key);
-    setBusy(false);
-    if (error) return alert("Could not save: " + error.message);
-    if (logAction) logAction("Access Rules", `Cleared all access to ${cur.label}`);
-    load();
-  };
-
-  const seed = async () => {
-    if (!window.confirm("This ERASES all current access rules and rebuilds them from the role of each employee's linked login (the same access they have today). Employees without a login get nothing. Continue?")) return;
-    setBusy(true);
-    const rows = [];
-    everyone.forEach(emp => {
-      const lu = loginOf(emp);
-      if (!lu || lu.role === "pending") return;
-      ACCESS_CATALOG.forEach(g => g.items.forEach(it => it.acts.forEach(a => {
-        if (accessDefault(it.key, lu.role, a)) rows.push({ section: it.key, action: a, employee_id: String(emp.id) });
-      })));
-    });
-    const del = await supabase.from("access_rules").delete().neq("section", "");
-    if (del.error) { setBusy(false); return alert("Could not clear old rules: " + del.error.message); }
-    for (let i = 0; i < rows.length; i += 500) {
-      const { error } = await supabase.from("access_rules").insert(rows.slice(i, i + 500));
-      if (error) { setBusy(false); return alert("Could not save rules: " + error.message); }
-    }
-    if (logAction) logAction("Access Rules", `Rules rebuilt from roles (${rows.length} entries)`);
-    setBusy(false);
-    load();
-  };
-
-  const setSwitch = async (next) => {
-    if (next && rules.length === 0) return alert("There are no rules yet. Click 'Fill from current roles' first, otherwise everybody except Directors would be locked out.");
-    if (next && unlinked.length > 0 && !window.confirm(`${unlinked.length} approved login(s) are not linked to an employee and will get NO access:\n\n${unlinked.map(u => u.email).join("\n")}\n\nTurn ON anyway?`)) return;
-    if (!window.confirm(next ? "Turn ON custom access rules? From now on these rules decide who can see and do what, in both apps." : "Turn OFF custom access rules? Both apps go back to the old role-based access.")) return;
-    setBusy(true);
-    const { error } = await supabase.from("erp_settings").upsert({ key: "access_rules_on", value: next ? "1" : "0" }, { onConflict: "key" });
-    setBusy(false);
-    if (error) return alert("Could not save: " + error.message);
-    setOn(next);
-    if (logAction) logAction("Access Rules", next ? "Custom access rules turned ON" : "Custom access rules turned OFF");
-  };
-
-  if (loading) return <div style={{ textAlign: "center", padding: 60, color: C.textDim }}>Loading...</div>;
-
-  return (
-    <div style={css.page}>
-      <div style={css.sectionTitle}>Access Settings</div>
-      <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>Who can do what</div>
-
-      <div style={{ ...css.card, marginBottom: 20, borderLeft: `3px solid ${on ? C.green : C.orange}` }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-          <div style={{ fontSize: 13 }}>
-            Custom access rules are <strong style={{ color: on ? C.green : C.orange }}>{on ? "ON" : "OFF"}</strong>.
-            <div style={{ fontSize: 11, color: C.textDim, marginTop: 4 }}>
-              {on ? "These rules decide access in both apps. Directors always have full access." : "Both apps still use the old role-based access. First click “Fill from current roles”, check the result, then turn ON."}
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button style={css.btn(C.blue)} onClick={seed} disabled={busy}>Fill from current roles</button>
-            <button style={css.btn(on ? C.red : C.green)} onClick={() => setSwitch(!on)} disabled={busy}>{on ? "Turn OFF" : "Turn ON"}</button>
-          </div>
-        </div>
-      </div>
-
-      {unlinked.length > 0 && (
-        <div style={{ ...css.alert, background: C.orange + "15", border: `1px solid ${C.orange}44`, alignItems: "flex-start", marginBottom: 20 }}>
-          <span style={{ color: C.orange, fontSize: 16 }}>⚠</span>
-          <span style={{ color: C.orange }}>
-            <strong>{unlinked.length} approved login(s) are not linked to an employee</strong> and will get no access when rules are ON. Link them in the Users tab: {unlinked.map(u => u.email).join(", ")}
-          </span>
-        </div>
-      )}
-
-      <div style={{ ...css.card, marginBottom: 20 }}>
-        <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4, fontWeight: 700 }}>SECTION</div>
-        <select style={{ ...css.input, width: "100%", fontSize: 14, fontWeight: 700 }} value={sectionKey} onChange={e => setSectionKey(e.target.value)}>
-          {ACCESS_CATALOG.map(g => (
-            <optgroup key={g.group} label={g.group}>
-              {g.items.map(i => <option key={i.key} value={i.key}>{i.label}</option>)}
-            </optgroup>
-          ))}
-        </select>
-
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", marginTop: 14 }}>
-          <div>
-            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>QUICK GIVE</div>
-            <select style={css.input} value={bulkAct} onChange={e => setBulkAct(e.target.value)}>
-              {ACTS.map(([a, l]) => <option key={a} value={a}>{l}</option>)}
-            </select>
-          </div>
-          <div>
-            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO EVERYONE WITH LOGIN ROLE</div>
-            <select style={css.input} value={bulkRole} onChange={e => setBulkRole(e.target.value)}>
-              {["manager", "accountant", "supervisor", "store", "dispatch", "viewer"].map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </div>
-          <button style={css.btn(C.green)} onClick={applyRole} disabled={busy}>Apply</button>
-          <button style={css.btn(C.red)} onClick={clearSection} disabled={busy}>Clear this section</button>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
-        <input placeholder="🔍 Search employee..." value={search} onChange={e => setSearch(e.target.value)} style={{ ...css.input, minWidth: 200 }} />
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
-          <input type="checkbox" checked={onlyLogin} onChange={e => setOnlyLogin(e.target.checked)} /> Only employees who have a login
-        </label>
-      </div>
-      <div style={{ fontSize: 11, color: C.textDim, marginBottom: 8 }}>
-        Add, Edit and Delete only work for people who also have View. Directors always have full access and are not listed. An employee can only use their access once their login is linked to them in the Users tab.
-      </div>
-      <div style={{ overflowX: "auto" }}>
-        <table style={css.table}>
-          <thead>
-            <tr>
-              <th style={css.th}>Employee</th>
-              <th style={css.th}>Login</th>
-              {ACTS.map(([a, l]) => <th key={a} style={{ ...css.th, textAlign: "center" }}>{l}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            {people.length === 0 && <tr><td colSpan={6} style={{ ...css.td, textAlign: "center", padding: 30 }}>No employees to show.</td></tr>}
-            {people.map(e => {
-              const id = String(e.id);
-              const lu = loginOf(e);
-              const canView = has(cur.key, "view", id);
-              return (
-                <tr key={e.id}>
-                  <td style={css.td}><strong>{e.name}</strong><div style={{ fontSize: 10, color: C.textDim }}>{e.emp_code || "—"} · {e.post}</div></td>
-                  <td style={css.td}>
-                    {lu
-                      ? <><span style={css.badge(C.blue)}>{lu.role}</span><div style={{ fontSize: 10, color: C.textDim, marginTop: 2 }}>{lu.email}</div></>
-                      : <span style={{ fontSize: 11, color: C.red }}>No login linked</span>}
-                  </td>
-                  {ACTS.map(([a]) => {
-                    if (!cur.acts.includes(a)) return <td key={a} style={{ ...css.td, textAlign: "center", color: C.muted }}>—</td>;
-                    const disabled = busy || (a !== "view" && !canView);
-                    return (
-                      <td key={a} style={{ ...css.td, textAlign: "center" }}>
-                        <input type="checkbox" style={{ transform: "scale(1.3)" }} checked={has(cur.key, a, id)} disabled={disabled} onChange={ev => toggle(cur.key, a, id, ev.target.checked)} />
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
 export default function App() {
   const [user, setUser] = useState(null);
   const [tab, setTab] = useState("dashboard");
@@ -4892,7 +4613,7 @@ export default function App() {
     ...(hasAccess("payroll", "view") ? [{ id: "payroll", label: "Payroll" }] : []),
     ...(hasAccess("transactions", "view") ? [{ id: "transactions", label: "Transactions" }] : []),
     ...(hasAccess("reports", "view") ? [{ id: "reports", label: "📊 Reports" }] : []),
-    ...(myRole === "director" ? [{ id: "settings", label: "⚙ Settings" }, { id: "logs", label: "📋 Logs" }, { id: "users", label: "🔐 Users" }, { id: "access", label: "🛂 Access" }] : []),
+    ...(myRole === "director" ? [{ id: "settings", label: "⚙ Settings" }, { id: "logs", label: "📋 Logs" }, { id: "users", label: "🔐 Users" }] : []),
   ];
 
   if (myRole === "pending") {
@@ -4988,7 +4709,7 @@ export default function App() {
           {tab === "settings" && myRole === "director" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} logAction={logAction} />}
           {tab === "logs" && myRole === "director" && <LogsView logs={logs} setLogs={setLogs} />} {/* <-- NEW RENDER LINE */}
           {tab === "users" && myRole === "director" && <UserManagementView users={appUsers} setUsers={setAppUsers} employees={employees} />}
-                    {tab === "access" && myRole === "director" && <AccessView appUsers={appUsers} employees={employees} logAction={logAction} />}
+                    
         </>
       )}
     </div>
