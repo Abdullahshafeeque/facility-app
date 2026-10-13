@@ -48,6 +48,89 @@ const otHourlyRateForDate = (salary, dateStr) => {
   return Math.round((((salary * 12) / 365) / 12) * 2) / 2;
 };
 
+// ─── ACCESS RULES (engine) ────────────────────────────────────────────────────
+const ACCESS_CATALOG = [
+  { group: "Mill app", items: [
+    { key: "mill:dashboard", label: "Dashboard", acts: ["view"] },
+    { key: "mill:timeline", label: "Timeline Calendar", acts: ["view"] },
+    { key: "mill:production", label: "Production", acts: ["view", "add", "edit", "delete"] },
+    { key: "mill:dispatch", label: "Supplyco Dispatch", acts: ["view", "add", "delete"] },
+    { key: "mill:work-order-tracker", label: "Work Order Tracker", acts: ["view", "add", "edit", "delete"] },
+    { key: "mill:private-dispatch", label: "Private Dispatch", acts: ["view", "add", "delete"] },
+    { key: "mill:lifting-orders", label: "Lifting Orders", acts: ["view", "add", "edit", "delete"] },
+    { key: "mill:returns", label: "Returns", acts: ["view", "add", "delete"] },
+    { key: "mill:fci-inwards", label: "FCI Inwards", acts: ["view", "add", "delete"] },
+    { key: "mill:private-inwards", label: "Private Inwards", acts: ["view", "add", "delete"] },
+    { key: "mill:reconciliation", label: "Reconciliation", acts: ["view"] },
+    { key: "mill:job-cards", label: "Job Cards", acts: ["view", "add", "edit", "delete"] },
+    { key: "mill:recurring-jobs", label: "Recurring Jobs", acts: ["view"] },
+    { key: "mill:licenses", label: "Licenses & Renewals", acts: ["view"] },
+    { key: "mill:all-stock", label: "All Stock", acts: ["view"] },
+    { key: "mill:store", label: "Store & Materials", acts: ["view"] },
+    { key: "mill:stock-count", label: "Stock Count", acts: ["view"] },
+    { key: "mill:ledger", label: "Daily Cash Book", acts: ["view", "add", "edit", "delete"] },
+    { key: "mill:reports", label: "Reports", acts: ["view"] },
+    { key: "mill:product-master", label: "Product Master", acts: ["view", "add", "edit", "delete"] },
+    { key: "mill:product-recipes", label: "Product Recipes", acts: ["view"] },
+    { key: "mill:depot-settings", label: "Depots", acts: ["view"] },
+    { key: "mill:lifting-settings", label: "Lifting Alerts", acts: ["view"] },
+    { key: "mill:workorder-settings", label: "Work Order Alerts", acts: ["view"] },
+    { key: "mill:activity-log", label: "Activity Log", acts: ["view"] },
+  ] },
+  { group: "HR portal", items: [
+    { key: "hr:attendance", label: "Attendance (Edit = change a submitted day, Delete = unlock a day)", acts: ["view", "add", "edit", "delete"] },
+    { key: "hr:overtime", label: "Overtime (Edit = link missing staff)", acts: ["view", "add", "edit", "delete"] },
+    { key: "hr:staff", label: "Staff (View only = limited card, Edit = full profile)", acts: ["view", "add", "edit", "delete"] },
+    { key: "hr:payroll", label: "Payroll (Add = register transactions and payouts)", acts: ["view", "add"] },
+    { key: "hr:transactions", label: "Transactions", acts: ["view"] },
+    { key: "hr:reports", label: "Reports", acts: ["view"] },
+  ] },
+];
+
+const MILL_VIEW = {
+  manager: ["dashboard","timeline","production","dispatch","work-order-tracker","private-dispatch","lifting-orders","returns","fci-inwards","private-inwards","reconciliation","job-cards","recurring-jobs","licenses","all-stock","store","stock-count","ledger","reports","product-master","depot-settings","lifting-settings","workorder-settings","product-recipes","activity-log"],
+  accountant: ["dashboard","timeline","reconciliation","licenses","all-stock","ledger","reports"],
+  supervisor: ["dashboard","timeline","production","returns","job-cards","all-stock","store","stock-count"],
+  store: ["dashboard","all-stock","store","stock-count","fci-inwards","private-inwards"],
+  dispatch: ["dashboard","timeline","dispatch","private-dispatch","returns","all-stock"],
+  viewer: [],
+};
+
+// What each role can do TODAY. Used to fill the rules the first time, and as the fallback while rules are switched OFF.
+const accessDefault = (key, role, action) => {
+  const [app, id] = key.split(":");
+  if (role === "director") return true;
+  if (app === "mill") {
+    if (!(MILL_VIEW[role] || []).includes(id)) return false;
+    if (action === "view") return true;
+    if (id === "production" && (action === "edit" || action === "delete")) return role === "manager";
+    if (id === "ledger") return role === "manager" || role === "accountant";
+    if (id === "product-master" && action === "delete") return false;
+    if (action === "delete" && ["returns", "fci-inwards", "private-inwards", "dispatch", "private-dispatch", "work-order-tracker"].includes(id)) return role === "manager";
+    return true;
+  }
+  const notViewerAcct = role !== "viewer" && role !== "accountant";
+  if (id === "attendance") return (action === "view" || action === "add") && notViewerAcct;
+  if (id === "overtime") return action === "view" ? true : action === "add" ? notViewerAcct : false;
+  if (id === "staff") return (action === "view" || action === "add") ? (role === "manager" || role === "supervisor") : action === "edit" ? role === "manager" : false;
+  if (id === "payroll" || id === "transactions") return role === "manager" || role === "accountant";
+  if (id === "reports") return role === "manager";
+  return false;
+};
+
+let ACC_STATE = "loading"; // "loading" | "off" | "on"
+let ACC_ME = "";
+let ACC_RULES = [];
+let ACC_ROLE = "";
+const hasAccess = (section, action) => {
+  if (ACC_ROLE === "director") return true;
+  if (ACC_STATE === "loading") return false;
+  if (ACC_STATE === "off") return accessDefault("hr:" + section, ACC_ROLE, action);
+  const has = (a) => ACC_RULES.some(r => r.section === "hr:" + section && r.action === a && r.user_email === ACC_ME);
+  if (action !== "view" && !has("view")) return false;
+  return has(action);
+};
+
 function getCoverage(employees, attendance, posts) {
   if (!posts || posts.length === 0) return [];
   const alerts = [];
@@ -739,8 +822,9 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
       </div>
 
       {/* ── Log Overtime + Recent Entries — unchanged below, restricted roles only ── */}
-      {myRole !== "viewer" && myRole !== "accountant" && (
+      {(hasAccess("overtime", "add") || hasAccess("overtime", "edit") || hasAccess("overtime", "delete")) && (
       <>
+      {hasAccess("overtime", "add") && (<>
       <div style={css.sectionTitle}>Log Overtime</div>
       <div style={{ ...css.card, marginBottom: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, alignItems: "flex-end" }}>
         <div style={{ gridColumn: "1 / -1", width: "100%", boxSizing: "border-box" }}>
@@ -810,6 +894,7 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
         <button style={{ ...css.btn(C.green), width: "100%", padding: "10px" }} onClick={handleAddOT} disabled={saving}>+ Save OT</button>
       </div>
 
+      </>)}
       <div style={css.sectionTitle}>Recent OT Entries</div>
       <div style={{ overflowX: "auto" }}>
         <table style={css.table}>
@@ -827,7 +912,7 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
                       <td style={css.td}>{fDate(o.end_date || o.date)}</td>
                       <td style={css.td}>
                         <strong>{emp?.name || "Unknown"}</strong>
-                        {!emp && myRole === "director" && (
+                        {!emp && hasAccess("overtime", "edit") && (
                           <div style={{ marginTop: 4 }}>
                             <select 
                               style={{ ...css.input, fontSize: 10, padding: "2px", borderColor: C.red, width: 120 }}
@@ -849,7 +934,7 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
                       <td style={css.td}>{o.start_time}</td>
                       <td style={css.td}>{o.end_time}</td>
                       <td style={{...css.td, color: C.green, fontWeight: "bold"}}>{Number(o.hours).toFixed(1)}h</td>
-                      <td style={css.td}>{myRole === "director" && <button style={{...css.btn(C.red), padding: "4px 8px"}} onClick={() => deleteOT(o.id)}>✕</button>}</td>
+                      <td style={css.td}>{hasAccess("overtime", "delete") && <button style={{...css.btn(C.red), padding: "4px 8px"}} onClick={() => deleteOT(o.id)}>✕</button>}</td>
                     </tr>
                   )
                 })}
@@ -992,6 +1077,9 @@ function AttendanceView({ employees, logAction, myRole }) {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [historicalShifts, setHistoricalShifts] = useState({});
+    const canAddAtt = hasAccess("attendance", "add");
+  const canEditAtt = hasAccess("attendance", "edit");
+  const canUnlockAtt = hasAccess("attendance", "delete");
 
   const active = employees.filter(e => e.status === "active");
 // Was this employee actually employed on the selected date?
@@ -1133,7 +1221,7 @@ let filtered = employedOnDate.filter(e => (historicalShifts[e.id] || e.shift) ==
       </div>
       <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
         <input placeholder="🔍 Search employee..." value={search} onChange={e => setSearch(e.target.value)} style={{ ...css.input, flex: 1, minWidth: 180 }} />
-        {!isHoliday && (!isSubmitted || myRole === "director") && <button style={css.btn(C.green)} onClick={markAllPresent}>✓ Mark All Present</button>}
+        {!isHoliday && ((!isSubmitted && canAddAtt) || (isSubmitted && canEditAtt)) && <button style={css.btn(C.green)} onClick={markAllPresent}>✓ Mark All Present</button>}
       </div>
       {loading ? <div style={{ textAlign: "center", padding: 40, color: C.textDim }}>Loading {selectedDate}...</div> : (
         <>
@@ -1154,7 +1242,7 @@ let filtered = employedOnDate.filter(e => (historicalShifts[e.id] || e.shift) ==
                       <td style={css.td}>
                         <div style={{ display: "flex", gap: 4 }}>
                           {["Present", "Absent"].map(s => (
-  <button key={s} disabled={isHoliday || (isSubmitted && myRole !== "director")} style={{ ...css.btn(statusColor(s)), opacity: rec.status === s ? 1 : 0.25, padding: "6px 8px", fontSize: 11, minWidth: 60 }} onClick={() => toggle(emp.id, "status", s)}>{s[0]}</button>
+  <button key={s} disabled={isHoliday || (isSubmitted ? !canEditAtt : !canAddAtt)} style={{ ...css.btn(statusColor(s)), opacity: rec.status === s ? 1 : 0.25, padding: "6px 8px", fontSize: 11, minWidth: 60 }} onClick={() => toggle(emp.id, "status", s)}>{s[0]}</button>
 ))}
                         </div>
                       </td>
@@ -1167,9 +1255,9 @@ let filtered = employedOnDate.filter(e => (historicalShifts[e.id] || e.shift) ==
           <div style={{ marginTop: 20, ...css.card, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
             <span style={{ fontSize: 12, color: C.textDim }}>{isHoliday ? "Holiday — all staff marked present." : isSubmitted ? "Submitted. Click Unlock to make changes." : "Draft — submit when attendance is finalised."}</span>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {isSubmitted && myRole === "director" && <button style={css.btn(C.red)} onClick={handleUnsubmit}>🔓 Unlock Day</button>}
-              {(!isSubmitted || myRole === "director") && <button style={css.btn(C.orange)} onClick={handleHolidaySubmit} disabled={saving}>⛱ Mark Holiday</button>}
-              {(!isSubmitted || myRole === "director") && <button style={css.btn(C.green)} onClick={handleSubmit} disabled={saving}>{saving ? "Saving..." : isSubmitted ? "Update Day" : "✓ Submit Day"}</button>}
+              {isSubmitted && canUnlockAtt && <button style={css.btn(C.red)} onClick={handleUnsubmit}>🔓 Unlock Day</button>}
+              {((!isSubmitted && canAddAtt) || (isSubmitted && canEditAtt)) && <button style={css.btn(C.orange)} onClick={handleHolidaySubmit} disabled={saving}>⛱ Mark Holiday</button>}
+              {((!isSubmitted && canAddAtt) || (isSubmitted && canEditAtt)) && <button style={css.btn(C.green)} onClick={handleSubmit} disabled={saving}>{saving ? "Saving..." : isSubmitted ? "Update Day" : "✓ Submit Day"}</button>}
             </div>
           </div>
         </>
@@ -2002,7 +2090,7 @@ if (aadharCheck && aadharCheck.length > 0) {
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button style={css.btn(C.textDim)} onClick={() => setShowInactive(v => !v)}>{showInactive ? "Hide" : "Show"} Inactive ({inactive.length})</button>
-          <button style={css.btn(C.green)} onClick={() => setShowForm(v => !v)}>+ Add Employee</button>
+          {hasAccess("staff", "add") && <button style={css.btn(C.green)} onClick={() => setShowForm(v => !v)}>+ Add Employee</button>}
         </div>
       </div>
 
@@ -2076,7 +2164,7 @@ if (aadharCheck && aadharCheck.length > 0) {
       </div>
 
       {/* Staff profile modal */}
-      {viewing && myRole === "supervisor" && (
+      {viewing && hasAccess("staff", "edit") && (
         <div style={css.modal}>
           <div style={{ ...css.card, maxWidth: 380, width: "100%", border: `2px solid ${C.accent}` }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -2400,7 +2488,7 @@ if (aadharCheck && aadharCheck.length > 0) {
                 <button style={{ ...css.btn(C.orange), flex: 1 }} onClick={() => setConfirmLeave(true)}>
                   ⏸ Mark as Left / Inactive
                 </button>
-                {myRole === "director" && (
+                {hasAccess("staff", "delete") && (
                   <button style={{ ...css.btn(C.red), flex: 1 }} onClick={deleteEmployee}>
                     🗑 Delete Permanently
                   </button>
@@ -2460,7 +2548,7 @@ if (aadharCheck && aadharCheck.length > 0) {
                     </div>
                     <div style={{ overflowX: "auto" }}>
                       <table style={css.table}>
-                        <thead><tr>{["Code", "Name", "Type", "Joined", ...(myRole !== "supervisor" ? ["Salary"] : []), ""].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
+                        <thead><tr>{["Code", "Name", "Type", "Joined", ...(hasAccess("staff", "edit") ? ["Salary"] : []), ""].map(h => <th key={h} style={css.th}>{h}</th>)}</tr></thead>
                         <tbody>
                           {shiftStaff.map(emp => (
                             <tr key={emp.id} style={{ cursor: "pointer" }} onClick={() => { setViewing(emp); setConfirmLeave(false); }}>
@@ -2468,7 +2556,7 @@ if (aadharCheck && aadharCheck.length > 0) {
                               <td style={css.td}><span style={{ color: C.accent, fontWeight: 700, textDecoration: "underline" }}>{emp.name}</span></td>
                               <td style={css.td}><span style={css.badge(staffTypeColor(emp.staff_type))}>{emp.staff_type}</span></td>
                               <td style={css.td}><span style={{ fontSize: 11, color: C.textDim }}>{fDate(emp.joining_date)}</span></td>
-                              {myRole !== "supervisor" && <td style={css.td}><span style={{ color: C.green }}>₹{Number(emp.base_salary).toLocaleString("en-IN")}</span></td>}
+                              {hasAccess("staff", "edit") && <td style={css.td}><span style={{ color: C.green }}>₹{Number(emp.base_salary).toLocaleString("en-IN")}</span></td>}
                               <td style={css.td}><span style={{ fontSize: 11, color: C.accent }}>View →</span></td>
                             </tr>
                           ))}
@@ -2501,7 +2589,7 @@ if (aadharCheck && aadharCheck.length > 0) {
                       <div style={{ display: "flex", gap: 6 }}>
                         <button style={{ ...css.btn(C.blue), padding: "4px 10px", fontSize: 10 }} onClick={() => { setViewing(emp); setConfirmLeave(false); }}>View</button>
                         <button style={{ ...css.btn(C.green), padding: "4px 10px", fontSize: 10 }} onClick={() => reactivate(emp)}>Reactivate</button>
-                        {myRole === "director" && <button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => deleteInactive(emp)}>Delete</button>}
+                        {hasAccess("staff", "delete") && <button style={{ ...css.btn(C.red), padding: "4px 10px", fontSize: 10 }} onClick={() => deleteInactive(emp)}>Delete</button>}
                       </div>
                     </td>
                   </tr>
@@ -2683,8 +2771,9 @@ const [attTick, setAttTick] = useState(0);
   };
 
   // ── CONTRACTOR PAYMENT HANDLER ─────────────────────────────────────────────
-  const handleContractorPayment = async () => {
-    if (!form.amount || Number(form.amount) <= 0) return alert("Enter a valid amount.");
+const handleContractorPayment = async () => {
+      if (!hasAccess("payroll", "add")) return alert("You do not have access to register payments.");
+      if (!form.amount || Number(form.amount) <= 0) return alert("Enter a valid amount.");
     if (!form.pay_month) return alert("Select which month this payment is for.");
 
     const { billAmount, monthPayments, balance } = calcMonthContractorBill(form.pay_month);
@@ -2719,6 +2808,7 @@ const [attTick, setAttTick] = useState(0);
 
   // ── STAFF TRANSACTION HANDLER ──────────────────────────────────────────────
   const handleStaffTransaction = async () => {
+        if (!hasAccess("payroll", "add")) return alert("You do not have access to register transactions.");
     if (!form.empId || !form.amount || Number(form.amount) <= 0) return alert("Select a staff member and enter a valid amount.");
     if (!form.pay_month) return alert("Select which month this transaction belongs to.");
 
@@ -3161,7 +3251,7 @@ body: rows.map(({ emp, fin }) => [
         </div>
         <div style={{ display: "flex", gap: 8 }}>
   <button style={css.btn(C.textDim)} onClick={() => setAttTick(t => t + 1)}>🔄 Refresh Attendance</button>
-  <button style={css.btn(C.blue)} onClick={() => setShowModal(true)}>+ Register Transaction</button>
+  {hasAccess("payroll", "add") && <button style={css.btn(C.blue)} onClick={() => setShowModal(true)}>+ Register Transaction</button>}
 </div>
       </div>
 
@@ -4462,6 +4552,206 @@ function ViewerDashboardView({ userEmail, appUsers, employees, posts, ledger, po
     </div>
   );
 }
+
+// ─── ACCESS SETTINGS (DIRECTOR ONLY) ──────────────────────────────────────────
+function AccessView({ appUsers, employees, logAction }) {
+  const ACTS = [["view", "View"], ["add", "Add"], ["edit", "Edit"], ["delete", "Delete"]];
+  const allSections = ACCESS_CATALOG.flatMap(g => g.items.map(i => ({ ...i, group: g.group })));
+  const [rules, setRules] = useState([]);
+  const [on, setOn] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [sectionKey, setSectionKey] = useState(allSections[0].key);
+  const [bulkAct, setBulkAct] = useState("view");
+  const [bulkRole, setBulkRole] = useState("manager");
+
+  const load = async () => {
+    const { data: st } = await supabase.from("erp_settings").select("value").eq("key", "access_rules_on").maybeSingle();
+    setOn(!!st && st.value === "1");
+    let all = [], from = 0;
+    for (;;) {
+      const { data, error } = await supabase.from("access_rules").select("section,action,user_email").order("section").order("action").order("user_email").range(from, from + 999);
+      if (error) { alert("Could not load access rules: " + error.message + "\n\nHave you run the SQL step?"); break; }
+      all = all.concat(data || []);
+      if (!data || data.length < 1000) break;
+      from += 1000;
+    }
+    setRules(all);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const emailOf = (u) => (u.email || "").toLowerCase();
+  const nameOf = (u) => { const e = (employees || []).find(x => String(x.id) === String(u.employee_id)); return e ? e.name : u.email; };
+  const people = (appUsers || []).filter(u => u.role !== "pending" && u.role !== "director")
+    .sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
+  const cur = allSections.find(s => s.key === sectionKey);
+  const has = (sec, act, email) => rules.some(r => r.section === sec && r.action === act && r.user_email === email);
+
+  const toggle = async (sec, act, email, want) => {
+    setBusy(true);
+    let err = null;
+    if (want) {
+      const { error } = await supabase.from("access_rules").upsert({ section: sec, action: act, user_email: email }, { onConflict: "section,action,user_email" });
+      err = error;
+      if (!err) setRules(p => p.some(r => r.section === sec && r.action === act && r.user_email === email) ? p : [...p, { section: sec, action: act, user_email: email }]);
+    } else {
+      const acts = act === "view" ? ["view", "add", "edit", "delete"] : [act];
+      const { error } = await supabase.from("access_rules").delete().eq("section", sec).eq("user_email", email).in("action", acts);
+      err = error;
+      if (!err) setRules(p => p.filter(r => !(r.section === sec && r.user_email === email && acts.includes(r.action))));
+    }
+    setBusy(false);
+    if (err) alert("Could not save: " + err.message);
+  };
+
+  const applyRole = async () => {
+    if (!cur.acts.includes(bulkAct)) return alert(`"${cur.label}" has no ${bulkAct} option.`);
+    const targets = people.filter(u => u.role === bulkRole);
+    if (targets.length === 0) return alert(`No approved user has the role "${bulkRole}".`);
+    if (!window.confirm(`Give "${bulkAct}" access on "${cur.label}" to ${targets.length} user(s) with role "${bulkRole}"?`)) return;
+    const acts = bulkAct === "view" ? ["view"] : ["view", bulkAct];
+    const rows = [];
+    targets.forEach(u => acts.forEach(a => rows.push({ section: cur.key, action: a, user_email: emailOf(u) })));
+    setBusy(true);
+    const { error } = await supabase.from("access_rules").upsert(rows, { onConflict: "section,action,user_email" });
+    setBusy(false);
+    if (error) return alert("Could not save: " + error.message);
+    if (logAction) logAction("Access Rules", `Gave ${bulkAct} on ${cur.label} to all ${bulkRole} users`);
+    load();
+  };
+
+  const clearSection = async () => {
+    if (!window.confirm(`Remove ALL access to "${cur.label}" for everyone except Directors?`)) return;
+    setBusy(true);
+    const { error } = await supabase.from("access_rules").delete().eq("section", cur.key);
+    setBusy(false);
+    if (error) return alert("Could not save: " + error.message);
+    if (logAction) logAction("Access Rules", `Cleared all access to ${cur.label}`);
+    load();
+  };
+
+  const seed = async () => {
+    if (!window.confirm("This ERASES all current access rules and rebuilds them from each person's role (the same access they have today). Continue?")) return;
+    setBusy(true);
+    const rows = [];
+    people.forEach(u => {
+      ACCESS_CATALOG.forEach(g => g.items.forEach(it => it.acts.forEach(a => {
+        if (accessDefault(it.key, u.role, a)) rows.push({ section: it.key, action: a, user_email: emailOf(u) });
+      })));
+    });
+    const del = await supabase.from("access_rules").delete().neq("section", "");
+    if (del.error) { setBusy(false); return alert("Could not clear old rules: " + del.error.message); }
+    for (let i = 0; i < rows.length; i += 500) {
+      const { error } = await supabase.from("access_rules").insert(rows.slice(i, i + 500));
+      if (error) { setBusy(false); return alert("Could not save rules: " + error.message); }
+    }
+    if (logAction) logAction("Access Rules", `Rules rebuilt from roles (${rows.length} entries)`);
+    setBusy(false);
+    load();
+  };
+
+  const setSwitch = async (next) => {
+    if (next && rules.length === 0) return alert("There are no rules yet. Click 'Fill from current roles' first, otherwise everybody except Directors would be locked out.");
+    if (!window.confirm(next ? "Turn ON custom access rules? From now on these rules decide who can see and do what, in both apps." : "Turn OFF custom access rules? Both apps go back to the old role-based access.")) return;
+    setBusy(true);
+    const { error } = await supabase.from("erp_settings").upsert({ key: "access_rules_on", value: next ? "1" : "0" }, { onConflict: "key" });
+    setBusy(false);
+    if (error) return alert("Could not save: " + error.message);
+    setOn(next);
+    if (logAction) logAction("Access Rules", next ? "Custom access rules turned ON" : "Custom access rules turned OFF");
+  };
+
+  if (loading) return <div style={{ textAlign: "center", padding: 60, color: C.textDim }}>Loading...</div>;
+
+  return (
+    <div style={css.page}>
+      <div style={css.sectionTitle}>Access Settings</div>
+      <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>Who can do what</div>
+
+      <div style={{ ...css.card, marginBottom: 20, borderLeft: `3px solid ${on ? C.green : C.orange}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <div style={{ fontSize: 13 }}>
+            Custom access rules are <strong style={{ color: on ? C.green : C.orange }}>{on ? "ON" : "OFF"}</strong>.
+            <div style={{ fontSize: 11, color: C.textDim, marginTop: 4 }}>
+              {on ? "These rules decide access in both apps. Directors always have full access." : "Both apps still use the old role-based access. First click “Fill from current roles”, check the result, then turn ON."}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button style={css.btn(C.blue)} onClick={seed} disabled={busy}>Fill from current roles</button>
+            <button style={css.btn(on ? C.red : C.green)} onClick={() => setSwitch(!on)} disabled={busy}>{on ? "Turn OFF" : "Turn ON"}</button>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ ...css.card, marginBottom: 20 }}>
+        <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4, fontWeight: 700 }}>SECTION</div>
+        <select style={{ ...css.input, width: "100%", fontSize: 14, fontWeight: 700 }} value={sectionKey} onChange={e => setSectionKey(e.target.value)}>
+          {ACCESS_CATALOG.map(g => (
+            <optgroup key={g.group} label={g.group}>
+              {g.items.map(i => <option key={i.key} value={i.key}>{i.label}</option>)}
+            </optgroup>
+          ))}
+        </select>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", marginTop: 14 }}>
+          <div>
+            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>QUICK GIVE</div>
+            <select style={css.input} value={bulkAct} onChange={e => setBulkAct(e.target.value)}>
+              {ACTS.map(([a, l]) => <option key={a} value={a}>{l}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: C.textDim, marginBottom: 4 }}>TO EVERYONE WITH ROLE</div>
+            <select style={css.input} value={bulkRole} onChange={e => setBulkRole(e.target.value)}>
+              {["manager", "accountant", "supervisor", "store", "dispatch", "viewer"].map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <button style={css.btn(C.green)} onClick={applyRole} disabled={busy}>Apply</button>
+          <button style={css.btn(C.red)} onClick={clearSection} disabled={busy}>Clear this section</button>
+        </div>
+      </div>
+
+      <div style={{ fontSize: 11, color: C.textDim, marginBottom: 8 }}>
+        Add, Edit and Delete only work for people who also have View. Directors always have full access and are not listed.
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={css.table}>
+          <thead>
+            <tr>
+              <th style={css.th}>Person</th>
+              <th style={css.th}>Role</th>
+              {ACTS.map(([a, l]) => <th key={a} style={{ ...css.th, textAlign: "center" }}>{l}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {people.length === 0 && <tr><td colSpan={6} style={{ ...css.td, textAlign: "center", padding: 30 }}>No approved users yet.</td></tr>}
+            {people.map(u => {
+              const em = emailOf(u);
+              const canView = has(cur.key, "view", em);
+              return (
+                <tr key={u.id}>
+                  <td style={css.td}><strong>{nameOf(u)}</strong><div style={{ fontSize: 10, color: C.textDim }}>{u.email}</div></td>
+                  <td style={css.td}><span style={css.badge(C.blue)}>{u.role}</span></td>
+                  {ACTS.map(([a]) => {
+                    if (!cur.acts.includes(a)) return <td key={a} style={{ ...css.td, textAlign: "center", color: C.muted }}>—</td>;
+                    const disabled = busy || (a !== "view" && !canView);
+                    return (
+                      <td key={a} style={{ ...css.td, textAlign: "center" }}>
+                        <input type="checkbox" style={{ transform: "scale(1.3)" }} checked={has(cur.key, a, em)} disabled={disabled} onChange={e => toggle(cur.key, a, em, e.target.checked)} />
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [tab, setTab] = useState("dashboard");
@@ -4525,6 +4815,27 @@ export default function App() {
     loadData();
   }, [user]);
 
+  const [accData, setAccData] = useState(null);
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const f = async () => {
+      let on = false, rules = [];
+      try {
+        const { data: st } = await supabase.from("erp_settings").select("value").eq("key", "access_rules_on").maybeSingle();
+        on = !!st && st.value === "1";
+        if (on) {
+          const { data, error } = await supabase.from("access_rules").select("section,action,user_email").eq("user_email", (user.email || "").toLowerCase()).limit(2000);
+          if (error) on = false; else rules = data || [];
+        }
+      } catch (e) { on = false; }
+      if (!cancelled) setAccData({ on, rules });
+    };
+    f();
+    const t = setInterval(f, 60000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [user]);
+
   const handleSignOut = async () => { 
     if (logAction) await logAction("Logged Out", `User signed out of the portal`);
     await supabase.auth.signOut(); 
@@ -4533,21 +4844,24 @@ export default function App() {
 
   if (!user) return <Login onLogin={setUser} />;
 
+  ACC_ROLE = myRole || "";
+  ACC_ME = (user.email || "").toLowerCase();
+  ACC_STATE = accData ? (accData.on ? "on" : "off") : "loading";
+  ACC_RULES = accData ? accData.rules : [];
+
   const alerts = getCoverage(employees.filter(e => e.status === "active"), attendance, posts);
   const pendingSettlements = employees.filter(e => e.status === "inactive" && !e.settlement_done).length;
 
 // Dynamic tabs based on role
   const TABS = [
     { id: "dashboard", label: "Dashboard" },
-    // Attendance stays restricted; Overtime is now open to every role so all users can reach the OT Report
-    ...(myRole !== "viewer" && myRole !== "accountant" ? [{ id: "attendance", label: "Attendance" }] : []),
-    { id: "overtime", label: "Overtime" },
-    ...(myRole === "director" || myRole === "manager" || myRole === "supervisor" ? [{ id: "staff", label: "Staff" }] : []),
-    // Add accountant to Payroll and Transactions
-    ...(myRole === "director" || myRole === "manager" || myRole === "accountant" ? [{ id: "payroll", label: "Payroll" }, { id: "transactions", label: "Transactions" }] : []),
-    // Keep Reports restricted to director and manager
-    ...(myRole === "director" || myRole === "manager" ? [{ id: "reports", label: "📊 Reports" }] : []),
-    ...(myRole === "director" ? [{ id: "settings", label: "⚙ Settings" }, { id: "logs", label: "📋 Logs" }, { id: "users", label: "🔐 Users" }] : []),
+    ...(hasAccess("attendance", "view") ? [{ id: "attendance", label: "Attendance" }] : []),
+    ...(hasAccess("overtime", "view") ? [{ id: "overtime", label: "Overtime" }] : []),
+    ...(hasAccess("staff", "view") ? [{ id: "staff", label: "Staff" }] : []),
+    ...(hasAccess("payroll", "view") ? [{ id: "payroll", label: "Payroll" }] : []),
+    ...(hasAccess("transactions", "view") ? [{ id: "transactions", label: "Transactions" }] : []),
+    ...(hasAccess("reports", "view") ? [{ id: "reports", label: "📊 Reports" }] : []),
+    ...(myRole === "director" ? [{ id: "settings", label: "⚙ Settings" }, { id: "logs", label: "📋 Logs" }, { id: "users", label: "🔐 Users" }, { id: "access", label: "🛂 Access" }] : []),
   ];
 
   if (myRole === "pending") {
@@ -4634,15 +4948,16 @@ export default function App() {
           <ViewerDashboardView userEmail={user.email} appUsers={appUsers} employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} />
         )}
         {tab === "dashboard" && myRole !== "viewer" && <DashboardView employees={employees} attendance={attendance} posts={posts} trackingStartDate={trackingStartDate} />}
-          {tab === "attendance" && myRole !== "viewer" && <AttendanceView employees={employees} logAction={logAction} myRole={myRole} />}
-          {tab === "overtime" && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} logAction={logAction} myRole={myRole} />}
-          {tab === "staff" && (myRole === "director" || myRole === "manager" || myRole === "supervisor") && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
-          {tab === "payroll" && myRole !== "viewer" && <PayrollView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
-          {tab === "transactions" && (myRole === "director" || myRole === "manager" || myRole === "accountant") && <TransactionsView ledger={ledger} setLedger={setLedger} employees={employees} myRole={myRole} />}
-          {tab === "reports" && (myRole === "director" || myRole === "manager") && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} logAction={logAction} />}
+          {tab === "attendance" && hasAccess("attendance", "view") && <AttendanceView employees={employees} logAction={logAction} myRole={myRole} />}
+          {tab === "overtime" && hasAccess("overtime", "view") && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} logAction={logAction} myRole={myRole} />}
+          {tab === "staff" && hasAccess("staff", "view") && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
+          {tab === "payroll" && hasAccess("payroll", "view") && <PayrollView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
+          {tab === "transactions" && hasAccess("transactions", "view") && <TransactionsView ledger={ledger} setLedger={setLedger} employees={employees} myRole={myRole} />}
+          {tab === "reports" && hasAccess("reports", "view") && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} logAction={logAction} />}
           {tab === "settings" && myRole === "director" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} logAction={logAction} />}
           {tab === "logs" && myRole === "director" && <LogsView logs={logs} setLogs={setLogs} />} {/* <-- NEW RENDER LINE */}
           {tab === "users" && myRole === "director" && <UserManagementView users={appUsers} setUsers={setAppUsers} employees={employees} />}
+                    {tab === "access" && myRole === "director" && <AccessView appUsers={appUsers} employees={employees} logAction={logAction} />}
         </>
       )}
     </div>
