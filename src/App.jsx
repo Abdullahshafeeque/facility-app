@@ -49,6 +49,58 @@ const otHourlyRateForDate = (salary, dateStr) => {
   return Math.round((((salary * 12) / 365) / 12) * 2) / 2;
 };
 
+// ─── SINGLE SOURCE OF TRUTH FOR OVERTIME ─────────────────────────────────────
+// Used by: Overtime Report, Payroll, Contractor Bill, Ledger/Statement PDFs.
+const sameId = (a, b) => {
+  const ra = typeof a === "object" && a !== null ? a.id : a;
+  const rb = typeof b === "object" && b !== null ? b.id : b;
+  return String(ra) === String(rb);
+};
+
+// Salary that applied to this employee on a given date (respects salary / post history)
+const salaryOnDate = (emp, dateStr, posts, postHistory) => {
+  const h = (postHistory || []).find(x =>
+    sameId(x.employee_id, emp.id) && x.post !== "Unpaid Gap" &&
+    x.valid_from <= dateStr && (!x.valid_to || x.valid_to >= dateStr)
+  );
+  if (h) {
+    let s = Number(h.salary);
+    if (emp.staff_type === "contract" && !s) {
+      const p = (posts || []).find(pp => pp.name === h.post);
+      s = Number(p?.contract_salary || p?.base_salary || 0);
+    }
+    return s;
+  }
+  if (emp.staff_type === "contract") {
+    const p = (posts || []).find(pp => pp.name === emp.post);
+    return Number(p?.contract_salary || p?.base_salary || 0);
+  }
+  return Number(emp.base_salary) || 0;
+};
+
+// Hourly OT rate for one OT entry
+const otRateForEntry = (o, emp, posts, postHistory) => {
+  if (emp.staff_type === "contract") {
+    const p = (posts || []).find(pp => pp.name === o.post);
+    if (p && Number(p.ot_hourly_rate) > 0) return Number(p.ot_hourly_rate);
+    if (p && Number(p.contract_salary) > 0) return otHourlyRateForDate(Number(p.contract_salary), o.date);
+  }
+  return otHourlyRateForDate(salaryOnDate(emp, o.date, posts, postHistory), o.date);
+};
+
+// Rupee amount for one OT entry (rounded per entry, same as the report)
+const otAmountForEntry = (o, emp, posts, postHistory) =>
+  Math.round(Number(o.hours) * otRateForEntry(o, emp, posts, postHistory));
+
+// Every OT entry for an employee between two dates
+const getEmployeeOT = (overtime, emp, start, end) =>
+  (overtime || []).filter(o =>
+    sameId(o.employee_id, emp.id) &&
+    o.date >= start && o.date <= end &&
+    (!emp.joining_date || o.date >= emp.joining_date) &&
+    (!emp.left_date || o.date <= emp.left_date)
+  );
+
 let ACC_STATE = "loading"; // "loading" | "off" | "on"
 let ACC_ME = "";
 let ACC_RULES = [];
@@ -235,7 +287,7 @@ periodAtt.forEach(a => {
   if (eff === "Absent") absentDays++;
 });
       
-    const periodOT = (overtime || []).filter(o => o.employee_id === employee.id && o.date >= period.from && o.date <= period.to);
+    const periodOT = getEmployeeOT(overtime, employee, period.from, period.to);
     
     // Calculate the actual financial impact of attendance
     // Only deduct if employee is "unpaid" type. "paid" leave employees get no cut.
@@ -248,18 +300,7 @@ const attendanceDeduction = employee.leave_type === 'paid'
 
     periodOT.forEach(o => {
       otHours += Number(o.hours);
-      let appliedHourlyRate = otHourlyRateForDate(period.salary, o.date); // Company staff: always uses their own salary rate
-
-      if (employee.staff_type === "contract") {
-        const otPost = posts.find(p => p.name === o.post);
-        if (otPost && Number(otPost.ot_hourly_rate) > 0) {
-          appliedHourlyRate = Number(otPost.ot_hourly_rate);
-        } else if (otPost && Number(otPost.contract_salary) > 0) {
-          appliedHourlyRate = otHourlyRateForDate(Number(otPost.contract_salary), o.date);
-        }
-      }
-
-      otEarnings += Number(o.hours) * appliedHourlyRate;
+      otEarnings += otAmountForEntry(o, employee, posts, postHistory);
     });
     
     totalProratedSalary += proratedSalary;
@@ -271,6 +312,7 @@ const attendanceDeduction = employee.leave_type === 'paid'
     
     periodBreakdown.push({ ...period, daysInPeriod, proratedSalary, absentDays, leaveDays, otHours, attendanceDeduction, otEarnings });
   }
+ 
 
   // Calculate Ledger impacts (Advances, Fines, Payouts, Bonuses)
   // CODE TO ADD:
@@ -382,7 +424,7 @@ function AlertBanner({ alerts }) {
 }
 
 // ─── OVERTIME ─────────────────────────────────────────────────────────────────
-function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRole }) {
+function OvertimeView({ employees, posts, overtime, setOvertime, postHistory, logAction, myRole }) {
   const [form, setForm] = useState({ empIds: [], startDate: todayStr, endDate: todayStr, start: "", end: "", post: "" });
   const [saving, setSaving] = useState(false);
   const active = employees.filter(e => e.status === "active");
@@ -403,10 +445,16 @@ function OvertimeView({ employees, posts, overtime, setOvertime, logAction, myRo
     const entriesToInsert = [];
     let overlapErrors = [];
     let duplicateOTErrors = []; // Track existing OT overlaps
+        let outsideErrors = [];
 
     for (const id of form.empIds) {
       const emp = employees.find(e => String(e.id) === String(id));
       if (!emp) continue;
+      
+      if ((emp.joining_date && form.startDate < emp.joining_date) || (emp.left_date && form.endDate > emp.left_date)) {
+        outsideErrors.push(emp.name);
+        continue;
+      }
 
       // Prevent duplicate/overlapping Overtime entries for this specific person
       const hasDuplicateOT = overtime.some(existingOT => {
@@ -458,6 +506,9 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
     }
 
     if (duplicateOTErrors.length > 0) {
+          if (outsideErrors.length > 0) {
+      return alert(`Employment Period Error: OT cannot be logged outside the joining/leaving dates of:\n${outsideErrors.join(", ")}`);
+    }
       return alert(`Duplicate OT Error: The following employees already have Overtime registered during this time period:\n${duplicateOTErrors.join(", ")}`);
     }
 
@@ -494,13 +545,6 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
   const [reportStaffType, setReportStaffType] = useState("company");
   const [reportEmployeeId, setReportEmployeeId] = useState("");
 
-  const fallbackHourlyRate = (emp, dateStr) => otHourlyRateForDate(Number(emp.base_salary), dateStr);
-  const contractHourlyRate = (postName, dateStr) => {
-    const p = posts.find(pp => pp.name === postName) || {};
-    if (Number(p.ot_hourly_rate) > 0) return Number(p.ot_hourly_rate);
-    if (Number(p.contract_salary) > 0) return otHourlyRateForDate(Number(p.contract_salary), dateStr);
-    return 0;
-  };
 
   const reportEntries = overtime
     .filter(o => o.date >= reportStart && o.date <= reportEnd)
@@ -508,7 +552,8 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
       const rawId = typeof o.employee_id === "object" && o.employee_id !== null ? o.employee_id.id : o.employee_id;
       const emp = employees.find(e => String(e.id) === String(rawId));
       return { o, emp };
-    });
+    })
+    .filter(({ o, emp }) => !emp || ((!emp.joining_date || o.date >= emp.joining_date) && (!emp.left_date || o.date <= emp.left_date)));
 
   // ── Company: DATE · WORK · FROM · TO · HOURS · AMOUNT (like the paper sheet) ──
   const companyStaffList = employees.filter(e => e.staff_type === "company");
@@ -523,7 +568,7 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
       from: o.start_time,
       to: o.end_time,
       hours: Number(o.hours),
-      amount: Math.round(Number(o.hours) * fallbackHourlyRate(emp, o.date))
+      amount: otAmountForEntry(o, emp, posts, postHistory)
     }))
     .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
 
@@ -538,9 +583,12 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
   const contractByDate = {};
   reportEntries
     .filter(({ emp }) => emp && emp.staff_type === "contract")
-    .forEach(({ o }) => {
+    .forEach(({ o, emp }) => {
       if (!contractByDate[o.date]) contractByDate[o.date] = {};
-      contractByDate[o.date][o.post] = (contractByDate[o.date][o.post] || 0) + Number(o.hours);
+      const cell = contractByDate[o.date][o.post] || { hours: 0, amount: 0 };
+      cell.hours += Number(o.hours);
+      cell.amount += otAmountForEntry(o, emp, posts, postHistory);
+      contractByDate[o.date][o.post] = cell;
     });
 
   const contractDeptTotals = {};
@@ -549,8 +597,9 @@ const exEnd = new Date(`${existingOT.end_date || existingOT.date}T${existingOT.e
   const contractRows = Object.keys(contractByDate).sort().map(date => {
     let dayHours = 0, dayAmount = 0;
     const cells = contractDepartments.map(dept => {
-      const hours = contractByDate[date][dept] || 0;
-      const amount = hours > 0 ? Math.round(hours * contractHourlyRate(dept, date)) : 0;
+      const cellData = contractByDate[date][dept] || { hours: 0, amount: 0 };
+      const hours = cellData.hours;
+      const amount = cellData.amount;
       dayHours += hours;
       dayAmount += amount;
       contractDeptTotals[dept].hours += hours;
@@ -1329,7 +1378,7 @@ const editTransaction = async (tx) => {
         return [dt.getFullYear(), String(dt.getMonth() + 1).padStart(2, "0"), String(dt.getDate()).padStart(2, "0")].join("-");
       };
 
-      const empOT = (overtime || []).filter(o => o.employee_id === emp.id && o.date >= startDate && o.date <= endDate);
+      const empOT = getEmployeeOT(overtime, emp, startDate, endDate);
       const empLedger = (ledger || []).filter(l => l.employee_id === emp.id && l.date >= startDate && l.date <= endDate);
       const CREDIT_TYPES = ["Bonus", "Settlement Addition", "Loan Repayment"];
       const finPeriod = calcFinances(emp, posts, viewingAtt, ledger, startDate, endDate, postHistory, overtime);
@@ -1385,15 +1434,7 @@ const editTransaction = async (tx) => {
         prevFoodComp = foodComp;
 
         empOT.filter(o => o.date === cpDate).forEach(o => {
-          let hrRate = otHourlyRateForDate(Number(emp.base_salary), o.date);
-          if (emp.staff_type === "contract") {
-            const p = (posts || []).find(x => x.name === o.post);
-            if (p) {
-              if (Number(p.ot_hourly_rate) > 0) hrRate = Number(p.ot_hourly_rate);
-              else if (Number(p.contract_salary) > 0) hrRate = otHourlyRateForDate(Number(p.contract_salary), o.date);
-            }
-          }
-          rows.push({ date: o.date, particulars: `Overtime — ${o.post} (${o.hours}h)`, debit: 0, credit: Math.round(Number(o.hours) * hrRate) });
+          rows.push({ date: o.date, particulars: `Overtime — ${o.post} (${o.hours}h)`, debit: 0, credit: otAmountForEntry(o, emp, posts, postHistory) });
         });
 
         empLedger.filter(l => l.date === cpDate).forEach(l => {
@@ -1559,24 +1600,13 @@ const editTransaction = async (tx) => {
 
             let finalY = doc.lastAutoTable.finalY + 10;
 
-            const empOT = (overtime || []).filter(o => o.employee_id === emp.id && o.date >= startDate && o.date <= endDate).sort((a, b) => new Date(a.date) - new Date(b.date));
+            const empOT = getEmployeeOT(overtime, emp, startDate, endDate).sort((a, b) => new Date(a.date) - new Date(b.date));
             if (empOT.length > 0) {
               autoTable(doc, {
                 startY: finalY,
                 head: [["Date", "Overtime Post", "Time", "Hours", "Amount Earned"]],
                 body: empOT.map(o => {
-                  let hrRate = otHourlyRateForDate(Number(emp.base_salary), o.date);
-                  if (emp.staff_type === "contract") {
-                    const p = (posts || []).find(x => x.name === o.post);
-                    if (p) {
-                      if (Number(p.ot_hourly_rate) > 0) {
-                        hrRate = Number(p.ot_hourly_rate);
-                      } else if (Number(p.contract_salary) > 0) {
-                        hrRate = otHourlyRateForDate(Number(p.contract_salary), o.date);
-                      }
-                    }
-                  }
-                  const earned = Math.round(Number(o.hours) * hrRate);
+                  const earned = otAmountForEntry(o, emp, posts, postHistory);
                   return [o.date, o.post, `${o.start_time} - ${o.end_time}`, `${o.hours}h`, `Rs. ${earned.toLocaleString("en-IN")}`];
                 }),
                 theme: "grid",
@@ -4722,7 +4752,7 @@ export default function App() {
         )}
         {tab === "dashboard" && myRole !== "viewer" && <DashboardView employees={employees} attendance={attendance} posts={posts} trackingStartDate={trackingStartDate} />}
           {tab === "attendance" && hasAccess("attendance", "view") && <AttendanceView employees={employees} logAction={logAction} myRole={myRole} />}
-          {tab === "overtime" && hasAccess("overtime", "view") && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} logAction={logAction} myRole={myRole} />}
+          {tab === "overtime" && hasAccess("overtime", "view") && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} postHistory={postHistory} logAction={logAction} myRole={myRole} />}
           {tab === "staff" && hasAccess("staff", "view") && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
           {tab === "payroll" && hasAccess("payroll", "view") && <PayrollView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
           {tab === "transactions" && hasAccess("transactions", "view") && <TransactionsView ledger={ledger} setLedger={setLedger} employees={employees} myRole={myRole} />}
