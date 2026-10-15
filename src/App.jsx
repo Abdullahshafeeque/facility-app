@@ -38,6 +38,7 @@ const getLocalDateStr = (d = new Date()) => { const dt = new Date(d); dt.setMinu
 const todayStr = getLocalDateStr();
 // NEW: Formats yyyy-mm-dd into dd-mm-yyyy for display
 const fDate = (d) => (d && typeof d === "string" && d.includes("-")) ? d.split("-").reverse().join("-") : (d || "—");
+const SYNC_MSG = "This entry was created from the Mill app's Daily Cash Book.\nTo edit or delete it, change the cash book entry — HR updates automatically.";
 // NEW: OT hourly rate — uses actual days-in-month ÷ 12hr shift from 1 Aug 2026 onwards; old 365-day formula before that
 const OT_RATE_CUTOFF = "2026-08-01";
 const otHourlyRateForDate = (salary, dateStr) => {
@@ -1218,18 +1219,20 @@ let filtered = employedOnDate.filter(e => (historicalShifts[e.id] || e.shift) ==
 
 // ─── STAFF ────────────────────────────────────────────────────────────────────
 function StaffView({ appUsers, employees, setEmployees, posts, ledger, setLedger, postHistory, setPostHistory, overtime, logAction, myRole }) {
-  const deleteTransaction = async (txId) => {
-    if (!window.confirm("Delete this transaction? This will instantly adjust their Net Payable.")) return;
-    await supabase.from("financial_ledger").delete().eq("id", txId);
-    setLedger(prev => prev.filter(l => l.id !== txId));
-  };
-  const editTransaction = async (tx) => {
-    const newAmount = window.prompt(`Edit amount for this ${tx.transaction_type} (Currently ₹${tx.amount}):`, tx.amount);
-    if (!newAmount || isNaN(newAmount) || Number(newAmount) <= 0 || Number(newAmount) === tx.amount) return;
-    
-    await supabase.from("financial_ledger").update({ amount: Number(newAmount) }).eq("id", tx.id);
-    setLedger(prev => prev.map(l => l.id === tx.id ? { ...l, amount: Number(newAmount) } : l));
-  };
+const deleteTransaction = async (txId) => {
+  const tx0 = ledger.find(l => l.id === txId);
+  if (tx0?.cash_entry_id) return alert(SYNC_MSG);
+  if (!window.confirm("Delete this transaction? This will instantly adjust their Net Payable.")) return;
+  await supabase.from("financial_ledger").delete().eq("id", txId);
+  setLedger(prev => prev.filter(l => l.id !== txId));
+};
+const editTransaction = async (tx) => {
+  if (tx.cash_entry_id) return alert(SYNC_MSG);
+  const newAmount = window.prompt(`Edit amount for this ${tx.transaction_type} (Currently ₹${tx.amount}):`, tx.amount);
+  if (!newAmount || isNaN(newAmount) || Number(newAmount) <= 0 || Number(newAmount) === tx.amount) return;
+  await supabase.from("financial_ledger").update({ amount: Number(newAmount) }).eq("id", tx.id);
+  setLedger(prev => prev.map(l => l.id === tx.id ? { ...l, amount: Number(newAmount) } : l));
+};
   const generatePayslip = (emp, finData) => {
     import("jspdf").then(({ jsPDF }) => {
       import("jspdf-autotable").then(({ default: autoTable }) => {
@@ -2424,8 +2427,12 @@ if (aadharCheck && aadharCheck.length > 0) {
                     <span style={{ fontSize: 11 }}>{fDate(l.date)} · {l.transaction_type}</span>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <strong style={{ fontSize: 11, color: l.transaction_type === "Bonus" || l.transaction_type === "Payout" ? C.green : C.red }}>₹{l.amount}</strong>
-                      {myRole === "director" && <button style={{ background: "transparent", border: "none", color: C.blue, cursor: "pointer", fontSize: 14, padding: "0 4px" }} title="Edit Amount" onClick={() => editTransaction(l)}>✎</button>}
-                      {myRole === "director" && <button style={{ background: "transparent", border: "none", color: C.red, cursor: "pointer", fontSize: 12, padding: "0 4px" }} title="Delete Transaction" onClick={() => deleteTransaction(l.id)}>✕</button>}
+                      {l.cash_entry_id
+                        ? <span title="Synced from Mill cash book" style={{ fontSize: 11 }}>🔗</span>
+                        : <>
+                            {myRole === "director" && <button style={{ background: "transparent", border: "none", color: C.blue, cursor: "pointer", fontSize: 14, padding: "0 4px" }} title="Edit Amount" onClick={() => editTransaction(l)}>✎</button>}
+                            {myRole === "director" && <button style={{ background: "transparent", border: "none", color: C.red, cursor: "pointer", fontSize: 12, padding: "0 4px" }} title="Delete Transaction" onClick={() => deleteTransaction(l.id)}>✕</button>}
+                          </>}
                     </div>
                   </div>
                 ))
@@ -3054,14 +3061,14 @@ body: rows.map(({ emp, fin }) => [
                     <td style={{ ...css.td, color: C.green, fontWeight: 700 }}>₹{Number(l.amount).toLocaleString("en-IN")}</td>
                     <td style={{ ...css.td, color: C.textDim }}>{l.notes || "—"}</td>
                     <td style={css.td}>
-                      {myRole === "director" && (
+                      {l.cash_entry_id ? <span title="Synced from Mill cash book">🔗</span> : (myRole === "director" && (
                         <button style={{ ...css.btn(C.red), padding: "4px 8px", fontSize: 10 }}
                           onClick={async () => {
                             if (!window.confirm("Delete this payment? The balance due will increase.")) return;
                             await supabase.from("financial_ledger").delete().eq("id", l.id);
                             setLedger(prev => prev.filter(x => x.id !== l.id));
                           }}>✕ Delete</button>
-                      )}
+                      ))}
                     </td>
                   </tr>
                 ))}
@@ -4210,17 +4217,19 @@ const [monthFilter, setMonthFilter] = useState("All");
                   <td style={{...css.td, fontSize: 11, color: C.textDim}}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span>{l.notes || l.note || "-"}</span>
-                      {myRole === "director" && (
-                        <button 
-                          style={{ background: "transparent", border: "none", color: C.red, cursor: "pointer", fontSize: 14, padding: "0 6px" }} 
-                          title="Delete Transaction"
-                          onClick={async () => {
-                            if (!window.confirm("Delete this transaction permanently?")) return;
-                            await supabase.from("financial_ledger").delete().eq("id", l.id);
-                            setLedger(prev => prev.filter(x => x.id !== l.id));
-                          }}
-                        >✕</button>
-                      )}
+                      {l.cash_entry_id
+                        ? <span title="Synced from Mill cash book — change it there" style={{ fontSize: 12 }}>🔗 Cash book</span>
+                        : myRole === "director" && (
+                          <button
+                            style={{ background: "transparent", border: "none", color: C.red, cursor: "pointer", fontSize: 14, padding: "0 6px" }}
+                            title="Delete Transaction"
+                            onClick={async () => {
+                              if (!window.confirm("Delete this transaction permanently?")) return;
+                              await supabase.from("financial_ledger").delete().eq("id", l.id);
+                              setLedger(prev => prev.filter(x => x.id !== l.id));
+                            }}
+                          >✕</button>
+                        )}
                     </div>
                   </td>
                 </tr>
@@ -4587,6 +4596,18 @@ export default function App() {
     const t = setInterval(f, 60000);
     return () => { cancelled = true; clearInterval(t); };
   }, [user, appUsers]);
+
+    useEffect(() => {
+    if (!user) return;
+    const ch = supabase.channel("ledger-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "financial_ledger" }, (p) => {
+        if (p.eventType === "INSERT") setLedger(prev => prev.some(l => l.id === p.new.id) ? prev : [p.new, ...prev]);
+        else if (p.eventType === "UPDATE") setLedger(prev => prev.map(l => l.id === p.new.id ? p.new : l));
+        else if (p.eventType === "DELETE") setLedger(prev => prev.filter(l => l.id !== p.old.id));
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [user]);
 
   const handleSignOut = async () => { 
     if (logAction) await logAction("Logged Out", `User signed out of the portal`);
