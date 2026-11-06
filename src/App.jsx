@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "./supabaseClient";
 import Login from "./Login";
 
@@ -4638,6 +4638,59 @@ export default function App() {
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [user]);
+
+    // ── Director privacy (set in Mill app → Settings → Director Privacy) ──
+  const [dirPrivacy, setDirPrivacy] = useState(null);
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const f = async () => {
+      try {
+        const { data } = await supabase.from("erp_settings").select("value").eq("key", "director_privacy").maybeSingle();
+        let v = {};
+        try { v = data && data.value ? JSON.parse(data.value) : {}; } catch (e) { v = {}; }
+        if (!cancelled) setDirPrivacy(v);
+      } catch (e) { if (!cancelled) setDirPrivacy({}); }
+    };
+    f();
+    const t = setInterval(f, 60000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [user]);
+
+  const hiddenDirIds = useMemo(() => {
+    const ids = new Set(
+      appUsers.filter(u => u.role === "director" && u.employee_id !== null && u.employee_id !== undefined).map(u => String(u.employee_id))
+    );
+    if (!dirPrivacy || dirPrivacy.include_director_post !== false) {
+      employees.forEach(e => { if (String(e.post || "").trim().toLowerCase() === "director") ids.add(String(e.id)); });
+    }
+    return ids;
+  }, [appUsers, employees, dirPrivacy]);
+
+  // Hidden for non-directors; also hidden while the setting is still loading, so nothing flashes on screen.
+  const dirHideArea = (area) =>
+    myRole !== "director" && (dirPrivacy === null || (!!dirPrivacy.enabled && !!dirPrivacy["hide_" + area]));
+
+  const empView = useMemo(() => {
+    const out = {};
+    ["attendance", "overtime", "staff", "payroll", "transactions", "reports"].forEach(area => {
+      out[area] = dirHideArea(area) ? employees.filter(e => !hiddenDirIds.has(String(e.id))) : employees;
+    });
+    return out;
+  }, [employees, hiddenDirIds, dirPrivacy, myRole]);
+
+  const overtimeView = useMemo(() => {
+    if (!dirHideArea("overtime")) return overtime;
+    return overtime.filter(o => {
+      const rid = typeof o.employee_id === "object" && o.employee_id !== null ? o.employee_id.id : o.employee_id;
+      return !hiddenDirIds.has(String(rid));
+    });
+  }, [overtime, hiddenDirIds, dirPrivacy, myRole]);
+
+  const ledgerView = useMemo(() => {
+    if (!dirHideArea("transactions")) return ledger;
+    return ledger.filter(l => l.employee_id === null || l.employee_id === undefined || !hiddenDirIds.has(String(l.employee_id)));
+  }, [ledger, hiddenDirIds, dirPrivacy, myRole]);
 
   const handleSignOut = async () => { 
     if (logAction) await logAction("Logged Out", `User signed out of the portal`);
