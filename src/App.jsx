@@ -4804,12 +4804,12 @@ export default function App() {
           <ViewerDashboardView userEmail={user.email} appUsers={appUsers} employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} />
         )}
         {tab === "dashboard" && myRole !== "viewer" && <DashboardView employees={employees} attendance={attendance} posts={posts} trackingStartDate={trackingStartDate} />}
-          {tab === "attendance" && hasAccess("attendance", "view") && <AttendanceView employees={employees} logAction={logAction} myRole={myRole} />}
-          {tab === "overtime" && hasAccess("overtime", "view") && <OvertimeView employees={employees} posts={posts} overtime={overtime} setOvertime={setOvertime} postHistory={postHistory} logAction={logAction} myRole={myRole} />}
-          {tab === "staff" && hasAccess("staff", "view") && <StaffView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
-          {tab === "payroll" && hasAccess("payroll", "view") && <PayrollView employees={employees} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
-          {tab === "transactions" && hasAccess("transactions", "view") && <TransactionsView ledger={ledger} setLedger={setLedger} employees={employees} myRole={myRole} />}
-          {tab === "reports" && hasAccess("reports", "view") && <ReportsView employees={employees} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} logAction={logAction} />}
+          {tab === "attendance" && hasAccess("attendance", "view") && <AttendanceView employees={empView.attendance} logAction={logAction} myRole={myRole} />}
+          {tab === "overtime" && hasAccess("overtime", "view") && <OvertimeView employees={empView.overtime} posts={posts} overtime={overtimeView} setOvertime={setOvertime} postHistory={postHistory} logAction={logAction} myRole={myRole} />}
+          {tab === "staff" && hasAccess("staff", "view") && <StaffView employees={empView.staff} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} setPostHistory={setPostHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
+          {tab === "payroll" && hasAccess("payroll", "view") && <PayrollView employees={empView.payroll} setEmployees={setEmployees} posts={posts} ledger={ledger} setLedger={setLedger} postHistory={postHistory} overtime={overtime} logAction={logAction} myRole={myRole} />}
+          {tab === "transactions" && hasAccess("transactions", "view") && <TransactionsView ledger={ledgerView} setLedger={setLedger} employees={empView.transactions} myRole={myRole} />}
+          {tab === "reports" && hasAccess("reports", "view") && <ReportsView employees={empView.reports} posts={posts} ledger={ledger} postHistory={postHistory} overtime={overtime} logAction={logAction} />}
           {tab === "settings" && myRole === "director" && <SettingsView posts={posts} setPosts={setPosts} employees={employees} setEmployees={setEmployees} trackingStartDate={trackingStartDate} setTrackingStartDate={setTrackingStartDate} logAction={logAction} />}
           {tab === "logs" && myRole === "director" && <LogsView logs={logs} setLogs={setLogs} />} {/* <-- NEW RENDER LINE */}
           {tab === "users" && myRole === "director" && <UserManagementView users={appUsers} setUsers={setAppUsers} employees={employees} />}
